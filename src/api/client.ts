@@ -19,6 +19,7 @@ import {
   Worktree,
 } from '../types/git';
 import { VirtualBranch, VirtualBranchCommitPayload } from '../types/virtualBranch';
+import { Shelf } from '../types/shelf';
 
 const BASE_URL = '/api';
 
@@ -173,6 +174,42 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ path, patch }),
     }),
+
+  // Shelve & Unshelve (JetBrains Source Control)
+  getShelves: (path: string): Promise<Shelf[]> =>
+    fetchJson(`/repo/shelves?path=${encodeURIComponent(path)}`),
+
+  shelve: (path: string, name: string, files: string[], keepWorkingChanges = false): Promise<Shelf> =>
+    fetchJson('/repo/shelves', {
+      method: 'POST',
+      body: JSON.stringify({ path, name, files, keepWorkingChanges }),
+    }),
+
+  unshelve: (path: string, shelfId: string, deleteAfter = false) =>
+    fetchJson<{ success: boolean }>('/repo/shelve/unshelve', {
+      method: 'POST',
+      body: JSON.stringify({ path, shelfId, deleteAfter }),
+    }),
+
+  deleteShelf: (path: string, shelfId: string) =>
+    fetchJson<{ success: boolean }>('/repo/shelve/delete', {
+      method: 'POST',
+      body: JSON.stringify({ path, shelfId }),
+    }),
+
+  // Stash Inspector
+  getStashFiles: (path: string, index = 0) =>
+    fetchJson<{
+      files: Array<{ path: string; status: string; additions: number; deletions: number }>;
+      summary: string;
+    }>(`/repo/stash/inspect?path=${encodeURIComponent(path)}&index=${index}`),
+
+  getStashFileDiff: (path: string, index: number, file: string): Promise<FileDiff[]> =>
+    fetchJson(`/repo/stash/inspect/diff?path=${encodeURIComponent(path)}&index=${index}&file=${encodeURIComponent(file)}`),
+
+  // File Commit Diff (for File History Timeline)
+  getFileCommitDiff: (path: string, hash: string, file: string): Promise<FileDiff[]> =>
+    fetchJson(`/repo/file-history/diff?path=${encodeURIComponent(path)}&hash=${encodeURIComponent(hash)}&file=${encodeURIComponent(file)}`),
 
   // Remotes
   getRemotes: (path: string): Promise<Remote[]> =>

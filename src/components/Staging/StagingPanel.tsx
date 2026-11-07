@@ -14,6 +14,8 @@ import {
   Copy,
   ExternalLink,
   Archive,
+  History,
+  Bookmark,
 } from 'lucide-react';
 
 interface StagingPanelProps {
@@ -27,7 +29,9 @@ interface StagingPanelProps {
   onDiscardFile: (file: string) => void;
   onDiscardAll: () => void;
   onStash?: () => void;
+  onShelve?: () => void;
   onOpenBlame?: (file: string) => void;
+  onOpenFileHistory?: (file: string) => void;
   onRevealInExplorer?: (file: string) => void;
   onOpenInVsCode?: (file: string) => void;
   onOpenExternalDiff?: (file: string, staged: boolean) => void;
@@ -52,7 +56,9 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
   onDiscardFile,
   onDiscardAll,
   onStash,
+  onShelve,
   onOpenBlame,
+  onOpenFileHistory,
   onRevealInExplorer,
   onOpenInVsCode,
   onOpenExternalDiff,
@@ -242,6 +248,16 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
 
             {unstagedFiles.length > 0 && (
               <div className="flex items-center space-x-1">
+                {onShelve && (
+                  <button
+                    onClick={onShelve}
+                    title="Shelve changes (JetBrains-style shelf)"
+                    className="flex items-center space-x-1 px-1.5 py-0.5 rounded hover:bg-[#283244] text-[10px] text-indigo-300 transition"
+                  >
+                    <Bookmark className="w-3 h-3 text-indigo-400" />
+                    <span>Shelve</span>
+                  </button>
+                )}
                 {onStash && (
                   <button
                     onClick={onStash}
@@ -398,6 +414,19 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
             </button>
           )}
 
+          {onOpenFileHistory && (
+            <button
+              onClick={() => {
+                onOpenFileHistory(contextMenu.file.path);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-indigo-300"
+            >
+              <History className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Show File History (All Commits)</span>
+            </button>
+          )}
+
           {onOpenBlame && (
             <button
               onClick={() => {
@@ -407,7 +436,20 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
               className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-slate-200"
             >
               <FileText className="w-3.5 h-3.5 text-blue-400" />
-              <span>View Blame / File History</span>
+              <span>View Blame / Annotate</span>
+            </button>
+          )}
+
+          {onShelve && (
+            <button
+              onClick={() => {
+                onShelve();
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-indigo-300"
+            >
+              <Bookmark className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Shelve Changes...</span>
             </button>
           )}
 

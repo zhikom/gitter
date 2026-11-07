@@ -20,14 +20,18 @@ import {
   Edit2,
   UploadCloud,
   DownloadCloud,
+  Inbox,
+  Bookmark,
 } from 'lucide-react';
 import { Branch, PullRequest, Remote, Stash, Submodule, Tag, Worktree } from '../types/git';
+import { Shelf } from '../types/shelf';
 
 interface SidebarProps {
   branches: Branch[];
   remotes: Remote[];
   tags: Tag[];
   stashes: Stash[];
+  shelves?: Shelf[];
   pullRequests?: PullRequest[];
   worktrees?: Worktree[];
   submodules?: Submodule[];
@@ -40,6 +44,11 @@ interface SidebarProps {
   onPopStash: (index: number) => void;
   onApplyStash?: (index: number) => void;
   onDropStash: (index: number) => void;
+  onInspectStash?: (index: number, name: string) => void;
+  onInspectShelf?: (shelf: Shelf) => void;
+  onUnshelve?: (shelfId: string) => void;
+  onDeleteShelf?: (shelfId: string) => void;
+  onShelve?: () => void;
   onDeleteTag: (name: string) => void;
   onPushTag?: (name: string) => void;
   onCreateBranch: () => void;
@@ -65,6 +74,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   remotes,
   tags,
   stashes,
+  shelves = [],
   pullRequests = [],
   worktrees = [],
   submodules = [],
@@ -77,6 +87,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onPopStash,
   onApplyStash,
   onDropStash,
+  onInspectStash,
+  onInspectShelf,
+  onUnshelve,
+  onDeleteShelf,
+  onShelve,
   onDeleteTag,
   onPushTag,
   onCreateBranch,
@@ -94,6 +109,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [expandPrs, setExpandPrs] = useState(true);
   const [expandTags, setExpandTags] = useState(false);
   const [expandStashes, setExpandStashes] = useState(false);
+  const [expandShelves, setExpandShelves] = useState(false);
   const [expandRemotes, setExpandRemotes] = useState(false);
   const [expandWorktrees, setExpandWorktrees] = useState(false);
   const [expandSubmodules, setExpandSubmodules] = useState(false);
@@ -246,26 +262,41 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <span className="truncate">{branch.name}</span>
                   </div>
 
-                  <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition">
-                    {(branch.ahead > 0 || branch.behind > 0) && (
-                      <span className="text-[10px] text-slate-400 px-1 rounded bg-[#202735]">
-                        {branch.ahead > 0 && `↑${branch.ahead}`} {branch.behind > 0 && `↓${branch.behind}`}
+                  <div className="flex items-center space-x-1.5 flex-shrink-0">
+                    {/* Ahead & Behind Badges */}
+                    {branch.ahead > 0 && (
+                      <span
+                        className="text-[10px] font-mono font-semibold px-1 py-0.2 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                        title={`${branch.ahead} commit${branch.ahead > 1 ? 's' : ''} to push`}
+                      >
+                        ↑{branch.ahead}
                       </span>
                     )}
-                    {!isCurrent && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm(`Delete branch '${branch.name}'?`)) {
-                            onDeleteBranch(branch.name);
-                          }
-                        }}
-                        title="Delete branch"
-                        className="p-1 hover:text-red-400 text-slate-500 rounded"
+                    {branch.behind > 0 && (
+                      <span
+                        className="text-[10px] font-mono font-semibold px-1 py-0.2 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                        title={`${branch.behind} commit${branch.behind > 1 ? 's' : ''} to pull`}
                       >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+                        ↓{branch.behind}
+                      </span>
                     )}
+
+                    <div className="flex items-center opacity-0 group-hover:opacity-100 transition">
+                      {!isCurrent && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm(`Delete branch '${branch.name}'?`)) {
+                              onDeleteBranch(branch.name);
+                            }
+                          }}
+                          title="Delete branch"
+                          className="p-1 hover:text-red-400 text-slate-500 rounded"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -447,8 +478,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               stashes.map((stash) => (
                 <div
                   key={stash.name}
+                  onClick={() => onInspectStash?.(stash.index, stash.message || stash.name)}
                   onContextMenu={(e) => handleStashContextMenu(e, stash)}
                   className="group flex items-center justify-between px-3 py-1.5 text-xs hover:bg-[#202735] text-slate-300 cursor-pointer"
+                  title="Click to inspect stash diff & files"
                 >
                   <div className="flex items-center space-x-2 truncate">
                     <Archive className="w-3 h-3 text-amber-400/70 flex-shrink-0" />
@@ -475,6 +508,81 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* SHELVES (JetBrains Source Control) */}
+      <div className="border-b border-[#222a3a]">
+        <div
+          onClick={() => setExpandShelves(!expandShelves)}
+          className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-[#202735] text-xs font-bold text-slate-400 uppercase tracking-wider"
+        >
+          <div className="flex items-center space-x-1.5">
+            {expandShelves ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            <Bookmark className="w-3.5 h-3.5 text-purple-400" />
+            <span>Shelves</span>
+            <span className="text-[10px] text-slate-500 font-normal">({shelves.length})</span>
+          </div>
+          {onShelve && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onShelve();
+              }}
+              title="Shelve working changes (JetBrains named snapshot)"
+              className="p-1 hover:text-purple-400 text-slate-500 rounded"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {expandShelves && (
+          <div className="pb-1">
+            {shelves.length === 0 ? (
+              <div className="px-5 py-1 text-xs text-slate-600 italic">No shelved changes</div>
+            ) : (
+              shelves.map((shelf) => (
+                <div
+                  key={shelf.id}
+                  onClick={() => onInspectShelf?.(shelf)}
+                  className="group flex items-center justify-between px-3 py-1.5 text-xs hover:bg-[#202735] text-slate-300 cursor-pointer"
+                  title={`Inspect shelf "${shelf.name}" (${shelf.files.length} files)`}
+                >
+                  <div className="flex items-center space-x-2 truncate">
+                    <Bookmark className="w-3 h-3 text-purple-400/80 flex-shrink-0" />
+                    <span className="truncate text-slate-300">{shelf.name}</span>
+                  </div>
+                  <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100">
+                    {onUnshelve && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUnshelve(shelf.id);
+                        }}
+                        title="Unshelve changes"
+                        className="p-1 hover:text-emerald-400 text-slate-500 rounded"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                      </button>
+                    )}
+                    {onDeleteShelf && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteShelf(shelf.id);
+                        }}
+                        title="Delete shelf"
+                        className="p-1 hover:text-red-400 text-slate-500 rounded"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))

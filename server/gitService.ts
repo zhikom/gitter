@@ -1120,6 +1120,121 @@ export class GitService {
     await this.runGitRaw(`checkout HEAD -- ${fileArgs}`, repoPath);
     return patch;
   }
+
+  // Shelve & Unshelve (JetBrains Source Control)
+  private getShelvesDir(repoPath: string): string {
+    const dir = path.join(repoPath, '.git', 'gitter', 'shelves');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    return dir;
+  }
+
+  async getShelves(repoPath: string): Promise<any[]> {
+    try {
+      const dir = this.getShelvesDir(repoPath);
+      const files = await fs.promises.readdir(dir);
+      const shelves: any[] = [];
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          const content = await fs.promises.readFile(path.join(dir, file), 'utf8');
+          shelves.push(JSON.parse(content));
+        }
+      }
+      return shelves.sort((a, b) => b.timestamp - a.timestamp);
+    } catch {
+      return [];
+    }
+  }
+
+  async shelve(repoPath: string, name: string, filePaths: string[], keepWorkingChanges: boolean = false): Promise<any> {
+    const dir = this.getShelvesDir(repoPath);
+    const id = `shelf-${Date.now()}`;
+    const fileArgs = filePaths.map((f) => `"${f}"`).join(' ');
+    const patch = await this.runGitRaw(`diff HEAD -- ${fileArgs}`, repoPath);
+    if (!keepWorkingChanges) {
+      await this.runGitRaw(`checkout HEAD -- ${fileArgs}`, repoPath);
+    }
+    const shelf = {
+      id,
+      name: name.trim() || `Shelf on ${new Date().toLocaleDateString()}`,
+      date: new Date().toISOString(),
+      timestamp: Date.now(),
+      files: filePaths,
+      patch,
+    };
+    await fs.promises.writeFile(path.join(dir, `${id}.json`), JSON.stringify(shelf, null, 2), 'utf8');
+    return shelf;
+  }
+
+  async unshelve(repoPath: string, shelfId: string, deleteAfter: boolean = false): Promise<void> {
+    const dir = this.getShelvesDir(repoPath);
+    const shelfFile = path.join(dir, `${shelfId}.json`);
+    if (!fs.existsSync(shelfFile)) throw new Error('Shelf not found');
+    const content = JSON.parse(await fs.promises.readFile(shelfFile, 'utf8'));
+    if (content.patch) {
+      await this.stagePatch(repoPath, content.patch);
+      // Reset index to leave changes in working tree unstaged
+      await this.runGitRaw('reset', repoPath);
+    }
+    if (deleteAfter) {
+      await fs.promises.unlink(shelfFile);
+    }
+  }
+
+  async deleteShelf(repoPath: string, shelfId: string): Promise<void> {
+    const dir = this.getShelvesDir(repoPath);
+    const shelfFile = path.join(dir, `${shelfId}.json`);
+    if (fs.existsSync(shelfFile)) {
+      await fs.promises.unlink(shelfFile);
+    }
+  }
+
+  // Stash details & Diff Inspector
+  async getStashFiles(repoPath: string, index: number = 0): Promise<{
+    files: Array<{ path: string; status: string; additions: number; deletions: number }>;
+    summary: string;
+  }> {
+    const stashRef = `stash@{${index}}`;
+    const numstat = await this.runGitRaw(`stash show --numstat ${stashRef}`, repoPath);
+    const nameStatus = await this.runGitRaw(`stash show --name-status ${stashRef}`, repoPath);
+
+    const statusMap = new Map<string, string>();
+    for (const line of nameStatus.split('\n')) {
+      const parts = line.trim().split(/\t+/);
+      if (parts.length >= 2) statusMap.set(parts[1], parts[0]);
+    }
+
+    const files: Array<{ path: string; status: string; additions: number; deletions: number }> = [];
+    let totalAdd = 0;
+    let totalDel = 0;
+
+    for (const line of numstat.split('\n')) {
+      const parts = line.trim().split(/\t+/);
+      if (parts.length >= 3) {
+        const add = parseInt(parts[0], 10) || 0;
+        const del = parseInt(parts[1], 10) || 0;
+        const filePath = parts[2];
+        const status = statusMap.get(filePath) || 'M';
+        files.push({ path: filePath, status, additions: add, deletions: del });
+        totalAdd += add;
+        totalDel += del;
+      }
+    }
+    return { files, summary: `${files.length} files changed, +${totalAdd} -${totalDel}` };
+  }
+
+  async getStashFileDiff(repoPath: string, index: number, filePath: string): Promise<FileDiff[]> {
+    const stashRef = `stash@{${index}}`;
+    const rawDiff = await this.runGitRaw(`stash show -p ${stashRef} -- "${filePath}"`, repoPath);
+    return parseGitDiff(rawDiff);
+  }
+
+  // File Commit Diff (for File History Timeline)
+  async getFileCommitDiff(repoPath: string, hash: string, filePath: string): Promise<FileDiff[]> {
+    const rawDiff = await this.runGitRaw(`show ${hash} -- "${filePath}"`, repoPath);
+    return parseGitDiff(rawDiff);
+  }
 }
 
 export const gitService = new GitService();

@@ -1,0 +1,160 @@
+{
+  "name": "gitter-vscode",
+  "displayName": "Gitter - The Elite Git Client for VS Code",
+  "description": "Ultra-fast interactive Git graph, 3-way merge conflict resolver, JetBrains shelves, GitButler virtual branches, and AI commit assistant directly inside VS Code.",
+  "version": "1.0.0",
+  "publisher": "zhikom",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zhikom/gitter.git"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Source Code Providers",
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "git",
+    "graph",
+    "gitkraken",
+    "sublime merge",
+    "diff",
+    "virtual branches",
+    "merge conflict",
+    "shelve"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "gitter-explorer",
+          "title": "Gitter",
+          "icon": "media/gitter-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "gitter-explorer": [
+        {
+          "id": "gitter.quickActions",
+          "name": "Gitter Quick Actions"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "gitter.openGraph",
+        "title": "Gitter: Open Interactive Commit Graph",
+        "category": "Gitter",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "gitter.openDiff",
+        "title": "Gitter: Working Tree & Line Staging",
+        "category": "Gitter",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "gitter.fileHistory",
+        "title": "Gitter: View File History Timeline",
+        "category": "Gitter",
+        "icon": "$(history)"
+      },
+      {
+        "command": "gitter.shelve",
+        "title": "Gitter: Shelve Changes (JetBrains Shelf)",
+        "category": "Gitter",
+        "icon": "$(bookmark)"
+      },
+      {
+        "command": "gitter.virtualBranches",
+        "title": "Gitter: Multi-Branch Stacking (Virtual Branches)",
+        "category": "Gitter",
+        "icon": "$(git-pull-request)"
+      },
+      {
+        "command": "gitter.conflictResolver",
+        "title": "Gitter: 3-Way Visual Merge Conflict Resolver",
+        "category": "Gitter",
+        "icon": "$(git-merge)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "gitter.fileHistory",
+          "group": "navigation@1",
+          "when": "resourceScheme == file"
+        }
+      ],
+      "scm/title": [
+        {
+          "command": "gitter.openGraph",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gitter.virtualBranches",
+          "group": "navigation@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "gitter.openGraph"
+        },
+        {
+          "command": "gitter.openDiff"
+        },
+        {
+          "command": "gitter.fileHistory",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "gitter.shelve"
+        },
+        {
+          "command": "gitter.virtualBranches"
+        },
+        {
+          "command": "gitter.conflictResolver"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Gitter",
+      "properties": {
+        "gitter.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "URL of the local Gitter server"
+        },
+        "gitter.graphDensity": {
+          "type": "string",
+          "enum": [
+            "compact",
+            "normal",
+            "comfortable"
+          ],
+          "default": "normal",
+          "description": "Default density of the commit graph rows"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.3.3"
+  }
+}

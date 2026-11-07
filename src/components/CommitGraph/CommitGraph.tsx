@@ -34,8 +34,14 @@ interface CommitGraphProps {
   onCompareCommits?: (commitA: Commit, commitB: Commit) => void;
 }
 
-const ROW_HEIGHT = 32;
-const LANE_WIDTH = 18;
+export type GraphDensity = 'compact' | 'normal' | 'comfortable';
+
+const DENSITY_SETTINGS: Record<GraphDensity, { rowHeight: number; laneWidth: number; nodeRadius: number }> = {
+  compact: { rowHeight: 24, laneWidth: 14, nodeRadius: 3.5 },
+  normal: { rowHeight: 32, laneWidth: 18, nodeRadius: 4.5 },
+  comfortable: { rowHeight: 40, laneWidth: 22, nodeRadius: 5.5 },
+};
+
 const GRAPH_PADDING_X = 14;
 
 export const CommitGraph: React.FC<CommitGraphProps> = ({
@@ -55,6 +61,11 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
   onCompareCommits,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [density, setDensity] = useState<GraphDensity>(() => {
+    const saved = localStorage.getItem('gitter_graph_density');
+    if (saved === 'compact' || saved === 'normal' || saved === 'comfortable') return saved;
+    return 'normal';
+  });
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -116,7 +127,8 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
     return Math.max(max, 3);
   }, [graphNodes]);
 
-  const graphWidth = GRAPH_PADDING_X * 2 + maxLanes * LANE_WIDTH;
+  const { rowHeight, laneWidth, nodeRadius } = DENSITY_SETTINGS[density];
+  const graphWidth = GRAPH_PADDING_X * 2 + maxLanes * laneWidth;
 
   const handleContextMenu = (e: React.MouseEvent, commit: Commit) => {
     e.preventDefault();
@@ -151,8 +163,31 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
           </div>
         </div>
 
-        <div className="text-xs text-slate-400">
-          Showing <span className="font-semibold text-slate-200">{filteredNodes.length}</span> commits
+        <div className="flex items-center space-x-3">
+          {/* Density Switcher */}
+          <div className="flex items-center bg-[#14181f] border border-[#2a3447] rounded p-0.5 text-[10px]">
+            {(['compact', 'normal', 'comfortable'] as const).map((d) => (
+              <button
+                key={d}
+                onClick={() => {
+                  setDensity(d);
+                  localStorage.setItem('gitter_graph_density', d);
+                }}
+                className={`px-2 py-0.5 rounded transition capitalize font-medium ${
+                  density === d
+                    ? 'bg-teal-500/20 text-teal-300 shadow-sm border border-teal-500/30'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title={`Graph density: ${d}`}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+
+          <div className="text-xs text-slate-400">
+            Showing <span className="font-semibold text-slate-200">{filteredNodes.length}</span> commits
+          </div>
         </div>
       </div>
 
@@ -180,8 +215,8 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             const isSelected = selectedHash === commit.hash;
             const isWip = commit.isWip;
 
-            const nodeX = GRAPH_PADDING_X + node.lane * LANE_WIDTH + LANE_WIDTH / 2;
-            const nodeY = ROW_HEIGHT / 2;
+            const nodeX = GRAPH_PADDING_X + node.lane * laneWidth + laneWidth / 2;
+            const nodeY = rowHeight / 2;
 
             return (
               <div
@@ -210,7 +245,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                   onSelectCommit(commit);
                 }}
                 onContextMenu={(e) => handleContextMenu(e, commit)}
-                style={{ height: ROW_HEIGHT }}
+                style={{ height: rowHeight }}
                 title={isWip ? 'Uncommitted changes' : `Commit ${commit.shortHash} by ${commit.author.name} (Drag onto a branch to cherry-pick)`}
                 className={`flex items-center text-xs border-b border-[#1b212c] cursor-pointer transition select-none ${
                   isSelected
@@ -220,17 +255,17 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
               >
                 {/* SVG Graph Column */}
                 <div
-                  style={{ width: graphWidth, height: ROW_HEIGHT }}
+                  style={{ width: graphWidth, height: rowHeight }}
                   className="flex-shrink-0 relative overflow-hidden"
                 >
                   <svg
                     width={graphWidth}
-                    height={ROW_HEIGHT}
+                    height={rowHeight}
                     className="absolute inset-0 pointer-events-none"
                   >
                     {/* Passing lanes */}
                     {node.passingLanes.map((pLane) => {
-                      const px = GRAPH_PADDING_X + pLane * LANE_WIDTH + LANE_WIDTH / 2;
+                      const px = GRAPH_PADDING_X + pLane * laneWidth + laneWidth / 2;
                       const pColor = getLaneColor(pLane);
                       return (
                         <line
@@ -238,7 +273,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                           x1={px}
                           y1={0}
                           x2={px}
-                          y2={ROW_HEIGHT}
+                          y2={rowHeight}
                           stroke={pColor}
                           strokeWidth="2"
                           opacity="0.8"
@@ -248,10 +283,10 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
 
                     {/* Connecting routes to parents */}
                     {node.routes.map((route, rIdx) => {
-                      const fromX = GRAPH_PADDING_X + route.fromLane * LANE_WIDTH + LANE_WIDTH / 2;
-                      const toX = GRAPH_PADDING_X + route.toLane * LANE_WIDTH + LANE_WIDTH / 2;
+                      const fromX = GRAPH_PADDING_X + route.fromLane * laneWidth + laneWidth / 2;
+                      const toX = GRAPH_PADDING_X + route.toLane * laneWidth + laneWidth / 2;
                       const y1 = nodeY;
-                      const y2 = ROW_HEIGHT; // down to next row
+                      const y2 = rowHeight; // down to next row
 
                       if (fromX === toX) {
                         return (
@@ -287,7 +322,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                         <circle
                           cx={nodeX}
                           cy={nodeY}
-                          r="5.5"
+                          r={nodeRadius + 1}
                           fill="#14181f"
                           stroke="#18b487"
                           strokeWidth="2.5"
@@ -296,7 +331,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                         <circle
                           cx={nodeX}
                           cy={nodeY}
-                          r="2.5"
+                          r={nodeRadius - 2}
                           fill="#18b487"
                           className="animate-pulse"
                         />
@@ -306,7 +341,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                         <circle
                           cx={nodeX}
                           cy={nodeY}
-                          r="4.5"
+                          r={nodeRadius}
                           fill={node.color}
                           stroke="#14181f"
                           strokeWidth="1.5"
@@ -315,7 +350,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                           <circle
                             cx={nodeX}
                             cy={nodeY}
-                            r="7.5"
+                            r={nodeRadius + 3}
                             fill="none"
                             stroke={node.color}
                             strokeWidth="1.5"

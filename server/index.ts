@@ -406,6 +406,84 @@ app.post('/api/repo/virtual-branch/apply', async (req, res) => {
   }
 });
 
+// Shelve & Unshelve (JetBrains Source Control)
+app.get('/api/repo/shelves', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const shelves = await gitService.getShelves(targetPath);
+    res.json(shelves);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/shelves', async (req, res) => {
+  try {
+    const { path: repoPath, name, files, keepWorkingChanges } = req.body;
+    const shelf = await gitService.shelve(resolvePath(repoPath), name, files, keepWorkingChanges);
+    res.json(shelf);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/shelve/unshelve', async (req, res) => {
+  try {
+    const { path: repoPath, shelfId, deleteAfter } = req.body;
+    await gitService.unshelve(resolvePath(repoPath), shelfId, deleteAfter);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/shelve/delete', async (req, res) => {
+  try {
+    const { path: repoPath, shelfId } = req.body;
+    await gitService.deleteShelf(resolvePath(repoPath), shelfId);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Stash Inspector (Preview stash contents and file diffs)
+app.get('/api/repo/stash/inspect', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
+    const data = await gitService.getStashFiles(targetPath, index);
+    res.json(data);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/repo/stash/inspect/diff', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
+    const file = req.query.file as string;
+    const diff = await gitService.getStashFileDiff(targetPath, index, file);
+    res.json(diff);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// File Commit Diff (for File History Timeline)
+app.get('/api/repo/file-history/diff', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const hash = req.query.hash as string;
+    const file = req.query.file as string;
+    const diff = await gitService.getFileCommitDiff(targetPath, hash, file);
+    res.json(diff);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Remotes & Network (Fetch, Pull, Push)
 app.get('/api/repo/remotes', async (req, res) => {
   try {
