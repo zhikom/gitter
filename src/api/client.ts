@@ -1,14 +1,20 @@
 import {
   AIExplanation,
   AIMessage,
+  BlameLine,
   Branch,
   Commit,
+  FileCommitHistory,
   FileDiff,
   FileStatus,
+  GitConfig,
+  RebaseCommitItem,
   Remote,
   RepositoryState,
   Stash,
+  Submodule,
   Tag,
+  Worktree,
 } from '../types/git';
 
 const BASE_URL = '/api';
@@ -142,6 +148,47 @@ export const api = {
 
   cloneRepo: (url: string, targetPath: string) =>
     fetchJson('/repo/clone', { method: 'POST', body: JSON.stringify({ url, targetPath }) }),
+
+  // Blame & File History
+  getBlame: (path: string, file: string): Promise<BlameLine[]> =>
+    fetchJson(`/repo/blame?path=${encodeURIComponent(path)}&file=${encodeURIComponent(file)}`),
+
+  getFileHistory: (path: string, file: string): Promise<FileCommitHistory[]> =>
+    fetchJson(`/repo/file-history?path=${encodeURIComponent(path)}&file=${encodeURIComponent(file)}`),
+
+  // Worktrees
+  getWorktrees: (path: string): Promise<Worktree[]> =>
+    fetchJson(`/repo/worktrees?path=${encodeURIComponent(path)}`),
+
+  addWorktree: (path: string, targetPath: string, branch: string) =>
+    fetchJson('/repo/worktree/add', { method: 'POST', body: JSON.stringify({ path, targetPath, branch }) }),
+
+  removeWorktree: (path: string, targetPath: string) =>
+    fetchJson('/repo/worktree/remove', { method: 'POST', body: JSON.stringify({ path, targetPath }) }),
+
+  // Submodules
+  getSubmodules: (path: string): Promise<Submodule[]> =>
+    fetchJson(`/repo/submodules?path=${encodeURIComponent(path)}`),
+
+  updateSubmodules: (path: string) =>
+    fetchJson<{ success: boolean; output: string }>('/repo/submodule/update', { method: 'POST', body: JSON.stringify({ path }) }),
+
+  // Interactive Rebase
+  getRebaseCommits: (path: string, base: string): Promise<RebaseCommitItem[]> =>
+    fetchJson(`/repo/rebase/commits?path=${encodeURIComponent(path)}&base=${encodeURIComponent(base)}`),
+
+  executeRebase: (path: string, baseHash: string, plan: RebaseCommitItem[]) =>
+    fetchJson<{ success: boolean; output: string }>('/repo/rebase/execute', {
+      method: 'POST',
+      body: JSON.stringify({ path, baseHash, plan }),
+    }),
+
+  // Git Config & Signing
+  getGitConfig: (path: string): Promise<GitConfig> =>
+    fetchJson(`/repo/config?path=${encodeURIComponent(path)}`),
+
+  setGitConfig: (path: string, key: string, value: string) =>
+    fetchJson('/repo/config', { method: 'POST', body: JSON.stringify({ path, key, value }) }),
 
   // AI
   generateCommitMessage: (diffText: string, stagedFiles: string[]) =>

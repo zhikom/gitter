@@ -12,14 +12,19 @@ import {
   RotateCcw,
   GitMerge,
   ExternalLink,
+  Layers,
+  Box,
+  RefreshCw,
 } from 'lucide-react';
-import { Branch, Remote, Stash, Tag } from '../types/git';
+import { Branch, Remote, Stash, Submodule, Tag, Worktree } from '../types/git';
 
 interface SidebarProps {
   branches: Branch[];
   remotes: Remote[];
   tags: Tag[];
   stashes: Stash[];
+  worktrees?: Worktree[];
+  submodules?: Submodule[];
   currentBranch: string;
   onCheckoutBranch: (name: string) => void;
   onDeleteBranch: (name: string) => void;
@@ -28,6 +33,9 @@ interface SidebarProps {
   onDeleteTag: (name: string) => void;
   onCreateBranch: () => void;
   onCreateTag: () => void;
+  onOpenWorktrees?: () => void;
+  onSwitchWorktree?: (path: string) => void;
+  onUpdateSubmodules?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -35,6 +43,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   remotes,
   tags,
   stashes,
+  worktrees = [],
+  submodules = [],
   currentBranch,
   onCheckoutBranch,
   onDeleteBranch,
@@ -43,12 +53,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDeleteTag,
   onCreateBranch,
   onCreateTag,
+  onOpenWorktrees,
+  onSwitchWorktree,
+  onUpdateSubmodules,
 }) => {
   const [expandLocal, setExpandLocal] = useState(true);
   const [expandRemote, setExpandRemote] = useState(true);
   const [expandTags, setExpandTags] = useState(false);
   const [expandStashes, setExpandStashes] = useState(false);
   const [expandRemotes, setExpandRemotes] = useState(false);
+  const [expandWorktrees, setExpandWorktrees] = useState(false);
+  const [expandSubmodules, setExpandSubmodules] = useState(false);
 
   const localBranches = branches.filter(b => !b.isRemote);
   const remoteBranches = branches.filter(b => b.isRemote);
@@ -302,6 +317,100 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </span>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+      {/* WORKTREES */}
+      <div className="border-b border-[#222a3a]">
+        <div
+          onClick={() => setExpandWorktrees(!expandWorktrees)}
+          className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-[#202735] text-xs font-bold text-slate-400 uppercase tracking-wider"
+        >
+          <div className="flex items-center space-x-1.5">
+            {expandWorktrees ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            <Layers className="w-3.5 h-3.5 text-teal-400" />
+            <span>Worktrees</span>
+            <span className="text-[10px] text-slate-500 font-normal">({worktrees.length})</span>
+          </div>
+          {onOpenWorktrees && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenWorktrees();
+              }}
+              title="Manage Worktrees"
+              className="p-0.5 hover:text-teal-300 text-slate-400 rounded"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {expandWorktrees && (
+          <div className="pb-1">
+            {worktrees.length === 0 ? (
+              <div className="px-5 py-1 text-xs text-slate-600 italic">No worktrees</div>
+            ) : (
+              worktrees.map((wt) => (
+                <div
+                  key={wt.path}
+                  onClick={() => onSwitchWorktree && onSwitchWorktree(wt.path)}
+                  className={`group flex items-center justify-between px-3 py-1.5 text-xs cursor-pointer transition ${
+                    wt.isCurrent ? 'bg-teal-500/15 text-teal-300 font-semibold border-l-2 border-teal-400' : 'hover:bg-[#202735] text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2 truncate">
+                    <span className="truncate">{wt.branch || wt.path.split(/[\/\\]/).pop()}</span>
+                  </div>
+                  {wt.isCurrent && <Check className="w-3 h-3 text-teal-400" />}
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* SUBMODULES */}
+      <div className="border-b border-[#222a3a]">
+        <div
+          onClick={() => setExpandSubmodules(!expandSubmodules)}
+          className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-[#202735] text-xs font-bold text-slate-400 uppercase tracking-wider"
+        >
+          <div className="flex items-center space-x-1.5">
+            {expandSubmodules ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            <Box className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Submodules</span>
+            <span className="text-[10px] text-slate-500 font-normal">({submodules.length})</span>
+          </div>
+          {onUpdateSubmodules && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onUpdateSubmodules();
+              }}
+              title="Update Submodules"
+              className="p-0.5 hover:text-indigo-300 text-slate-400 rounded"
+            >
+              <RefreshCw className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+
+        {expandSubmodules && (
+          <div className="pb-1">
+            {submodules.length === 0 ? (
+              <div className="px-5 py-1 text-xs text-slate-600 italic">No submodules</div>
+            ) : (
+              submodules.map((sub) => (
+                <div
+                  key={sub.path}
+                  className="px-4 py-1.5 text-xs text-slate-300 flex items-center justify-between"
+                >
+                  <span className="font-mono truncate">{sub.name}</span>
+                  <span className="text-[10px] text-slate-500 font-mono">{sub.commitHash.slice(0, 7)}</span>
+                </div>
+              ))
+            )}
           </div>
         )}
       </div>

@@ -375,6 +375,124 @@ app.post('/api/repo/clone', async (req, res) => {
   }
 });
 
+// File Blame & File History
+app.get('/api/repo/blame', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const file = req.query.file as string;
+    const blame = await gitService.getFileBlame(targetPath, file);
+    res.json(blame);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/repo/file-history', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const file = req.query.file as string;
+    const history = await gitService.getFileHistory(targetPath, file);
+    res.json(history);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Worktrees
+app.get('/api/repo/worktrees', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const worktrees = await gitService.getWorktrees(targetPath);
+    res.json(worktrees);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/worktree/add', async (req, res) => {
+  try {
+    const { path: repoPath, targetPath, branch } = req.body;
+    await gitService.addWorktree(resolvePath(repoPath), targetPath, branch);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/worktree/remove', async (req, res) => {
+  try {
+    const { path: repoPath, targetPath } = req.body;
+    await gitService.removeWorktree(resolvePath(repoPath), targetPath);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Submodules
+app.get('/api/repo/submodules', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const submodules = await gitService.getSubmodules(targetPath);
+    res.json(submodules);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/submodule/update', async (req, res) => {
+  try {
+    const { path: repoPath } = req.body;
+    const output = await gitService.updateSubmodules(resolvePath(repoPath));
+    res.json({ success: true, output });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Interactive Rebase
+app.get('/api/repo/rebase/commits', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const base = req.query.base as string;
+    const rebaseCommits = await gitService.getRebaseCommits(targetPath, base);
+    res.json(rebaseCommits);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/rebase/execute', async (req, res) => {
+  try {
+    const { path: repoPath, baseHash, plan } = req.body;
+    const output = await gitService.executeRebasePlan(resolvePath(repoPath), baseHash, plan);
+    res.json({ success: true, output });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Git Config
+app.get('/api/repo/config', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const config = await gitService.getGitConfig(targetPath);
+    res.json(config);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/config', async (req, res) => {
+  try {
+    const { path: repoPath, key, value } = req.body;
+    await gitService.setGitConfig(resolvePath(repoPath), key, value);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // AI Endpoints
 app.post('/api/ai/commit-message', async (req, res) => {
   try {

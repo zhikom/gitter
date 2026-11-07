@@ -9,6 +9,7 @@ import {
   Minus,
   FileCode,
   AlertTriangle,
+  Clock,
 } from 'lucide-react';
 
 interface DiffViewerProps {
@@ -18,6 +19,7 @@ interface DiffViewerProps {
   onToggleStage: () => void;
   onExplainFile: (rawDiff: string, filename: string) => void;
   onResolveConflict?: (rawDiff: string, filename: string) => void;
+  onOpenBlame?: (filePath: string) => void;
 }
 
 export const DiffViewer: React.FC<DiffViewerProps> = ({
@@ -27,6 +29,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   onToggleStage,
   onExplainFile,
   onResolveConflict,
+  onOpenBlame,
 }) => {
   const [viewMode, setViewMode] = useState<'unified' | 'split'>('unified');
 
@@ -69,6 +72,18 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
             >
               <AlertTriangle className="w-3.5 h-3.5" />
               <span>AI Resolve Conflict</span>
+            </button>
+          )}
+
+          {/* Blame & History button */}
+          {onOpenBlame && (
+            <button
+              onClick={() => onOpenBlame(filePath)}
+              title="View Visual Blame and File History"
+              className="flex items-center space-x-1 px-2.5 py-1 rounded bg-[#202735] hover:bg-[#2d384c] border border-[#2a3447] text-slate-300 text-xs font-medium transition"
+            >
+              <Clock className="w-3.5 h-3.5 text-teal-400" />
+              <span>Blame</span>
             </button>
           )}
 

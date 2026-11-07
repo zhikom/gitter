@@ -2,7 +2,23 @@ import { exec, spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { promisify } from 'util';
-import { Branch, Commit, FileDiff, FileStatus, GitFileState, Remote, RepositoryState, Stash, Tag } from '../src/types/git';
+import {
+  BlameLine,
+  Branch,
+  Commit,
+  FileCommitHistory,
+  FileDiff,
+  FileStatus,
+  GitConfig,
+  GitFileState,
+  RebaseCommitItem,
+  Remote,
+  RepositoryState,
+  Stash,
+  Submodule,
+  Tag,
+  Worktree,
+} from '../src/types/git';
 import { parseGitDiff } from '../src/utils/diffParser';
 
 const execAsync = promisify(exec);
@@ -528,6 +544,241 @@ export class GitService {
 
   async cloneRepo(url: string, targetPath: string): Promise<void> {
     await execAsync(`git clone "${url}" "${targetPath}"`);
+  }
+
+  // File Blame with Heatmap
+  async getFileBlame(repoPath: string, filePath: string): Promise<BlameLine[]> {
+    try {
+      const out = await this.runGitRaw(`blame --line-porcelain -- "${filePath}"`, repoPath);
+      const lines = out.split('\n');
+      const blameResults: BlameLine[] = [];
+
+      let currentCommit = '';
+      let currentAuthor = '';
+      let currentSummary = '';
+      let currentTimestamp = 0;
+      let lineNumber = 1;
+
+      const timestamps: number[] = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.match(/^[0-9a-f]{40}\s+\d+\s+(\d+)/)) {
+          const parts = line.split(' ');
+          currentCommit = parts[0];
+          lineNumber = parseInt(parts[2], 10);
+        } else if (line.startsWith('author ')) {
+          currentAuthor = line.slice(7).trim();
+        } else if (line.startsWith('author-time ')) {
+          currentTimestamp = parseInt(line.slice(12).trim(), 10) * 1000;
+          timestamps.push(currentTimestamp);
+        } else if (line.startsWith('summary ')) {
+          currentSummary = line.slice(8).trim();
+        } else if (line.startsWith('\t')) {
+          const code = line.slice(1);
+          blameResults.push({
+            lineNumber,
+            code,
+            commitHash: currentCommit,
+            shortHash: currentCommit.slice(0, 7),
+            author: currentAuthor,
+            date: new Date(currentTimestamp).toISOString().split('T')[0],
+            summary: currentSummary,
+            agePercent: 0, // will compute below
+          });
+        }
+      }
+
+      // Calculate heatmap percent
+      if (timestamps.length > 0) {
+        const minT = Math.min(...timestamps);
+        const maxT = Math.max(...timestamps);
+        const range = maxT - minT || 1;
+
+        for (const item of blameResults) {
+          const t = new Date(item.date).getTime();
+          item.agePercent = Math.max(0.1, (t - minT) / range);
+        }
+      }
+
+      return blameResults;
+    } catch (e: any) {
+      console.error('Blame error:', e);
+      return [];
+    }
+  }
+
+  // File History
+  async getFileHistory(repoPath: string, filePath: string): Promise<FileCommitHistory[]> {
+    try {
+      const out = await this.runGitRaw(`log --follow --pretty=format:"%H|||%h|||%an|||%ad|||%s" --date=short -- "${filePath}"`, repoPath);
+      const lines = out.split('\n').filter(Boolean);
+      return lines.map((l) => {
+        const [hash, shortHash, author, date, summary] = l.split('|||');
+        return { hash, shortHash, author, date, summary };
+      });
+    } catch (e: any) {
+      console.error('File history error:', e);
+      return [];
+    }
+  }
+
+  // Worktrees
+  async getWorktrees(repoPath: string): Promise<Worktree[]> {
+    try {
+      const out = await this.runGitRaw('worktree list --porcelain', repoPath);
+      const blocks = out.split('\n\n').filter(Boolean);
+      const currentRoot = await this.getRepoRoot(repoPath);
+
+      return blocks.map((block) => {
+        const lines = block.split('\n');
+        let wtPath = '';
+        let head = '';
+        let branch: string | undefined;
+        let isBare = false;
+
+        for (const l of lines) {
+          if (l.startsWith('worktree ')) wtPath = l.slice(9).trim();
+          else if (l.startsWith('HEAD ')) head = l.slice(5).trim();
+          else if (l.startsWith('branch ')) branch = l.slice(7).replace('refs/heads/', '').trim();
+          else if (l === 'bare') isBare = true;
+        }
+
+        const isCurrent = path.resolve(wtPath).toLowerCase() === path.resolve(currentRoot).toLowerCase();
+        return { path: wtPath, head, branch, isBare, isCurrent };
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  async addWorktree(repoPath: string, targetPath: string, branch: string): Promise<void> {
+    await this.runGitRaw(`worktree add "${targetPath}" "${branch}"`, repoPath);
+  }
+
+  async removeWorktree(repoPath: string, targetPath: string): Promise<void> {
+    await this.runGitRaw(`worktree remove "${targetPath}"`, repoPath);
+  }
+
+  // Submodules
+  async getSubmodules(repoPath: string): Promise<Submodule[]> {
+    try {
+      const out = await this.runGitRaw('submodule status', repoPath);
+      const lines = out.split('\n').filter(Boolean);
+      return lines.map((l) => {
+        const parts = l.trim().split(/\s+/);
+        const commitHash = parts[0].replace(/^[-+U]/, '');
+        const subPath = parts[1];
+        const branchMatch = l.match(/\((.*?)\)/);
+        return {
+          name: path.basename(subPath),
+          path: subPath,
+          commitHash,
+          branch: branchMatch ? branchMatch[1] : undefined,
+        };
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  async updateSubmodules(repoPath: string): Promise<string> {
+    return await this.runGitRaw('submodule update --init --recursive', repoPath);
+  }
+
+  // Interactive Rebase Commits Preview
+  async getRebaseCommits(repoPath: string, baseHash: string): Promise<RebaseCommitItem[]> {
+    try {
+      const out = await this.runGitRaw(`log --reverse --pretty=format:"%H|||%h|||%an|||%s" ${baseHash}..HEAD`, repoPath);
+      const lines = out.split('\n').filter(Boolean);
+      return lines.map((l) => {
+        const [hash, shortHash, author, summary] = l.split('|||');
+        return {
+          hash,
+          shortHash,
+          author,
+          summary,
+          action: 'pick',
+        };
+      });
+    } catch (e: any) {
+      console.error('Error fetching rebase commits:', e);
+      return [];
+    }
+  }
+
+  // Execute Rebase Plan
+  async executeRebasePlan(repoPath: string, baseHash: string, plan: RebaseCommitItem[]): Promise<string> {
+    // Save current branch name
+    const branchName = (await this.runGitRaw('branch --show-current', repoPath)).trim();
+    const backupBranch = `backup-rebase-${Date.now()}`;
+    await this.runGitRaw(`branch ${backupBranch}`, repoPath);
+
+    try {
+      // Reset HEAD to base
+      await this.runGitRaw(`reset --hard ${baseHash}`, repoPath);
+
+      for (let i = 0; i < plan.length; i++) {
+        const item = plan[i];
+
+        if (item.action === 'drop') {
+          continue;
+        }
+
+        if (item.action === 'pick') {
+          await this.runGitRaw(`cherry-pick ${item.hash}`, repoPath);
+        } else if (item.action === 'reword') {
+          await this.runGitRaw(`cherry-pick ${item.hash}`, repoPath);
+          const msg = (item.newSummary || item.summary).replace(/"/g, '\\"');
+          await this.runGitRaw(`commit --amend -m "${msg}"`, repoPath);
+        } else if (item.action === 'squash' || item.action === 'fixup') {
+          // Cherry pick without commit, or cherry pick and amend
+          await this.runGitRaw(`cherry-pick -n ${item.hash}`, repoPath);
+          if (item.action === 'squash') {
+            const currentMsg = (await this.runGitRaw('log -1 --pretty=%B', repoPath)).trim();
+            const squashedMsg = `${currentMsg}\n\n* ${item.newSummary || item.summary}`.replace(/"/g, '\\"');
+            await this.runGitRaw(`commit --amend -m "${squashedMsg}"`, repoPath);
+          } else {
+            await this.runGitRaw('commit --amend --no-edit', repoPath);
+          }
+        }
+      }
+
+      // Rebase succeeded - clean up backup branch
+      await this.runGitRaw(`branch -D ${backupBranch}`, repoPath);
+      return `Successfully completed interactive rebase on branch ${branchName}`;
+    } catch (err: any) {
+      // Restore on failure
+      await this.runGitRaw(`reset --hard ${backupBranch}`, repoPath);
+      await this.runGitRaw(`branch -D ${backupBranch}`, repoPath);
+      throw new Error(`Interactive rebase failed and was aborted: ${err.message}`);
+    }
+  }
+
+  // Git Config & Signing
+  async getGitConfig(repoPath: string): Promise<GitConfig> {
+    try {
+      const out = await this.runGitRaw('config -l', repoPath);
+      const lines = out.split('\n');
+      const config: GitConfig = {};
+
+      for (const l of lines) {
+        const [key, ...vals] = l.split('=');
+        const val = vals.join('=');
+        if (key === 'user.name') config.userName = val;
+        else if (key === 'user.email') config.userEmail = val;
+        else if (key === 'user.signingkey') config.signingKey = val;
+        else if (key === 'commit.gpgsign') config.gpgSign = val === 'true';
+        else if (key === 'gpg.format') config.gpgFormat = val;
+      }
+      return config;
+    } catch {
+      return {};
+    }
+  }
+
+  async setGitConfig(repoPath: string, key: string, value: string): Promise<void> {
+    await this.runGitRaw(`config ${key} "${value}"`, repoPath);
   }
 }
 

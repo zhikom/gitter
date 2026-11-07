@@ -130,3 +130,56 @@ export interface AIMessage {
   suggestedAction?: () => void;
   isLoading?: boolean;
 }
+
+export interface BlameLine {
+  lineNumber: number;
+  code: string;
+  commitHash: string;
+  shortHash: string;
+  author: string;
+  date: string;
+  summary: string;
+  agePercent: number; // 0 to 1 for heatmap
+}
+
+export interface FileCommitHistory {
+  hash: string;
+  shortHash: string;
+  author: string;
+  date: string;
+  summary: string;
+}
+
+export interface Worktree {
+  path: string;
+  head: string;
+  branch?: string;
+  isBare: boolean;
+  isCurrent: boolean;
+}
+
+export interface Submodule {
+  name: string;
+  path: string;
+  commitHash: string;
+  branch?: string;
+}
+
+export type RebaseActionType = 'pick' | 'reword' | 'squash' | 'fixup' | 'drop';
+
+export interface RebaseCommitItem {
+  hash: string;
+  shortHash: string;
+  author: string;
+  summary: string;
+  action: RebaseActionType;
+  newSummary?: string;
+}
+
+export interface GitConfig {
+  userName?: string;
+  userEmail?: string;
+  signingKey?: string;
+  gpgSign?: boolean;
+  gpgFormat?: string;
+}

@@ -24,6 +24,10 @@ import { CloneRepoModal } from './components/Modals/CloneRepoModal';
 import { OpenRepoModal } from './components/Modals/OpenRepoModal';
 import { SettingsModal } from './components/Modals/SettingsModal';
 import { ConflictModal } from './components/Modals/ConflictModal';
+import { InteractiveRebaseModal } from './components/Rebase/InteractiveRebaseModal';
+import { FileBlameModal } from './components/Blame/FileBlameModal';
+import { WorktreesModal } from './components/Worktrees/WorktreesModal';
+import { Submodule, Worktree } from './types/git';
 
 export const App: React.FC = () => {
   const [repoPath, setRepoPath] = useState<string>('');
@@ -34,6 +38,8 @@ export const App: React.FC = () => {
   const [tags, setTags] = useState<Tag[]>([]);
   const [stashes, setStashes] = useState<Stash[]>([]);
   const [remotes, setRemotes] = useState<Remote[]>([]);
+  const [worktrees, setWorktrees] = useState<Worktree[]>([]);
+  const [submodules, setSubmodules] = useState<Submodule[]>([]);
 
   // Selection
   const [selectedCommit, setSelectedCommit] = useState<Commit | null>(null);
@@ -51,6 +57,9 @@ export const App: React.FC = () => {
   const [showCloneModal, setShowCloneModal] = useState<boolean>(false);
   const [showOpenModal, setShowOpenModal] = useState<boolean>(false);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+  const [showWorktreesModal, setShowWorktreesModal] = useState<boolean>(false);
+  const [rebaseBaseHash, setRebaseBaseHash] = useState<string | null>(null);
+  const [blameFilePath, setBlameFilePath] = useState<string | null>(null);
   const [conflictModalData, setConflictModalData] = useState<{ rawDiff: string; file: string } | null>(null);
 
   // Initialize repository
@@ -63,15 +72,25 @@ export const App: React.FC = () => {
       if (!repoPath || path) setRepoPath(state.path);
 
       // Fetch all Git data in parallel
-      const [fetchedCommits, fetchedStatuses, fetchedBranches, fetchedTags, fetchedStashes, fetchedRemotes] =
-        await Promise.all([
-          api.getCommits(state.path, 300),
-          api.getFileStatuses(state.path),
-          api.getBranches(state.path),
-          api.getTags(state.path),
-          api.getStashes(state.path),
-          api.getRemotes(state.path),
-        ]);
+      const [
+        fetchedCommits,
+        fetchedStatuses,
+        fetchedBranches,
+        fetchedTags,
+        fetchedStashes,
+        fetchedRemotes,
+        fetchedWorktrees,
+        fetchedSubmodules,
+      ] = await Promise.all([
+        api.getCommits(state.path, 300),
+        api.getFileStatuses(state.path),
+        api.getBranches(state.path),
+        api.getTags(state.path),
+        api.getStashes(state.path),
+        api.getRemotes(state.path),
+        api.getWorktrees(state.path),
+        api.getSubmodules(state.path),
+      ]);
 
       setCommits(fetchedCommits);
       setStatuses(fetchedStatuses);
@@ -79,6 +98,8 @@ export const App: React.FC = () => {
       setTags(fetchedTags);
       setStashes(fetchedStashes);
       setRemotes(fetchedRemotes);
+      setWorktrees(fetchedWorktrees);
+      setSubmodules(fetchedSubmodules);
 
       // Auto-select WIP if changes exist, otherwise first commit
       if (!state.isClean) {
@@ -370,6 +391,8 @@ export const App: React.FC = () => {
           remotes={remotes}
           tags={tags}
           stashes={stashes}
+          worktrees={worktrees}
+          submodules={submodules}
           currentBranch={repoState?.currentBranch || ''}
           onCheckoutBranch={handleCheckoutBranch}
           onDeleteBranch={handleDeleteBranch}
@@ -383,6 +406,17 @@ export const App: React.FC = () => {
           onCreateTag={() => {
             const name = prompt('Enter tag name:');
             if (name) handleCreateTag(name);
+          }}
+          onOpenWorktrees={() => setShowWorktreesModal(true)}
+          onSwitchWorktree={(path) => refreshRepo(path)}
+          onUpdateSubmodules={async () => {
+            try {
+              const res = await api.updateSubmodules(repoPath);
+              alert(res.output || 'Submodules updated!');
+              await refreshRepo();
+            } catch (e: any) {
+              alert(`Submodules error: ${e.message}`);
+            }
           }}
         />
 
@@ -412,6 +446,7 @@ export const App: React.FC = () => {
             onRevertCommit={handleRevertCommit}
             onResetCommit={handleResetCommit}
             onCherryPick={handleCherryPick}
+            onInteractiveRebase={(baseHash) => setRebaseBaseHash(baseHash)}
           />
         </div>
 
@@ -451,6 +486,7 @@ export const App: React.FC = () => {
               }}
               onExplainFile={handleExplainFile}
               onResolveConflict={handleOpenConflictModal}
+              onOpenBlame={(file) => setBlameFilePath(file)}
             />
           </div>
 
@@ -522,7 +558,39 @@ export const App: React.FC = () => {
       )}
 
       {showSettingsModal && (
-        <SettingsModal onClose={() => setShowSettingsModal(false)} />
+        <SettingsModal repoPath={repoPath} onClose={() => setShowSettingsModal(false)} />
+      )}
+
+      {showWorktreesModal && (
+        <WorktreesModal
+          repoPath={repoPath}
+          onClose={() => setShowWorktreesModal(false)}
+          onSwitchWorktree={(path) => refreshRepo(path)}
+        />
+      )}
+
+      {rebaseBaseHash && (
+        <InteractiveRebaseModal
+          baseHash={rebaseBaseHash}
+          repoPath={repoPath}
+          onClose={() => setRebaseBaseHash(null)}
+          onComplete={() => refreshRepo()}
+        />
+      )}
+
+      {blameFilePath && (
+        <FileBlameModal
+          filePath={blameFilePath}
+          repoPath={repoPath}
+          onClose={() => setBlameFilePath(null)}
+          onSelectCommit={(hash) => {
+            const match = commits.find((c) => c.hash === hash || c.shortHash === hash);
+            if (match) {
+              setBlameFilePath(null);
+              setInspectCommitModal(match);
+            }
+          }}
+        />
       )}
 
       {conflictModalData && (

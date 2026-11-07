@@ -12,6 +12,7 @@ import {
   Check,
   ChevronRight,
   Flame,
+  GitMerge,
 } from 'lucide-react';
 
 interface CommitGraphProps {
@@ -25,6 +26,7 @@ interface CommitGraphProps {
   onRevertCommit: (hash: string) => void;
   onResetCommit: (hash: string, mode: 'soft' | 'mixed' | 'hard') => void;
   onCherryPick: (hash: string) => void;
+  onInteractiveRebase?: (baseHash: string) => void;
 }
 
 const ROW_HEIGHT = 32;
@@ -42,6 +44,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
   onRevertCommit,
   onResetCommit,
   onCherryPick,
+  onInteractiveRebase,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [contextMenu, setContextMenu] = useState<{
@@ -372,6 +375,19 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             <TagIcon className="w-3.5 h-3.5 text-yellow-400" />
             <span>Create tag here...</span>
           </button>
+
+          {onInteractiveRebase && (
+            <button
+              onClick={() => {
+                onInteractiveRebase(contextMenu.commit.hash);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-teal-300 font-medium"
+            >
+              <GitMerge className="w-3.5 h-3.5 text-teal-400" />
+              <span>Interactive Rebase onto this commit...</span>
+            </button>
+          )}
 
           <div className="border-t border-[#2a3447] my-1" />
 
