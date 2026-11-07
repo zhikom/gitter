@@ -355,6 +355,57 @@ app.post('/api/repo/undo', async (req, res) => {
   }
 });
 
+// Virtual Branches (GitButler Innovation)
+app.get('/api/repo/virtual-branches', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const branches = await gitService.getVirtualBranches(targetPath);
+    res.json(branches);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/virtual-branches', async (req, res) => {
+  try {
+    const { path: repoPath, branches } = req.body;
+    await gitService.saveVirtualBranches(resolvePath(repoPath), branches);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/virtual-branch/commit', async (req, res) => {
+  try {
+    const { path: repoPath, payload } = req.body;
+    const result = await gitService.commitVirtualBranch(resolvePath(repoPath), payload);
+    res.json({ success: true, ...result });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/virtual-branch/stash', async (req, res) => {
+  try {
+    const { path: repoPath, files } = req.body;
+    const patch = await gitService.stashVirtualBranch(resolvePath(repoPath), files);
+    res.json({ success: true, patch });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/virtual-branch/apply', async (req, res) => {
+  try {
+    const { path: repoPath, patch } = req.body;
+    await gitService.stagePatch(resolvePath(repoPath), patch);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Remotes & Network (Fetch, Pull, Push)
 app.get('/api/repo/remotes', async (req, res) => {
   try {

@@ -34,6 +34,7 @@ import { PullRequestModal } from './components/PullRequests/PullRequestModal';
 import { BranchActionModal } from './components/Modals/BranchActionModal';
 import { QuickLaunchModal } from './components/Modals/QuickLaunchModal';
 import { LaunchpadModal } from './components/Modals/LaunchpadModal';
+import { VirtualBranchPanel } from './components/VirtualBranches/VirtualBranchPanel';
 import { PullRequest, Submodule, Worktree } from './types/git';
 
 export const App: React.FC = () => {
@@ -79,6 +80,9 @@ export const App: React.FC = () => {
   });
   const [isStagingOpen, setIsStagingOpen] = useState<boolean>(() => {
     return localStorage.getItem('gitter_staging_open') !== 'false';
+  });
+  const [isVirtualBranchesMode, setIsVirtualBranchesMode] = useState<boolean>(() => {
+    return localStorage.getItem('gitter_vb_mode') === 'true';
   });
 
   const [stagingListWidth, setStagingListWidth] = useState<number>(() => {
@@ -915,91 +919,115 @@ export const App: React.FC = () => {
               style={{ width: `${rightPanelWidth}px` }}
               className="flex flex-col bg-[#14181f] flex-shrink-0 overflow-hidden"
             >
-              <div className="flex-1 flex overflow-hidden">
-                {/* Staging file list */}
-                <StagingPanel
-                  width={stagingListWidth}
+              {isVirtualBranchesMode ? (
+                <VirtualBranchPanel
+                  repoPath={repoPath}
+                  currentBranch={repoState?.currentBranch || 'main'}
                   statuses={statuses}
                   selectedFile={selectedFile}
                   onSelectFile={(f, staged) => {
                     setSelectedFile(f);
                     setIsSelectedFileStaged(staged);
                   }}
-                  onStageFile={handleStageFile}
-                  onUnstageFile={handleUnstageFile}
-                  onStageAll={handleStageAll}
-                  onUnstageAll={handleUnstageAll}
-                  onDiscardFile={handleDiscardFile}
-                  onDiscardAll={handleDiscardAll}
-                  onStash={() => setShowStashModal(true)}
-                  onOpenBlame={(file) => setBlameFilePath(file)}
-                  onRevealInExplorer={handleRevealInExplorer}
-                  onOpenInVsCode={(file) => handleOpenInVsCode(file)}
-                  onOpenExternalDiff={handleOpenExternalDiff}
-                />
-
-                {/* Splitter between file list and diff viewer */}
-                <div
-                  className="w-1 hover:w-1.5 cursor-col-resize bg-[#222a3a] hover:bg-teal-500 transition-colors z-10 select-none flex-shrink-0"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    const startX = e.clientX;
-                    const startWidth = stagingListWidth;
-                    const onMouseMove = (moveEvent: MouseEvent) => {
-                      const newWidth = Math.max(180, Math.min(450, startWidth + (moveEvent.clientX - startX)));
-                      setStagingListWidth(newWidth);
-                      localStorage.setItem('gitter_staging_list_width', newWidth.toString());
-                    };
-                    const onMouseUp = () => {
-                      window.removeEventListener('mousemove', onMouseMove);
-                      window.removeEventListener('mouseup', onMouseUp);
-                    };
-                    window.addEventListener('mousemove', onMouseMove);
-                    window.addEventListener('mouseup', onMouseUp);
+                  onRefresh={() => refreshRepo()}
+                  onSwitchToStandardStaging={() => {
+                    setIsVirtualBranchesMode(false);
+                    localStorage.setItem('gitter_vb_mode', 'false');
                   }}
                 />
+              ) : (
+                <>
+                  <div className="flex-1 flex overflow-hidden">
+                    {/* Staging file list */}
+                    <StagingPanel
+                      width={stagingListWidth}
+                      statuses={statuses}
+                      selectedFile={selectedFile}
+                      onSelectFile={(f, staged) => {
+                        setSelectedFile(f);
+                        setIsSelectedFileStaged(staged);
+                      }}
+                      onStageFile={handleStageFile}
+                      onUnstageFile={handleUnstageFile}
+                      onStageAll={handleStageAll}
+                      onUnstageAll={handleUnstageAll}
+                      onDiscardFile={handleDiscardFile}
+                      onDiscardAll={handleDiscardAll}
+                      onStash={() => setShowStashModal(true)}
+                      onOpenBlame={(file) => setBlameFilePath(file)}
+                      onRevealInExplorer={handleRevealInExplorer}
+                      onOpenInVsCode={(file) => handleOpenInVsCode(file)}
+                      onOpenExternalDiff={handleOpenExternalDiff}
+                      onToggleVirtualBranches={() => {
+                        setIsVirtualBranchesMode(true);
+                        localStorage.setItem('gitter_vb_mode', 'true');
+                      }}
+                    />
 
-                {/* Diff Viewer */}
-                <DiffViewer
-                  diffs={fileDiffs}
-                  filePath={selectedFile || ''}
-                  isStaged={isSelectedFileStaged}
-                  ignoreWhitespace={ignoreWhitespace}
-                  onToggleIgnoreWhitespace={() => {
-                    const next = !ignoreWhitespace;
-                    setIgnoreWhitespace(next);
-                    localStorage.setItem('gitter_diff_ws', next ? 'true' : 'false');
-                  }}
-                  onToggleStage={() => {
-                    if (!selectedFile) return;
-                    if (isSelectedFileStaged) {
-                      handleUnstageFile(selectedFile);
-                      setIsSelectedFileStaged(false);
-                    } else {
-                      handleStageFile(selectedFile);
-                      setIsSelectedFileStaged(true);
-                    }
-                  }}
-                  onExplainFile={handleExplainFile}
-                  onResolveConflict={handleOpenConflictModal}
-                  onOpenBlame={(file) => setBlameFilePath(file)}
-                  onOpenExternalDiff={handleOpenExternalDiff}
-                  onStagePatch={handleStagePatch}
-                  onUnstagePatch={handleUnstagePatch}
-                  onDiscardPatch={handleDiscardPatch}
-                />
-              </div>
+                    {/* Splitter between file list and diff viewer */}
+                    <div
+                      className="w-1 hover:w-1.5 cursor-col-resize bg-[#222a3a] hover:bg-teal-500 transition-colors z-10 select-none flex-shrink-0"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        const startX = e.clientX;
+                        const startWidth = stagingListWidth;
+                        const onMouseMove = (moveEvent: MouseEvent) => {
+                          const newWidth = Math.max(180, Math.min(450, startWidth + (moveEvent.clientX - startX)));
+                          setStagingListWidth(newWidth);
+                          localStorage.setItem('gitter_staging_list_width', newWidth.toString());
+                        };
+                        const onMouseUp = () => {
+                          window.removeEventListener('mousemove', onMouseMove);
+                          window.removeEventListener('mouseup', onMouseUp);
+                        };
+                        window.addEventListener('mousemove', onMouseMove);
+                        window.addEventListener('mouseup', onMouseUp);
+                      }}
+                    />
 
-              {/* Commit Box at bottom of right panel */}
-              <CommitBox
-                stagedCount={repoState?.stagedCount || 0}
-                currentBranch={repoState?.currentBranch || 'main'}
-                lastCommit={commits.length > 0 ? commits[0] : null}
-                onCommit={handleCommit}
-                onStash={() => setShowStashModal(true)}
-                onGenerateAiMessage={handleGenerateAiMessage}
-                loading={loading}
-              />
+                    {/* Diff Viewer */}
+                    <DiffViewer
+                      diffs={fileDiffs}
+                      filePath={selectedFile || ''}
+                      isStaged={isSelectedFileStaged}
+                      ignoreWhitespace={ignoreWhitespace}
+                      onToggleIgnoreWhitespace={() => {
+                        const next = !ignoreWhitespace;
+                        setIgnoreWhitespace(next);
+                        localStorage.setItem('gitter_diff_ws', next ? 'true' : 'false');
+                      }}
+                      onToggleStage={() => {
+                        if (!selectedFile) return;
+                        if (isSelectedFileStaged) {
+                          handleUnstageFile(selectedFile);
+                          setIsSelectedFileStaged(false);
+                        } else {
+                          handleStageFile(selectedFile);
+                          setIsSelectedFileStaged(true);
+                        }
+                      }}
+                      onExplainFile={handleExplainFile}
+                      onResolveConflict={handleOpenConflictModal}
+                      onOpenBlame={(file) => setBlameFilePath(file)}
+                      onOpenExternalDiff={handleOpenExternalDiff}
+                      onStagePatch={handleStagePatch}
+                      onUnstagePatch={handleUnstagePatch}
+                      onDiscardPatch={handleDiscardPatch}
+                    />
+                  </div>
+
+                  {/* Commit Box at bottom of right panel */}
+                  <CommitBox
+                    stagedCount={repoState?.stagedCount || 0}
+                    currentBranch={repoState?.currentBranch || 'main'}
+                    lastCommit={commits.length > 0 ? commits[0] : null}
+                    onCommit={handleCommit}
+                    onStash={() => setShowStashModal(true)}
+                    onGenerateAiMessage={handleGenerateAiMessage}
+                    loading={loading}
+                  />
+                </>
+              )}
             </div>
           </>
         )}

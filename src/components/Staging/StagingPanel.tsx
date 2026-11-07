@@ -31,6 +31,7 @@ interface StagingPanelProps {
   onRevealInExplorer?: (file: string) => void;
   onOpenInVsCode?: (file: string) => void;
   onOpenExternalDiff?: (file: string, staged: boolean) => void;
+  onToggleVirtualBranches?: () => void;
   width?: number;
 }
 
@@ -55,6 +56,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
   onRevealInExplorer,
   onOpenInVsCode,
   onOpenExternalDiff,
+  onToggleVirtualBranches,
   width = 280,
 }) => {
   const stagedFiles = statuses.filter((s) => s.staged);
@@ -106,9 +108,21 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
           <FileDiff className="w-4 h-4 text-teal-400" />
           <span>Working Tree Files</span>
         </div>
-        <span className="text-xs text-slate-500">
-          {statuses.length} change{statuses.length === 1 ? '' : 's'}
-        </span>
+        <div className="flex items-center space-x-2">
+          {onToggleVirtualBranches && (
+            <button
+              onClick={onToggleVirtualBranches}
+              className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[10px] font-medium transition"
+              title="Switch to GitButler Virtual Branches"
+            >
+              <Archive className="w-3 h-3 text-purple-400" />
+              <span>Virtual Lanes</span>
+            </button>
+          )}
+          <span className="text-xs text-slate-500">
+            {statuses.length}
+          </span>
+        </div>
       </div>
 
       {/* Lists Container */}

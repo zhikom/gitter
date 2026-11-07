@@ -1004,6 +1004,122 @@ export class GitService {
     await this.runGitRaw('reset --soft HEAD@{1}', repoPath);
     return { success: true, message: `Rolled back to HEAD@{1} (${actionDesc})`, action: actionDesc };
   }
+
+  // Virtual Branches (GitButler Innovation)
+  private getVirtualBranchesFilePath(repoPath: string): string {
+    const dir = path.join(repoPath, '.git', 'gitter');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    return path.join(dir, 'virtual-branches.json');
+  }
+
+  async getVirtualBranches(repoPath: string): Promise<any[]> {
+    try {
+      const filePath = this.getVirtualBranchesFilePath(repoPath);
+      if (fs.existsSync(filePath)) {
+        const raw = await fs.promises.readFile(filePath, 'utf8');
+        return JSON.parse(raw);
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }
+
+  async saveVirtualBranches(repoPath: string, branches: any[]): Promise<void> {
+    const filePath = this.getVirtualBranchesFilePath(repoPath);
+    await fs.promises.writeFile(filePath, JSON.stringify(branches, null, 2), 'utf8');
+  }
+
+  async commitVirtualBranch(
+    repoPath: string,
+    payload: {
+      branchName: string;
+      files: string[];
+      summary: string;
+      description?: string;
+      targetBranch?: string;
+      pushUpstream?: boolean;
+    }
+  ): Promise<{ commitHash: string; branchName: string }> {
+    const { branchName, files, summary, description, pushUpstream } = payload;
+    if (!files || files.length === 0) {
+      throw new Error('No files specified to commit for this virtual branch');
+    }
+
+    const currentBranch = (await this.runGitRaw('rev-parse --abbrev-ref HEAD', repoPath)).trim();
+
+    // Stage only the specified files
+    for (const f of files) {
+      await this.runGitRaw(`add "${f}"`, repoPath);
+    }
+
+    const fullMessage = description ? `${summary}\n\n${description}` : summary;
+    const msgFile = path.join(os.tmpdir(), `gitter_commit_${Date.now()}.txt`);
+    await fs.promises.writeFile(msgFile, fullMessage, 'utf8');
+
+    // If already on the target branch:
+    if (currentBranch === branchName) {
+      try {
+        await this.runGitRaw(`commit -F "${msgFile}"`, repoPath);
+      } finally {
+        await fs.promises.unlink(msgFile).catch(() => {});
+      }
+      const hash = (await this.runGitRaw('rev-parse HEAD', repoPath)).trim();
+      if (pushUpstream) {
+        await this.runGitRaw(`push -u origin ${branchName}`, repoPath).catch(() => {});
+      }
+      return { commitHash: hash, branchName };
+    }
+
+    // If committing to a new or different branch:
+    let branchExists = false;
+    try {
+      await this.runGitRaw(`rev-parse --verify "${branchName}"`, repoPath);
+      branchExists = true;
+    } catch {
+      branchExists = false;
+    }
+
+    if (!branchExists) {
+      // Create branch at current HEAD, switch to it, commit, then switch back
+      await this.runGitRaw(`checkout -b "${branchName}"`, repoPath);
+      try {
+        await this.runGitRaw(`commit -F "${msgFile}"`, repoPath);
+      } finally {
+        await fs.promises.unlink(msgFile).catch(() => {});
+      }
+      const hash = (await this.runGitRaw('rev-parse HEAD', repoPath)).trim();
+      if (pushUpstream) {
+        await this.runGitRaw(`push -u origin ${branchName}`, repoPath).catch(() => {});
+      }
+      await this.runGitRaw(`checkout "${currentBranch}"`, repoPath);
+      return { commitHash: hash, branchName };
+    } else {
+      // Branch exists: switch to it, commit, switch back
+      await this.runGitRaw(`checkout "${branchName}"`, repoPath);
+      try {
+        await this.runGitRaw(`commit -F "${msgFile}"`, repoPath);
+      } finally {
+        await fs.promises.unlink(msgFile).catch(() => {});
+      }
+      const hash = (await this.runGitRaw('rev-parse HEAD', repoPath)).trim();
+      if (pushUpstream) {
+        await this.runGitRaw(`push -u origin ${branchName}`, repoPath).catch(() => {});
+      }
+      await this.runGitRaw(`checkout "${currentBranch}"`, repoPath);
+      return { commitHash: hash, branchName };
+    }
+  }
+
+  async stashVirtualBranch(repoPath: string, files: string[]): Promise<string> {
+    if (!files || files.length === 0) return '';
+    const fileArgs = files.map((f) => `"${f}"`).join(' ');
+    const patch = await this.runGitRaw(`diff HEAD -- ${fileArgs}`, repoPath);
+    await this.runGitRaw(`checkout HEAD -- ${fileArgs}`, repoPath);
+    return patch;
+  }
 }
 
 export const gitService = new GitService();

@@ -18,6 +18,7 @@ import {
   Tag,
   Worktree,
 } from '../types/git';
+import { VirtualBranch, VirtualBranchCommitPayload } from '../types/virtualBranch';
 
 const BASE_URL = '/api';
 
@@ -147,6 +148,31 @@ export const api = {
   // 1-Click Undo
   undoLastAction: (path: string) =>
     fetchJson<{ success: boolean; message: string; action: string }>('/repo/undo', { method: 'POST', body: JSON.stringify({ path }) }),
+
+  // Virtual Branches (GitButler Innovation)
+  getVirtualBranches: (path: string): Promise<VirtualBranch[]> =>
+    fetchJson(`/repo/virtual-branches?path=${encodeURIComponent(path)}`),
+
+  saveVirtualBranches: (path: string, branches: VirtualBranch[]) =>
+    fetchJson<{ success: boolean }>('/repo/virtual-branches', { method: 'POST', body: JSON.stringify({ path, branches }) }),
+
+  commitVirtualBranch: (path: string, payload: VirtualBranchCommitPayload) =>
+    fetchJson<{ success: boolean; commitHash: string; branchName: string }>('/repo/virtual-branch/commit', {
+      method: 'POST',
+      body: JSON.stringify({ path, payload }),
+    }),
+
+  stashVirtualBranch: (path: string, files: string[]) =>
+    fetchJson<{ success: boolean; patch: string }>('/repo/virtual-branch/stash', {
+      method: 'POST',
+      body: JSON.stringify({ path, files }),
+    }),
+
+  applyVirtualBranch: (path: string, patch: string) =>
+    fetchJson<{ success: boolean }>('/repo/virtual-branch/apply', {
+      method: 'POST',
+      body: JSON.stringify({ path, patch }),
+    }),
 
   // Remotes
   getRemotes: (path: string): Promise<Remote[]> =>
