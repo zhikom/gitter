@@ -212,6 +212,57 @@ app.post('/api/repo/reveal', async (req, res) => {
   }
 });
 
+app.post('/api/repo/open-vscode', async (req, res) => {
+  try {
+    const { path: repoPath, file } = req.body;
+    await gitService.openInVsCode(resolvePath(repoPath), file);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/open-terminal', async (req, res) => {
+  try {
+    const { path: repoPath } = req.body;
+    await gitService.openInTerminal(resolvePath(repoPath));
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/external-diff', async (req, res) => {
+  try {
+    const { path: repoPath, file, staged, customCmd } = req.body;
+    await gitService.openExternalDiff(resolvePath(repoPath), file, staged, customCmd);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/repo/reflog', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
+    const reflog = await gitService.getReflog(targetPath, limit);
+    res.json(reflog);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/create-patch', async (req, res) => {
+  try {
+    const { path: repoPath, hash } = req.body;
+    const patch = await gitService.createPatch(resolvePath(repoPath), hash);
+    res.json({ success: true, patch });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Remotes & Network (Fetch, Pull, Push)
 app.get('/api/repo/remotes', async (req, res) => {
   try {

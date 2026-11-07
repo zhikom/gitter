@@ -16,6 +16,7 @@ import {
   Minimize2,
   Trash2,
   Copy,
+  ExternalLink,
 } from 'lucide-react';
 
 interface DiffViewerProps {
@@ -28,6 +29,7 @@ interface DiffViewerProps {
   onExplainFile: (rawDiff: string, filename: string) => void;
   onResolveConflict?: (rawDiff: string, filename: string) => void;
   onOpenBlame?: (filePath: string) => void;
+  onOpenExternalDiff?: (filePath: string, isStaged: boolean) => void;
 }
 
 export const DiffViewer: React.FC<DiffViewerProps> = ({
@@ -40,6 +42,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   onExplainFile,
   onResolveConflict,
   onOpenBlame,
+  onOpenExternalDiff,
 }) => {
   const [viewMode, setViewMode] = useState<'unified' | 'split'>('unified');
   const [wordWrap, setWordWrap] = useState<boolean>(true);
@@ -169,6 +172,18 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
             >
               <Clock className="w-3.5 h-3.5 text-teal-400" />
               <span>Blame</span>
+            </button>
+          )}
+
+          {/* External Diff Button */}
+          {onOpenExternalDiff && (
+            <button
+              onClick={() => onOpenExternalDiff(filePath, isStaged)}
+              title="Open in External Diff Tool (code --diff)"
+              className="flex items-center space-x-1 px-2 py-1 rounded bg-[#202735] hover:bg-[#2d384c] border border-[#2a3447] text-slate-300 text-xs font-medium transition"
+            >
+              <ExternalLink className="w-3.5 h-3.5 text-teal-400" />
+              <span>External Diff</span>
             </button>
           )}
 

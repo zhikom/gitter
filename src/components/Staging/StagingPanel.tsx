@@ -29,6 +29,8 @@ interface StagingPanelProps {
   onStash?: () => void;
   onOpenBlame?: (file: string) => void;
   onRevealInExplorer?: (file: string) => void;
+  onOpenInVsCode?: (file: string) => void;
+  onOpenExternalDiff?: (file: string, staged: boolean) => void;
   width?: number;
 }
 
@@ -51,6 +53,8 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
   onStash,
   onOpenBlame,
   onRevealInExplorer,
+  onOpenInVsCode,
+  onOpenExternalDiff,
   width = 280,
 }) => {
   const stagedFiles = statuses.filter((s) => s.staged);
@@ -351,6 +355,32 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
             >
               <Plus className="w-3.5 h-3.5 text-teal-400" />
               <span>Stage file</span>
+            </button>
+          )}
+
+          {onOpenExternalDiff && (
+            <button
+              onClick={() => {
+                onOpenExternalDiff(contextMenu.file.path, contextMenu.file.staged);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-teal-300"
+            >
+              <ExternalLink className="w-3.5 h-3.5 text-teal-400" />
+              <span>Open in External Diff Tool (code --diff)</span>
+            </button>
+          )}
+
+          {onOpenInVsCode && (
+            <button
+              onClick={() => {
+                onOpenInVsCode(contextMenu.file.path);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-blue-300"
+            >
+              <FileText className="w-3.5 h-3.5 text-blue-400" />
+              <span>Open in VS Code</span>
             </button>
           )}
 

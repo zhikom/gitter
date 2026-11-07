@@ -49,6 +49,7 @@ interface SidebarProps {
   onOpenWorktrees?: () => void;
   onSwitchWorktree?: (path: string) => void;
   onUpdateSubmodules?: () => void;
+  onCherryPickToBranch?: (commitHash: string, branchName: string) => void;
   width?: number;
 }
 
@@ -85,6 +86,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenWorktrees,
   onSwitchWorktree,
   onUpdateSubmodules,
+  onCherryPickToBranch,
   width = 256,
 }) => {
   const [expandLocal, setExpandLocal] = useState(true);
@@ -205,16 +207,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }}
                   onDrop={(e) => {
                     e.preventDefault();
-                    const source = e.dataTransfer.getData('application/x-gitter-branch') || draggedBranch;
                     setDragOverBranch(null);
                     setDraggedBranch(null);
+
+                    // Handle commit dragged onto branch (SmartGit / Tower cherry-pick)
+                    const droppedCommit = e.dataTransfer.getData('application/x-gitter-commit');
+                    if (droppedCommit) {
+                      if (confirm(`Cherry-pick commit ${droppedCommit.slice(0, 7)} into branch '${branch.name}'?`)) {
+                        if (onCherryPickToBranch) {
+                          onCherryPickToBranch(droppedCommit, branch.name);
+                        }
+                      }
+                      return;
+                    }
+
+                    const source = e.dataTransfer.getData('application/x-gitter-branch') || draggedBranch;
                     if (source && source !== branch.name && onBranchDrop) {
                       onBranchDrop(source, branch.name);
                     }
                   }}
                   onDoubleClick={() => onCheckoutBranch(branch.name)}
                   onContextMenu={(e) => handleBranchContextMenu(e, branch)}
-                  title={`Double click to checkout ${branch.name}. Drag onto another branch to merge/rebase.`}
+                  title={`Double click to checkout ${branch.name}. Drag another branch to merge/rebase, or drag a commit here to cherry-pick.`}
                   className={`group flex items-center justify-between px-3 py-1.5 text-xs cursor-pointer transition select-none ${
                     isCurrent
                       ? 'bg-teal-500/15 text-teal-300 font-semibold border-l-2 border-teal-400'

@@ -1,6 +1,7 @@
 import { exec, spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { promisify } from 'util';
 import {
   BlameLine,
@@ -423,6 +424,81 @@ export class GitService {
     } else {
       execAsync(`xdg-open "${path.dirname(target)}"`).catch(() => {});
     }
+  }
+
+  async openInVsCode(repoPath: string, filePath?: string): Promise<void> {
+    const target = filePath ? path.join(repoPath, filePath) : repoPath;
+    try {
+      await execAsync(`code "${target}"`);
+    } catch {
+      try {
+        await execAsync(`cursor "${target}"`);
+      } catch {
+        await execAsync(`windsurf "${target}"`).catch(() => {});
+      }
+    }
+  }
+
+  async openInTerminal(repoPath: string): Promise<void> {
+    if (process.platform === 'win32') {
+      execAsync(`start powershell -NoExit -Command "Set-Location -LiteralPath '${repoPath.replace(/'/g, "''")}'"`).catch(() => {});
+    } else if (process.platform === 'darwin') {
+      execAsync(`open -a Terminal "${repoPath}"`).catch(() => {});
+    } else {
+      execAsync(`x-terminal-emulator --working-directory="${repoPath}"`).catch(() => {});
+    }
+  }
+
+  async openExternalDiff(repoPath: string, filePath: string, staged: boolean = false, customDiffCmd?: string): Promise<void> {
+    const fullPath = path.join(repoPath, filePath);
+    const tempDir = os.tmpdir();
+    const baseName = path.basename(filePath);
+    const tempFile = path.join(tempDir, `gitter-diff-${staged ? 'HEAD' : 'INDEX'}-${Date.now()}-${baseName}`);
+
+    try {
+      const gitRef = staged ? `HEAD:${filePath}` : `:${filePath}`;
+      const baseContent = await this.runGitRaw(`show ${gitRef}`, repoPath);
+      fs.writeFileSync(tempFile, baseContent, 'utf8');
+    } catch {
+      fs.writeFileSync(tempFile, '', 'utf8');
+    }
+
+    if (customDiffCmd && customDiffCmd.trim()) {
+      const cmd = customDiffCmd.replace('%1', `"${tempFile}"`).replace('%2', `"${fullPath}"`);
+      await execAsync(cmd).catch(() => {});
+      return;
+    }
+
+    try {
+      await execAsync(`code --diff "${tempFile}" "${fullPath}"`);
+    } catch {
+      if (process.platform === 'win32') {
+        execAsync(`WinMergeU "${tempFile}" "${fullPath}"`).catch(() => {
+          execAsync(`bcomp "${tempFile}" "${fullPath}"`).catch(() => {});
+        });
+      } else {
+        execAsync(`meld "${tempFile}" "${fullPath}"`).catch(() => {});
+      }
+    }
+  }
+
+  async getReflog(repoPath: string, limit = 50): Promise<Array<{ hash: string; selector: string; action: string; message: string; date: string }>> {
+    const out = await this.runGitRaw(`reflog -n ${limit} --format="%H|||%gD|||%gs|||%ci"`, repoPath);
+    const lines = out.split('\n').filter(Boolean);
+    return lines.map((l) => {
+      const p = l.split('|||');
+      return {
+        hash: p[0]?.trim() || '',
+        selector: p[1]?.trim() || '',
+        action: p[2]?.trim() || '',
+        message: p[2]?.trim() || '',
+        date: p[3]?.trim() || '',
+      };
+    });
+  }
+
+  async createPatch(repoPath: string, commitHash: string): Promise<string> {
+    return await this.runGitRaw(`format-patch -1 ${commitHash} --stdout`, repoPath);
   }
 
   async getRemotes(repoPath: string): Promise<Remote[]> {

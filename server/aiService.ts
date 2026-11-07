@@ -1,7 +1,7 @@
 import { AIExplanation } from '../src/types/git';
 
 export interface AIProviderConfig {
-  provider: 'gemini' | 'openai' | 'anthropic' | 'claude' | 'ollama' | 'builtin';
+  provider: 'gemini' | 'openai' | 'anthropic' | 'claude' | 'ollama' | 'deepseek' | 'custom' | 'builtin';
   apiKey?: string;
   model?: string;
   baseUrl?: string;
@@ -21,6 +21,23 @@ export class AIService {
     return { ...this.config };
   }
 
+  private isOpenAICompatible(p: string): boolean {
+    return p === 'openai' || p === 'deepseek' || p === 'custom' || p === 'ollama';
+  }
+
+  private getOpenAIBaseUrl(): string {
+    if (this.config.baseUrl && this.config.baseUrl.trim()) {
+      return this.config.baseUrl.trim().replace(/\/+$/, '');
+    }
+    if (this.config.provider === 'deepseek') {
+      return 'https://api.deepseek.com/v1';
+    }
+    if (this.config.provider === 'ollama') {
+      return 'http://localhost:11434/v1';
+    }
+    return 'https://api.openai.com/v1';
+  }
+
   async generateCommitMessage(diffText: string, stagedFiles: string[]): Promise<{ summary: string; description: string }> {
     const p = this.config.provider;
     if ((p === 'anthropic' || p === 'claude') && this.config.apiKey) {
@@ -35,11 +52,11 @@ export class AIService {
       } catch (e) {
         console.warn('Gemini API call failed, falling back:', e);
       }
-    } else if (p === 'openai' && this.config.apiKey) {
+    } else if (this.isOpenAICompatible(p) && (this.config.apiKey || p === 'ollama')) {
       try {
-        return await this.callOpenAIForCommit(diffText, stagedFiles);
+        return await this.callOpenAICompatibleForCommit(diffText, stagedFiles);
       } catch (e) {
-        console.warn('OpenAI API call failed, falling back:', e);
+        console.warn(`${p} API call failed, falling back:`, e);
       }
     }
 
@@ -59,6 +76,12 @@ export class AIService {
         return await this.callGeminiForExplain(diffText, contextTitle);
       } catch (e) {
         console.warn('Gemini explain failed, falling back:', e);
+      }
+    } else if (this.isOpenAICompatible(p) && (this.config.apiKey || p === 'ollama')) {
+      try {
+        return await this.callOpenAICompatibleForExplain(diffText, contextTitle);
+      } catch (e) {
+        console.warn(`${p} explain failed, falling back:`, e);
       }
     }
 
@@ -101,6 +124,12 @@ export class AIService {
       } catch (e) {
         console.warn('Claude PR generator failed, falling back:', e);
       }
+    } else if (this.isOpenAICompatible(p) && (this.config.apiKey || p === 'ollama')) {
+      try {
+        return await this.callOpenAICompatibleForPr(commits, diffSummary);
+      } catch (e) {
+        console.warn(`${p} PR generator failed, falling back:`, e);
+      }
     }
 
     const title = commits.length > 0 ? commits[0] : 'feat: update project features';
@@ -116,13 +145,22 @@ export class AIService {
     return { title, body };
   }
 
-  async chatWithAgent(message: string, repoContext: { branch: string; status: string; recentCommits: string }): Promise<{ reply: string; suggestedCommand?: string }> {
+  async chatWithAgent(
+    message: string,
+    repoContext: { branch: string; status: string; recentCommits: string }
+  ): Promise<{ reply: string; suggestedCommand?: string }> {
     const p = this.config.provider;
     if ((p === 'anthropic' || p === 'claude') && this.config.apiKey) {
       try {
         return await this.callClaudeForChat(message, repoContext);
       } catch (e) {
         console.warn('Claude agent chat failed, falling back to heuristics:', e);
+      }
+    } else if (this.isOpenAICompatible(p) && (this.config.apiKey || p === 'ollama')) {
+      try {
+        return await this.callOpenAICompatibleForChat(message, repoContext);
+      } catch (e) {
+        console.warn(`${p} agent chat failed, falling back to heuristics:`, e);
       }
     }
 
@@ -187,7 +225,7 @@ export class AIService {
     }
 
     return {
-      reply: `I am your Gitter Git Assistant powered by ${this.config.provider.toUpperCase()}. Current branch is **${repoContext.branch}**. Ask me to draft commits, explain diffs, generate git commands, or resolve conflicts.`,
+      reply: `I am your Gitter Git Assistant powered by ${this.config.provider.toUpperCase()} (${this.config.model || 'default'}). Current branch is **${repoContext.branch}**. Ask me to draft commits, explain diffs, generate git commands, or resolve conflicts.`,
     };
   }
 
@@ -196,10 +234,13 @@ export class AIService {
     const prompt = `You are an expert Git assistant. Analyze this git diff and write a conventional commit message.
 Staged files: ${stagedFiles.join(', ')}
 Diff snippet:
-${diffText.slice(0, 6000)}
+${diffText.slice(0, 8000)}
 
-Output ONLY valid JSON without markdown wrapping:
-{"summary": "feat(scope): concise summary", "description": "- point 1\n- point 2"}`;
+Output ONLY valid JSON in format:
+{
+  "summary": "feat(scope): brief message (under 72 chars)",
+  "description": "Optional bullet points detailing motivation and technical changes"
+}`;
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -210,7 +251,7 @@ Output ONLY valid JSON without markdown wrapping:
       },
       body: JSON.stringify({
         model: this.config.model || 'claude-3-7-sonnet-20250219',
-        max_tokens: 1000,
+        max_tokens: 1500,
         messages: [{ role: 'user', content: prompt }],
       }),
     });
@@ -224,7 +265,7 @@ Output ONLY valid JSON without markdown wrapping:
   private async callClaudeForExplain(diffText: string, contextTitle: string): Promise<AIExplanation> {
     const prompt = `Analyze this git diff for ${contextTitle}.
 Diff snippet:
-${diffText.slice(0, 6000)}
+${diffText.slice(0, 8000)}
 
 Output ONLY valid JSON without markdown wrapping:
 {
@@ -278,20 +319,17 @@ Give helpful, precise answers. If suggesting a command, include it on a line sta
     const text = data?.content?.[0]?.text || '';
     const cmdMatch = text.match(/COMMAND:\s*(git\s+[^\r\n]+)/i);
     const suggestedCommand = cmdMatch ? cmdMatch[1].trim() : undefined;
-    const reply = text.replace(/COMMAND:\s*git\s+[^\r\n]+/i, '').trim();
-
-    return { reply, suggestedCommand };
+    return { reply: text, suggestedCommand };
   }
 
   private async callClaudeForPr(commits: string[], diffSummary: string): Promise<{ title: string; body: string }> {
-    const prompt = `Generate a GitHub Pull Request title and description.
-Commits on branch:
-${commits.map((c) => `- ${c}`).join('\n')}
-
+    const prompt = `Write a Pull Request title and Markdown body.
+Commits in branch:
+${commits.map(c => `- ${c}`).join('\n')}
 Diff summary:
 ${diffSummary.slice(0, 4000)}
 
-Output JSON: {"title": "pr title", "body": "markdown body"}`;
+Output JSON: {"title": "concise PR title", "body": "Markdown description with Summary and Verification"}`;
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -310,6 +348,184 @@ Output JSON: {"title": "pr title", "body": "markdown body"}`;
     const data = await res.json();
     const content = data?.content?.[0]?.text || '{}';
     const cleanJson = content.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleanJson);
+  }
+
+  // --- OpenAI / DeepSeek / Custom / Ollama Compatible API Callers ---
+  private async callOpenAICompatibleForCommit(diffText: string, stagedFiles: string[]): Promise<{ summary: string; description: string }> {
+    const baseUrl = this.getOpenAIBaseUrl();
+    const model = this.config.model || (this.config.provider === 'deepseek' ? 'deepseek-chat' : 'gpt-4o');
+
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.config.apiKey || 'ollama'}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: 'Generate a conventional commit message. Return JSON with keys "summary" and "description".' },
+          { role: 'user', content: `Staged: ${stagedFiles.join(', ')}\nDiff:\n${diffText.slice(0, 8000)}` },
+        ],
+        response_format: { type: 'json_object' },
+      }),
+    });
+
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content || '{}';
+    const cleanJson = content.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleanJson);
+  }
+
+  private async callOpenAICompatibleForExplain(diffText: string, contextTitle: string): Promise<AIExplanation> {
+    const baseUrl = this.getOpenAIBaseUrl();
+    const model = this.config.model || (this.config.provider === 'deepseek' ? 'deepseek-chat' : 'gpt-4o');
+
+    const prompt = `Analyze this git diff for ${contextTitle}.
+Diff snippet:
+${diffText.slice(0, 8000)}
+
+Output ONLY valid JSON:
+{
+  "summary": "concise overview of changes",
+  "keyChanges": ["highlight 1", "highlight 2"],
+  "riskAssessment": "low" | "medium" | "high",
+  "riskReasoning": "brief explanation",
+  "suggestedAction": "recommended review focus"
+}`;
+
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.config.apiKey || 'ollama'}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: 'You are an expert Git code reviewer. Respond only with JSON.' },
+          { role: 'user', content: prompt },
+        ],
+        response_format: { type: 'json_object' },
+      }),
+    });
+
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content || '{}';
+    const cleanJson = content.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleanJson);
+  }
+
+  private async callOpenAICompatibleForChat(message: string, repoContext: any): Promise<{ reply: string; suggestedCommand?: string }> {
+    const baseUrl = this.getOpenAIBaseUrl();
+    const model = this.config.model || (this.config.provider === 'deepseek' ? 'deepseek-chat' : 'gpt-4o');
+
+    const systemPrompt = `You are Gitter AI, an expert Git engineer and assistant. The user is in repository branch '${repoContext.branch}'. Status: ${repoContext.status}.
+Give helpful, precise answers. If suggesting a command, include it on a line starting with 'COMMAND: git ...' so the UI can offer a 1-click execution button.`;
+
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.config.apiKey || 'ollama'}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: message },
+        ],
+      }),
+    });
+
+    const data = await res.json();
+    const text = data?.choices?.[0]?.message?.content || '';
+    const cmdMatch = text.match(/COMMAND:\s*(git\s+[^\r\n]+)/i);
+    const suggestedCommand = cmdMatch ? cmdMatch[1].trim() : undefined;
+    return { reply: text, suggestedCommand };
+  }
+
+  private async callOpenAICompatibleForPr(commits: string[], diffSummary: string): Promise<{ title: string; body: string }> {
+    const baseUrl = this.getOpenAIBaseUrl();
+    const model = this.config.model || (this.config.provider === 'deepseek' ? 'deepseek-chat' : 'gpt-4o');
+
+    const prompt = `Write a Pull Request title and Markdown body.
+Commits in branch:
+${commits.map(c => `- ${c}`).join('\n')}
+Diff summary:
+${diffSummary.slice(0, 4000)}
+
+Output JSON format: {"title": "concise PR title", "body": "Markdown description with Summary and Verification"}`;
+
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.config.apiKey || 'ollama'}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: 'You are an expert PR reviewer. Return JSON with title and body.' },
+          { role: 'user', content: prompt },
+        ],
+        response_format: { type: 'json_object' },
+      }),
+    });
+
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content || '{}';
+    const cleanJson = content.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleanJson);
+  }
+
+  // --- Google Gemini API Callers ---
+  private async callGeminiForCommit(diffText: string, stagedFiles: string[]): Promise<{ summary: string; description: string }> {
+    const prompt = `Analyze this git diff and write a conventional commit message.
+Staged files: ${stagedFiles.join(', ')}
+Diff snippet:
+${diffText.slice(0, 8000)}
+
+Output JSON: {"summary": "feat(scope): brief message", "description": "bullet points"}`;
+
+    const modelName = this.config.model || 'gemini-2.5-flash';
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${this.config.apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    });
+
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const cleanJson = text.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleanJson);
+  }
+
+  private async callGeminiForExplain(diffText: string, contextTitle: string): Promise<AIExplanation> {
+    const prompt = `Analyze this git diff for ${contextTitle}.
+Diff snippet:
+${diffText.slice(0, 8000)}
+
+Output JSON format:
+{
+  "summary": "concise overview",
+  "keyChanges": ["item 1", "item 2"],
+  "riskAssessment": "low" | "medium" | "high",
+  "riskReasoning": "reasoning",
+  "suggestedAction": "action"
+}`;
+
+    const modelName = this.config.model || 'gemini-2.5-flash';
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${this.config.apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    });
+
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const cleanJson = text.replace(/```json|```/g, '').trim();
     return JSON.parse(cleanJson);
   }
 
@@ -388,75 +604,6 @@ Output JSON: {"title": "pr title", "body": "markdown body"}`;
       riskReasoning: risk === 'low' ? 'Low risk isolated updates.' : 'Moderate volume of line modifications.',
       suggestedAction: 'Verify build passes and staging tree reflects expected file modifications.',
     };
-  }
-
-  private async callGeminiForCommit(diffText: string, stagedFiles: string[]): Promise<{ summary: string; description: string }> {
-    const prompt = `Analyze this git diff and write a conventional commit message.
-Staged files: ${stagedFiles.join(', ')}
-Diff snippet:
-${diffText.slice(0, 4000)}
-
-Output JSON: {"summary": "feat(scope): brief message", "description": "bullet points"}`;
-
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.config.model || 'gemini-1.5-flash'}:generateContent?key=${this.config.apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-    });
-
-    const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const cleanJson = text.replace(/```json|```/g, '').trim();
-    return JSON.parse(cleanJson);
-  }
-
-  private async callGeminiForExplain(diffText: string, contextTitle: string): Promise<AIExplanation> {
-    const prompt = `Analyze this git diff for ${contextTitle}.
-Diff snippet:
-${diffText.slice(0, 4000)}
-
-Output JSON format:
-{
-  "summary": "concise overview",
-  "keyChanges": ["item 1", "item 2"],
-  "riskAssessment": "low" | "medium" | "high",
-  "riskReasoning": "reasoning",
-  "suggestedAction": "action"
-}`;
-
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.config.model || 'gemini-1.5-flash'}:generateContent?key=${this.config.apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-    });
-
-    const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const cleanJson = text.replace(/```json|```/g, '').trim();
-    return JSON.parse(cleanJson);
-  }
-
-  private async callOpenAIForCommit(diffText: string, stagedFiles: string[]): Promise<{ summary: string; description: string }> {
-    const baseUrl = this.config.baseUrl || 'https://api.openai.com/v1';
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.config.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.config.model || 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: 'Generate a conventional commit message. Return JSON with keys "summary" and "description".' },
-          { role: 'user', content: `Staged: ${stagedFiles.join(', ')}\nDiff:\n${diffText.slice(0, 4000)}` },
-        ],
-        response_format: { type: 'json_object' },
-      }),
-    });
-
-    const data = await res.json();
-    const content = data?.choices?.[0]?.message?.content || '{}';
-    return JSON.parse(content);
   }
 }
 

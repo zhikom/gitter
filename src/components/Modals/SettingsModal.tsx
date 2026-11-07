@@ -93,9 +93,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repoPath = '', onC
   );
 
   // AI Config
-  const [provider, setProvider] = useState<'builtin' | 'anthropic' | 'gemini' | 'openai' | 'ollama'>('builtin');
+  const [provider, setProvider] = useState<
+    'builtin' | 'anthropic' | 'gemini' | 'openai' | 'ollama' | 'deepseek' | 'custom'
+  >('builtin');
   const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('gemini-1.5-flash');
+  const [model, setModel] = useState('claude-3-7-sonnet-20250219');
   const [baseUrl, setBaseUrl] = useState('');
   const [temperature, setTemperature] = useState('0.7');
 
@@ -532,22 +534,54 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repoPath = '', onC
                       const p = e.target.value;
                       setProvider(p);
                       if (p === 'anthropic') setModel('claude-3-7-sonnet-20250219');
-                      else if (p === 'gemini') setModel('gemini-1.5-flash');
-                      else if (p === 'openai') setModel('gpt-4o');
-                      else if (p === 'ollama') setModel('llama3.2');
+                      else if (p === 'gemini') setModel('gemini-2.5-pro');
+                      else if (p === 'openai') setModel('o3-mini');
+                      else if (p === 'deepseek') {
+                        setModel('deepseek-chat');
+                        setBaseUrl('https://api.deepseek.com/v1');
+                      } else if (p === 'custom') {
+                        setModel('custom-model');
+                        setBaseUrl('https://api.openai.com/v1');
+                      } else if (p === 'ollama') {
+                        setModel('llama3.2');
+                        setBaseUrl('http://localhost:11434/v1');
+                      }
                     }}
                     className="w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-teal-500"
                   >
                     <option value="builtin">Built-in Offline Engine (No API key needed)</option>
-                    <option value="anthropic">Anthropic Claude (Claude 3.7 / 3.5 Sonnet)</option>
-                    <option value="gemini">Google Gemini (Gemini 1.5 Flash / Pro)</option>
-                    <option value="openai">OpenAI (GPT-4o, GPT-4o-mini)</option>
+                    <option value="anthropic">Anthropic Claude (Claude 3.7 Sonnet, 3.5 Sonnet v2, 3.5 Haiku)</option>
+                    <option value="gemini">Google Gemini (Gemini 2.5 Pro, 2.5 Flash, 2.0 Flash)</option>
+                    <option value="openai">OpenAI (o3-mini, o1, GPT-4.5, GPT-4o, GPT-4o-mini)</option>
+                    <option value="deepseek">DeepSeek (DeepSeek-V3, DeepSeek-R1 Reasoner)</option>
+                    <option value="custom">Custom OpenAI-Compatible API (OpenRouter, Groq, Together, vLLM)</option>
                     <option value="ollama">Ollama Local AI (http://localhost:11434)</option>
                   </select>
                 </div>
 
                 {provider !== 'builtin' && (
                   <>
+                    {(provider === 'custom' || provider === 'ollama' || provider === 'deepseek') && (
+                      <div>
+                        <label className="block text-slate-400 font-semibold mb-1">
+                          API Base URL (OpenAI-compatible)
+                        </label>
+                        <input
+                          type="text"
+                          value={baseUrl}
+                          onChange={(e) => setBaseUrl(e.target.value)}
+                          placeholder={
+                            provider === 'deepseek'
+                              ? 'https://api.deepseek.com/v1'
+                              : provider === 'ollama'
+                              ? 'http://localhost:11434/v1'
+                              : 'https://openrouter.ai/api/v1'
+                          }
+                          className="w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-teal-500 font-mono"
+                        />
+                      </div>
+                    )}
+
                     <div>
                       <label className="block text-slate-400 font-semibold mb-1">
                         API Key {provider === 'ollama' && '(Optional for local)'}
@@ -562,13 +596,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repoPath = '', onC
                     </div>
 
                     <div>
-                      <label className="block text-slate-400 font-semibold mb-1">Model Name</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-400 font-semibold">Model Name (or type any custom model)</label>
+                        <span className="text-[10px] text-teal-400 font-mono">Custom input supported</span>
+                      </div>
                       <input
                         type="text"
+                        list="model-presets"
                         value={model}
                         onChange={(e) => setModel(e.target.value)}
+                        placeholder="e.g. claude-3-7-sonnet-20250219 or deepseek-reasoner"
                         className="w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-teal-500 font-mono"
                       />
+                      <datalist id="model-presets">
+                        {/* Anthropic Presets */}
+                        <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Latest Flagship with Reasoning)</option>
+                        <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet v2</option>
+                        <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku</option>
+                        <option value="claude-3-opus-20240229">Claude 3 Opus</option>
+                        {/* Gemini Presets */}
+                        <option value="gemini-2.5-pro">Gemini 2.5 Pro (Latest 2025 Flagship)</option>
+                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                        <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                        <option value="gemini-2.0-flash-thinking-exp">Gemini 2.0 Flash Thinking</option>
+                        <option value="gemini-1.5-pro-latest">Gemini 1.5 Pro</option>
+                        <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash</option>
+                        {/* OpenAI Presets */}
+                        <option value="o3-mini">OpenAI o3-mini (Latest Reasoning)</option>
+                        <option value="o1">OpenAI o1</option>
+                        <option value="gpt-4.5-preview">OpenAI GPT-4.5 Preview</option>
+                        <option value="gpt-4o">OpenAI GPT-4o</option>
+                        <option value="gpt-4o-mini">OpenAI GPT-4o-mini</option>
+                        {/* DeepSeek Presets */}
+                        <option value="deepseek-chat">DeepSeek-V3 Chat</option>
+                        <option value="deepseek-reasoner">DeepSeek-R1 Reasoner</option>
+                        {/* Ollama Presets */}
+                        <option value="llama3.2">Ollama Llama 3.2</option>
+                        <option value="qwen2.5-coder">Ollama Qwen 2.5 Coder</option>
+                        <option value="mistral">Ollama Mistral</option>
+                      </datalist>
                     </div>
 
                     {provider === 'ollama' && (

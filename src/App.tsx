@@ -30,6 +30,7 @@ import { WorktreesModal } from './components/Worktrees/WorktreesModal';
 import { PullRequestModal } from './components/PullRequests/PullRequestModal';
 import { BranchActionModal } from './components/Modals/BranchActionModal';
 import { QuickLaunchModal } from './components/Modals/QuickLaunchModal';
+import { LaunchpadModal } from './components/Modals/LaunchpadModal';
 import { PullRequest, Submodule, Worktree } from './types/git';
 
 export const App: React.FC = () => {
@@ -86,6 +87,7 @@ export const App: React.FC = () => {
   const [showStashModal, setShowStashModal] = useState<boolean>(false);
   const [showCloneModal, setShowCloneModal] = useState<boolean>(false);
   const [showOpenModal, setShowOpenModal] = useState<boolean>(false);
+  const [showLaunchpadModal, setShowLaunchpadModal] = useState<boolean>(false);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const [showWorktreesModal, setShowWorktreesModal] = useState<boolean>(false);
   const [showPrModal, setShowPrModal] = useState<boolean>(false);
@@ -193,6 +195,11 @@ export const App: React.FC = () => {
       if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
         e.preventDefault();
         setShowQuickLaunch((prev) => !prev);
+      }
+      // Ctrl+L / Cmd+L: Repository Launchpad
+      else if ((e.ctrlKey || e.metaKey) && (e.key === 'l' || e.key === 'L')) {
+        e.preventDefault();
+        setShowLaunchpadModal((prev) => !prev);
       }
       // Ctrl+B: Toggle Left Sidebar
       else if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
@@ -516,6 +523,50 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleOpenInVsCode = async (file?: string) => {
+    try {
+      await api.openInVsCode(repoPath, file);
+    } catch (e: any) {
+      console.error('Open in VS Code failed:', e);
+    }
+  };
+
+  const handleOpenExternalDiff = async (file: string, staged: boolean = false) => {
+    try {
+      const res = await api.openExternalDiff(repoPath, file, staged);
+      if (!res.success) {
+        alert(`External diff failed: ${res.error || 'Unknown error'}`);
+      }
+    } catch (e: any) {
+      alert(`External diff failed: ${e.message}`);
+    }
+  };
+
+  const handleCreatePatch = async (hash: string) => {
+    try {
+      const res = await api.createPatch(repoPath, hash);
+      alert(`Patch created for commit ${hash.slice(0, 7)}!\n\n${(res.patch || '').slice(0, 500)}...`);
+    } catch (e: any) {
+      alert(`Create patch failed: ${e.message}`);
+    }
+  };
+
+  const handleCherryPickToBranch = async (commitHash: string, branchName: string) => {
+    setLoading(true);
+    try {
+      if (repoState?.currentBranch !== branchName) {
+        await api.checkoutBranch(repoPath, branchName);
+      }
+      await api.cherryPick(repoPath, commitHash);
+      alert(`Cherry-picked commit ${commitHash.slice(0, 7)} onto ${branchName}!`);
+      await refreshRepo();
+    } catch (e: any) {
+      alert(`Cherry-pick failed: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleDropStash = async (index: number = 0) => {
     await api.dropStash(repoPath, index);
     await refreshRepo();
@@ -573,6 +624,7 @@ export const App: React.FC = () => {
         onOpenStashModal={() => setShowStashModal(true)}
         onPopStash={() => handlePopStash(0)}
         onOpenQuickLaunch={() => setShowQuickLaunch(true)}
+        onOpenLaunchpad={() => setShowLaunchpadModal(true)}
         onToggleSidebar={() => {
           setIsSidebarOpen((prev) => {
             const next = !prev;
@@ -624,6 +676,7 @@ export const App: React.FC = () => {
               onRenameBranch={handleRenameBranch}
               onPushBranch={handlePushBranch}
               onBranchDrop={(source, target) => setBranchAction({ source, target })}
+              onCherryPickToBranch={handleCherryPickToBranch}
               onPopStash={handlePopStash}
               onApplyStash={handleApplyStash}
               onDropStash={handleDropStash}
@@ -710,6 +763,8 @@ export const App: React.FC = () => {
             onResetCommit={handleResetCommit}
             onCherryPick={handleCherryPick}
             onInteractiveRebase={(baseHash) => setRebaseBaseHash(baseHash)}
+            onOpenInVsCode={(hash) => handleOpenInVsCode()}
+            onCreatePatch={handleCreatePatch}
           />
         </div>
 
@@ -760,6 +815,8 @@ export const App: React.FC = () => {
                   onStash={() => setShowStashModal(true)}
                   onOpenBlame={(file) => setBlameFilePath(file)}
                   onRevealInExplorer={handleRevealInExplorer}
+                  onOpenInVsCode={(file) => handleOpenInVsCode(file)}
+                  onOpenExternalDiff={handleOpenExternalDiff}
                 />
 
                 {/* Splitter between file list and diff viewer */}
@@ -807,6 +864,7 @@ export const App: React.FC = () => {
                   onExplainFile={handleExplainFile}
                   onResolveConflict={handleOpenConflictModal}
                   onOpenBlame={(file) => setBlameFilePath(file)}
+                  onOpenExternalDiff={handleOpenExternalDiff}
                 />
               </div>
 
@@ -879,6 +937,25 @@ export const App: React.FC = () => {
           currentPath={repoPath}
           onClose={() => setShowOpenModal(false)}
           onOpen={(path) => refreshRepo(path)}
+        />
+      )}
+
+      {showLaunchpadModal && (
+        <LaunchpadModal
+          currentPath={repoPath}
+          onClose={() => setShowLaunchpadModal(false)}
+          onOpenRepo={(path) => {
+            setShowLaunchpadModal(false);
+            refreshRepo(path);
+          }}
+          onCloneRepo={() => {
+            setShowLaunchpadModal(false);
+            setShowCloneModal(true);
+          }}
+          onInitRepo={() => {
+            setShowLaunchpadModal(false);
+            setShowOpenModal(true);
+          }}
         />
       )}
 

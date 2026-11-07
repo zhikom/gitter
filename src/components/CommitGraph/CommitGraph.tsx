@@ -13,6 +13,8 @@ import {
   ChevronRight,
   Flame,
   GitMerge,
+  ExternalLink,
+  FileCode,
 } from 'lucide-react';
 
 interface CommitGraphProps {
@@ -27,6 +29,8 @@ interface CommitGraphProps {
   onResetCommit: (hash: string, mode: 'soft' | 'mixed' | 'hard') => void;
   onCherryPick: (hash: string) => void;
   onInteractiveRebase?: (baseHash: string) => void;
+  onOpenInVsCode?: (hash: string) => void;
+  onCreatePatch?: (hash: string) => void;
 }
 
 const ROW_HEIGHT = 32;
@@ -45,6 +49,8 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
   onResetCommit,
   onCherryPick,
   onInteractiveRebase,
+  onOpenInVsCode,
+  onCreatePatch,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [contextMenu, setContextMenu] = useState<{
@@ -155,10 +161,16 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             return (
               <div
                 key={commit.hash}
+                draggable={!isWip}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('text/plain', commit.hash);
+                  e.dataTransfer.setData('application/x-gitter-commit', commit.hash);
+                }}
                 onClick={() => onSelectCommit(commit)}
                 onContextMenu={(e) => handleContextMenu(e, commit)}
                 style={{ height: ROW_HEIGHT }}
-                className={`flex items-center text-xs border-b border-[#1b212c] cursor-pointer transition ${
+                title={isWip ? 'Uncommitted changes' : `Commit ${commit.shortHash} by ${commit.author.name} (Drag onto a branch to cherry-pick)`}
+                className={`flex items-center text-xs border-b border-[#1b212c] cursor-pointer transition select-none ${
                   isSelected
                     ? 'bg-[#263245] text-white'
                     : 'hover:bg-[#1b212c] text-slate-300'
@@ -449,6 +461,43 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
           </button>
 
           <div className="border-t border-[#2a3447] my-1" />
+
+          {onOpenInVsCode && (
+            <button
+              onClick={() => {
+                onOpenInVsCode(contextMenu.commit.hash);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-blue-300"
+            >
+              <ExternalLink className="w-3.5 h-3.5 text-blue-400" />
+              <span>Open repository in VS Code</span>
+            </button>
+          )}
+
+          {onCreatePatch && (
+            <button
+              onClick={() => {
+                onCreatePatch(contextMenu.commit.hash);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-teal-300"
+            >
+              <FileCode className="w-3.5 h-3.5 text-teal-400" />
+              <span>Create patch from this commit</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(contextMenu.commit.summary);
+              setContextMenu(null);
+            }}
+            className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-slate-400"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            <span>Copy commit message</span>
+          </button>
 
           <button
             onClick={() => {

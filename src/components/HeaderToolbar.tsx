@@ -16,6 +16,7 @@ import {
   Search,
   PanelLeft,
   PanelRight,
+  LayoutGrid,
 } from 'lucide-react';
 import { RepositoryState } from '../types/git';
 
@@ -29,6 +30,7 @@ interface HeaderToolbarProps {
   onOpenStashModal: () => void;
   onPopStash: () => void;
   onOpenQuickLaunch?: () => void;
+  onOpenLaunchpad?: () => void;
   onToggleSidebar?: () => void;
   onToggleStaging?: () => void;
   onToggleAgent: () => void;
@@ -52,6 +54,7 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
   onOpenStashModal,
   onPopStash,
   onOpenQuickLaunch,
+  onOpenLaunchpad,
   onToggleSidebar,
   onToggleStaging,
   onToggleAgent,
@@ -112,6 +115,15 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
               <div className="px-3 py-1 text-[10px] uppercase font-bold text-slate-500 tracking-wider">
                 Repositories
               </div>
+              {onOpenLaunchpad && (
+                <button
+                  onClick={onOpenLaunchpad}
+                  className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-teal-300 font-semibold"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5 text-teal-400" />
+                  <span>Repository Launchpad...</span>
+                </button>
+              )}
               <button
                 onClick={onOpenRepo}
                 className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-slate-200"
@@ -141,6 +153,18 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
             </div>
           )}
         </div>
+
+        {/* Launchpad Button */}
+        {onOpenLaunchpad && (
+          <button
+            onClick={onOpenLaunchpad}
+            title="Repository Launchpad (Ctrl+L)"
+            className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-[#202735] hover:bg-[#2d384c] border border-[#2a3447] text-xs font-medium text-slate-200 transition"
+          >
+            <LayoutGrid className="w-3.5 h-3.5 text-teal-400" />
+            <span>Launchpad</span>
+          </button>
+        )}
 
         {/* Current Branch Indicator */}
         {repoState && (

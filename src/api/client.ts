@@ -97,7 +97,24 @@ export const api = {
     fetchJson('/repo/branch/rename', { method: 'POST', body: JSON.stringify({ path, oldName, newName }) }),
 
   revealInExplorer: (path: string, file?: string) =>
-    fetchJson('/repo/reveal', { method: 'POST', body: JSON.stringify({ path, file }) }),
+    fetchJson<{ success: boolean; error?: string }>('/repo/reveal', { method: 'POST', body: JSON.stringify({ path, file }) }),
+
+  openInVsCode: (path: string, file?: string) =>
+    fetchJson<{ success: boolean; error?: string }>('/repo/open-vscode', { method: 'POST', body: JSON.stringify({ path, file }) }),
+
+  openInTerminal: (path: string) =>
+    fetchJson<{ success: boolean; error?: string }>('/repo/open-terminal', { method: 'POST', body: JSON.stringify({ path }) }),
+
+  openExternalDiff: (path: string, file: string, staged = false, customCmd?: string) =>
+    fetchJson<{ success: boolean; error?: string }>('/repo/external-diff', { method: 'POST', body: JSON.stringify({ path, file, staged, customCmd }) }),
+
+  getReflog: (path: string, limit = 50) =>
+    fetchJson<Array<{ hash: string; selector: string; action: string; message: string; date: string }>>(
+      `/repo/reflog?path=${encodeURIComponent(path)}&limit=${limit}`
+    ),
+
+  createPatch: (path: string, hash: string) =>
+    fetchJson<{ success: boolean; patch: string }>('/repo/create-patch', { method: 'POST', body: JSON.stringify({ path, hash }) }),
 
   // Remotes
   getRemotes: (path: string): Promise<Remote[]> =>
