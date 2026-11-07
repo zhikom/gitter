@@ -263,6 +263,98 @@ app.post('/api/repo/create-patch', async (req, res) => {
   }
 });
 
+// Patch staging, unstaging, and discarding for line/hunk operations
+app.post('/api/repo/patch/stage', async (req, res) => {
+  try {
+    const { path: repoPath, patch } = req.body;
+    await gitService.stagePatch(resolvePath(repoPath), patch);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/patch/unstage', async (req, res) => {
+  try {
+    const { path: repoPath, patch } = req.body;
+    await gitService.unstagePatch(resolvePath(repoPath), patch);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/patch/discard', async (req, res) => {
+  try {
+    const { path: repoPath, patch } = req.body;
+    await gitService.discardPatch(resolvePath(repoPath), patch);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Commit Comparison / Range Diff
+app.get('/api/repo/compare', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const base = req.query.base as string;
+    const target = req.query.target as string;
+    const comparison = await gitService.compareCommits(targetPath, base, target);
+    res.json(comparison);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/repo/compare/file', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const base = req.query.base as string;
+    const target = req.query.target as string;
+    const file = req.query.file as string;
+    const diff = await gitService.getComparisonFileDiff(targetPath, base, target, file);
+    res.json(diff);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// File content at git ref (:1:, :2:, :3:, HEAD:)
+app.get('/api/repo/file/ref', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const ref = req.query.ref as string;
+    const file = req.query.file as string;
+    const content = await gitService.getFileAtRef(targetPath, ref, file);
+    res.json({ content });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Save manual conflict resolution
+app.post('/api/repo/conflict/resolve-manual', async (req, res) => {
+  try {
+    const { path: repoPath, file, content, stage } = req.body;
+    await gitService.saveConflictResolution(resolvePath(repoPath), file, content, stage !== false);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 1-Click Undo last action
+app.post('/api/repo/undo', async (req, res) => {
+  try {
+    const { path: repoPath } = req.body;
+    const result = await gitService.undoLastAction(resolvePath(repoPath));
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Remotes & Network (Fetch, Pull, Push)
 app.get('/api/repo/remotes', async (req, res) => {
   try {

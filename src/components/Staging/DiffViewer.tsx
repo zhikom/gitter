@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { FileDiff, DiffHunk } from '../../types/git';
+import { generateHunkPatch, generateLineSelectionPatch } from '../../utils/patchGenerator';
 import {
   Columns,
   AlignLeft,
@@ -17,6 +18,8 @@ import {
   Trash2,
   Copy,
   ExternalLink,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
 
 interface DiffViewerProps {
@@ -30,6 +33,9 @@ interface DiffViewerProps {
   onResolveConflict?: (rawDiff: string, filename: string) => void;
   onOpenBlame?: (filePath: string) => void;
   onOpenExternalDiff?: (filePath: string, isStaged: boolean) => void;
+  onStagePatch?: (patch: string) => Promise<void>;
+  onUnstagePatch?: (patch: string) => Promise<void>;
+  onDiscardPatch?: (patch: string) => Promise<void>;
 }
 
 export const DiffViewer: React.FC<DiffViewerProps> = ({
@@ -43,12 +49,147 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   onResolveConflict,
   onOpenBlame,
   onOpenExternalDiff,
+  onStagePatch,
+  onUnstagePatch,
+  onDiscardPatch,
 }) => {
   const [viewMode, setViewMode] = useState<'unified' | 'split'>('unified');
   const [wordWrap, setWordWrap] = useState<boolean>(true);
   const [tabSize, setTabSize] = useState<number>(2);
   const [fontSize, setFontSize] = useState<number>(12);
   const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
+
+  // Line selection: map from hunkIndex to Set<lineIndex>
+  const [selectedLines, setSelectedLines] = useState<Map<number, Set<number>>>(new Map());
+  const [patchLoading, setPatchLoading] = useState<boolean>(false);
+
+  const toggleLineSelect = (hunkIdx: number, lineIdx: number) => {
+    setSelectedLines((prev) => {
+      const next = new Map(prev);
+      const set = new Set(next.get(hunkIdx) || []);
+      if (set.has(lineIdx)) {
+        set.delete(lineIdx);
+        if (set.size === 0) next.delete(hunkIdx);
+        else next.set(hunkIdx, set);
+      } else {
+        set.add(lineIdx);
+        next.set(hunkIdx, set);
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedLines(new Map());
+  };
+
+  const totalSelectedCount = Array.from(selectedLines.values()).reduce(
+    (acc, set) => acc + set.size,
+    0
+  );
+
+  const handleStageHunk = async (hunk: DiffHunk) => {
+    if (!onStagePatch) return;
+    setPatchLoading(true);
+    try {
+      const patch = generateHunkPatch(filePath, hunk);
+      await onStagePatch(patch);
+    } catch (e: any) {
+      alert(`Stage hunk failed: ${e.message}`);
+    } finally {
+      setPatchLoading(false);
+    }
+  };
+
+  const handleUnstageHunk = async (hunk: DiffHunk) => {
+    if (!onUnstagePatch) return;
+    setPatchLoading(true);
+    try {
+      const patch = generateHunkPatch(filePath, hunk);
+      await onUnstagePatch(patch);
+    } catch (e: any) {
+      alert(`Unstage hunk failed: ${e.message}`);
+    } finally {
+      setPatchLoading(false);
+    }
+  };
+
+  const handleDiscardHunk = async (hunk: DiffHunk) => {
+    if (!onDiscardPatch) return;
+    const confirmDiscard = confirm('Are you sure you want to discard this hunk? This cannot be undone.');
+    if (!confirmDiscard) return;
+    setPatchLoading(true);
+    try {
+      const patch = generateHunkPatch(filePath, hunk);
+      await onDiscardPatch(patch);
+    } catch (e: any) {
+      alert(`Discard hunk failed: ${e.message}`);
+    } finally {
+      setPatchLoading(false);
+    }
+  };
+
+  const handleStageSelectedLines = async () => {
+    if (!onStagePatch || diffs.length === 0) return;
+    setPatchLoading(true);
+    try {
+      const fileDiff = diffs[0];
+      for (const [hunkIdx, lineIndices] of selectedLines.entries()) {
+        const hunk = fileDiff.hunks[hunkIdx];
+        if (hunk) {
+          const patch = generateLineSelectionPatch(filePath, hunk, lineIndices, 'stage');
+          if (patch) await onStagePatch(patch);
+        }
+      }
+      clearSelection();
+    } catch (e: any) {
+      alert(`Stage selected lines failed: ${e.message}`);
+    } finally {
+      setPatchLoading(false);
+    }
+  };
+
+  const handleUnstageSelectedLines = async () => {
+    if (!onUnstagePatch || diffs.length === 0) return;
+    setPatchLoading(true);
+    try {
+      const fileDiff = diffs[0];
+      for (const [hunkIdx, lineIndices] of selectedLines.entries()) {
+        const hunk = fileDiff.hunks[hunkIdx];
+        if (hunk) {
+          const patch = generateLineSelectionPatch(filePath, hunk, lineIndices, 'unstage');
+          if (patch) await onUnstagePatch(patch);
+        }
+      }
+      clearSelection();
+    } catch (e: any) {
+      alert(`Unstage selected lines failed: ${e.message}`);
+    } finally {
+      setPatchLoading(false);
+    }
+  };
+
+  const handleDiscardSelectedLines = async () => {
+    if (!onDiscardPatch || diffs.length === 0) return;
+    const confirmDiscard = confirm(`Discard ${totalSelectedCount} selected lines? This cannot be undone.`);
+    if (!confirmDiscard) return;
+    setPatchLoading(true);
+    try {
+      const fileDiff = diffs[0];
+      for (const [hunkIdx, lineIndices] of selectedLines.entries()) {
+        const hunk = fileDiff.hunks[hunkIdx];
+        if (hunk) {
+          const patch = generateLineSelectionPatch(filePath, hunk, lineIndices, 'discard');
+          if (patch) await onDiscardPatch(patch);
+        }
+      }
+      clearSelection();
+    } catch (e: any) {
+      alert(`Discard selected lines failed: ${e.message}`);
+    } finally {
+      setPatchLoading(false);
+    }
+  };
 
   if (!filePath || diffs.length === 0) {
     return (
@@ -258,9 +399,46 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           fileDiff.hunks.map((hunk, hIdx) => (
             <div key={hIdx} className="mb-4 border border-[#222a38] rounded overflow-hidden">
               {/* Hunk Header */}
-              <div className="bg-[#181e29] text-teal-400/90 px-3 py-1 text-[11px] font-semibold border-b border-[#222a38] select-none flex items-center justify-between">
+              <div className="bg-[#181e29] text-teal-400/90 px-3 py-1.5 text-[11px] font-semibold border-b border-[#222a38] select-none flex items-center justify-between">
                 <span>{hunk.header}</span>
-                <span className="text-[10px] text-slate-500 font-normal">Hunk {hIdx + 1} of {fileDiff.hunks.length}</span>
+                <div className="flex items-center space-x-2">
+                  <span className="text-[10px] text-slate-500 font-normal">Hunk {hIdx + 1} of {fileDiff.hunks.length}</span>
+                  {isStaged ? (
+                    onUnstagePatch && (
+                      <button
+                        onClick={() => handleUnstageHunk(hunk)}
+                        disabled={patchLoading}
+                        className="px-2 py-0.5 rounded text-[10px] bg-[#222b3b] hover:bg-[#2c374c] text-amber-300 border border-[#2e3a4e] transition"
+                        title="Unstage only this hunk"
+                      >
+                        Unstage Hunk
+                      </button>
+                    )
+                  ) : (
+                    <div className="flex items-center space-x-1.5">
+                      {onStagePatch && (
+                        <button
+                          onClick={() => handleStageHunk(hunk)}
+                          disabled={patchLoading}
+                          className="px-2 py-0.5 rounded text-[10px] bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/40 transition"
+                          title="Stage only this hunk"
+                        >
+                          Stage Hunk
+                        </button>
+                      )}
+                      {onDiscardPatch && (
+                        <button
+                          onClick={() => handleDiscardHunk(hunk)}
+                          disabled={patchLoading}
+                          className="px-2 py-0.5 rounded text-[10px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 transition"
+                          title="Discard changes in this hunk"
+                        >
+                          Discard Hunk
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Hunk Lines */}
@@ -269,24 +447,37 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                   {hunk.lines.map((line, lIdx) => {
                     const isAdd = line.type === 'add';
                     const isDel = line.type === 'delete';
+                    const isChange = isAdd || isDel;
+                    const isSelected = selectedLines.get(hIdx)?.has(lIdx);
 
                     return (
                       <div
                         key={lIdx}
-                        className={`flex items-start hover:bg-[#1f2838]/40 transition ${
-                          isAdd
-                            ? 'bg-emerald-500/10 text-emerald-300'
+                        onClick={() => isChange && toggleLineSelect(hIdx, lIdx)}
+                        className={`flex items-start transition cursor-pointer select-text ${
+                          isSelected
+                            ? 'bg-teal-500/25 ring-1 ring-inset ring-teal-500/40'
+                            : isAdd
+                            ? 'bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15'
                             : isDel
-                            ? 'bg-rose-500/10 text-rose-300'
-                            : 'text-slate-300'
+                            ? 'bg-rose-500/10 text-rose-300 hover:bg-rose-500/15'
+                            : 'text-slate-300 hover:bg-[#1a222f]/30'
                         }`}
                       >
+                        {/* Line Selection Checkbox Indicator */}
+                        <div className="w-5 flex items-center justify-center pt-0.5 select-none text-slate-500">
+                          {isChange && (
+                            <span className={isSelected ? 'text-teal-400' : 'opacity-0 hover:opacity-100'}>
+                              {isSelected ? '✓' : '·'}
+                            </span>
+                          )}
+                        </div>
                         {/* Old Line Number */}
-                        <div className="w-12 text-right pr-2 select-none text-[11px] text-slate-600 border-r border-[#222a38] flex-shrink-0">
+                        <div className="w-10 text-right pr-2 select-none text-[11px] text-slate-600 border-r border-[#222a38] flex-shrink-0">
                           {line.oldLineNumber || ''}
                         </div>
                         {/* New Line Number */}
-                        <div className="w-12 text-right pr-2 select-none text-[11px] text-slate-600 border-r border-[#222a38] flex-shrink-0">
+                        <div className="w-10 text-right pr-2 select-none text-[11px] text-slate-600 border-r border-[#222a38] flex-shrink-0">
                           {line.newLineNumber || ''}
                         </div>
                         {/* Sign */}
@@ -346,6 +537,50 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           ))
         )}
       </div>
+      {/* Floating Line Selection Action Bar */}
+      {totalSelectedCount > 0 && (
+        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-[#1b222f] border border-teal-500/50 shadow-2xl rounded-full px-4 py-2 flex items-center space-x-3 z-30 select-none animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <span className="text-xs text-teal-300 font-semibold">{totalSelectedCount} lines selected</span>
+          {isStaged ? (
+            onUnstagePatch && (
+              <button
+                onClick={handleUnstageSelectedLines}
+                disabled={patchLoading}
+                className="px-3 py-1 rounded-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-medium transition"
+              >
+                Unstage Selected Lines
+              </button>
+            )
+          ) : (
+            <div className="flex items-center space-x-2">
+              {onStagePatch && (
+                <button
+                  onClick={handleStageSelectedLines}
+                  disabled={patchLoading}
+                  className="px-3 py-1 rounded-full bg-teal-500 hover:bg-teal-400 text-white text-xs font-medium shadow transition"
+                >
+                  Stage Selected Lines
+                </button>
+              )}
+              {onDiscardPatch && (
+                <button
+                  onClick={handleDiscardSelectedLines}
+                  disabled={patchLoading}
+                  className="px-3 py-1 rounded-full bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-medium transition"
+                >
+                  Discard Selected Lines
+                </button>
+              )}
+            </div>
+          )}
+          <button
+            onClick={clearSelection}
+            className="text-xs text-slate-400 hover:text-slate-200 ml-1 underline cursor-pointer"
+          >
+            Clear
+          </button>
+        </div>
+      )}
     </div>
   );
 };

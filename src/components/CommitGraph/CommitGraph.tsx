@@ -31,6 +31,7 @@ interface CommitGraphProps {
   onInteractiveRebase?: (baseHash: string) => void;
   onOpenInVsCode?: (hash: string) => void;
   onCreatePatch?: (hash: string) => void;
+  onCompareCommits?: (commitA: Commit, commitB: Commit) => void;
 }
 
 const ROW_HEIGHT = 32;
@@ -51,6 +52,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
   onInteractiveRebase,
   onOpenInVsCode,
   onCreatePatch,
+  onCompareCommits,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [contextMenu, setContextMenu] = useState<{
@@ -64,10 +66,33 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
     return layoutCommitGraph(commits, hasWip);
   }, [commits, hasWip]);
 
-  // Filter commits based on search query
+  // Filter commits based on search query (supporting Sublime Merge syntax: author:, hash:, msg:)
   const filteredNodes = useMemo(() => {
     if (!searchQuery.trim()) return graphNodes;
-    const q = searchQuery.toLowerCase();
+    const q = searchQuery.toLowerCase().trim();
+
+    if (q.startsWith('author:')) {
+      const term = q.replace(/^author:\s*/, '');
+      return graphNodes.filter((n) =>
+        n.commit.author.name.toLowerCase().includes(term) ||
+        n.commit.author.email.toLowerCase().includes(term)
+      );
+    }
+    if (q.startsWith('hash:') || q.startsWith('sha:')) {
+      const term = q.replace(/^(hash|sha):\s*/, '');
+      return graphNodes.filter((n) =>
+        n.commit.hash.toLowerCase().includes(term) ||
+        n.commit.shortHash.toLowerCase().includes(term)
+      );
+    }
+    if (q.startsWith('message:') || q.startsWith('msg:')) {
+      const term = q.replace(/^(message|msg):\s*/, '');
+      return graphNodes.filter((n) =>
+        n.commit.summary.toLowerCase().includes(term) ||
+        n.commit.body?.toLowerCase().includes(term)
+      );
+    }
+
     return graphNodes.filter((node) => {
       const c = node.commit;
       return (
@@ -166,7 +191,24 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                   e.dataTransfer.setData('text/plain', commit.hash);
                   e.dataTransfer.setData('application/x-gitter-commit', commit.hash);
                 }}
-                onClick={() => onSelectCommit(commit)}
+                onClick={(e) => {
+                  if (
+                    (e.ctrlKey || e.metaKey || e.shiftKey) &&
+                    selectedHash &&
+                    selectedHash !== commit.hash &&
+                    onCompareCommits &&
+                    !isWip
+                  ) {
+                    const prev = commits.find(
+                      (c) => c.hash === selectedHash || c.shortHash === selectedHash
+                    );
+                    if (prev && !prev.isWip) {
+                      onCompareCommits(prev, commit);
+                      return;
+                    }
+                  }
+                  onSelectCommit(commit);
+                }}
                 onContextMenu={(e) => handleContextMenu(e, commit)}
                 style={{ height: ROW_HEIGHT }}
                 title={isWip ? 'Uncommitted changes' : `Commit ${commit.shortHash} by ${commit.author.name} (Drag onto a branch to cherry-pick)`}
@@ -461,6 +503,39 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
           </button>
 
           <div className="border-t border-[#2a3447] my-1" />
+
+          {onCompareCommits && commits.length > 1 && (
+            <>
+              <button
+                onClick={() => {
+                  const headCommit = commits[0];
+                  if (headCommit && headCommit.hash !== contextMenu.commit.hash) {
+                    onCompareCommits(contextMenu.commit, headCommit);
+                  }
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-teal-300"
+              >
+                <GitCommit className="w-3.5 h-3.5 text-teal-400" />
+                <span>Compare with HEAD</span>
+              </button>
+              {selectedHash && selectedHash !== contextMenu.commit.hash && (
+                <button
+                  onClick={() => {
+                    const sel = commits.find((c) => c.hash === selectedHash || c.shortHash === selectedHash);
+                    if (sel) {
+                      onCompareCommits(sel, contextMenu.commit);
+                    }
+                    setContextMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-teal-300"
+                >
+                  <GitCommit className="w-3.5 h-3.5 text-teal-400" />
+                  <span>Compare with selected commit</span>
+                </button>
+              )}
+            </>
+          )}
 
           {onOpenInVsCode && (
             <button

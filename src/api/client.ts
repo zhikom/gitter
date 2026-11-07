@@ -116,6 +116,38 @@ export const api = {
   createPatch: (path: string, hash: string) =>
     fetchJson<{ success: boolean; patch: string }>('/repo/create-patch', { method: 'POST', body: JSON.stringify({ path, hash }) }),
 
+  // Line & Hunk Patch Operations
+  stagePatch: (path: string, patch: string) =>
+    fetchJson<{ success: boolean }>('/repo/patch/stage', { method: 'POST', body: JSON.stringify({ path, patch }) }),
+
+  unstagePatch: (path: string, patch: string) =>
+    fetchJson<{ success: boolean }>('/repo/patch/unstage', { method: 'POST', body: JSON.stringify({ path, patch }) }),
+
+  discardPatch: (path: string, patch: string) =>
+    fetchJson<{ success: boolean }>('/repo/patch/discard', { method: 'POST', body: JSON.stringify({ path, patch }) }),
+
+  // Commit Comparison / Range Diff
+  compareCommits: (path: string, base: string, target: string) =>
+    fetchJson<{
+      files: Array<{ path: string; status: string; additions: number; deletions: number }>;
+      summary: string;
+    }>(`/repo/compare?path=${encodeURIComponent(path)}&base=${encodeURIComponent(base)}&target=${encodeURIComponent(target)}`),
+
+  getComparisonFileDiff: (path: string, base: string, target: string, file: string): Promise<FileDiff[]> =>
+    fetchJson(`/repo/compare/file?path=${encodeURIComponent(path)}&base=${encodeURIComponent(base)}&target=${encodeURIComponent(target)}&file=${encodeURIComponent(file)}`),
+
+  // File content at git ref
+  getFileAtRef: (path: string, ref: string, file: string) =>
+    fetchJson<{ content: string }>(`/repo/file/ref?path=${encodeURIComponent(path)}&ref=${encodeURIComponent(ref)}&file=${encodeURIComponent(file)}`),
+
+  // Conflict manual resolution
+  saveConflictResolution: (path: string, file: string, content: string, stage = true) =>
+    fetchJson<{ success: boolean }>('/repo/conflict/resolve-manual', { method: 'POST', body: JSON.stringify({ path, file, content, stage }) }),
+
+  // 1-Click Undo
+  undoLastAction: (path: string) =>
+    fetchJson<{ success: boolean; message: string; action: string }>('/repo/undo', { method: 'POST', body: JSON.stringify({ path }) }),
+
   // Remotes
   getRemotes: (path: string): Promise<Remote[]> =>
     fetchJson(`/repo/remotes?path=${encodeURIComponent(path)}`),

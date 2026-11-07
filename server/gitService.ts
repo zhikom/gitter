@@ -882,6 +882,128 @@ export class GitService {
   async setGitConfig(repoPath: string, key: string, value: string): Promise<void> {
     await this.runGitRaw(`config ${key} "${value}"`, repoPath);
   }
+
+  runGitWithStdin(args: string[], stdinData: string, cwd: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const child = spawn('git', args, { cwd, windowsHide: true });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (d) => { stdout += d.toString(); });
+      child.stderr.on('data', (d) => { stderr += d.toString(); });
+      child.on('close', (code) => {
+        if (code === 0) resolve(stdout);
+        else reject(new Error(stderr || `Git exited with code ${code}`));
+      });
+      child.on('error', (err) => reject(err));
+      child.stdin.write(stdinData);
+      child.stdin.end();
+    });
+  }
+
+  // Patch operations for hunk and line staging/discarding
+  async stagePatch(repoPath: string, patch: string): Promise<void> {
+    await this.runGitWithStdin(['apply', '--cached', '--unidiff-zero', '--whitespace=nowarn', '-'], patch, repoPath);
+  }
+
+  async unstagePatch(repoPath: string, patch: string): Promise<void> {
+    await this.runGitWithStdin(['apply', '--cached', '--reverse', '--unidiff-zero', '--whitespace=nowarn', '-'], patch, repoPath);
+  }
+
+  async discardPatch(repoPath: string, patch: string): Promise<void> {
+    await this.runGitWithStdin(['apply', '--reverse', '--unidiff-zero', '--whitespace=nowarn', '-'], patch, repoPath);
+  }
+
+  // Commit Comparison / Range Diff
+  async compareCommits(repoPath: string, baseHash: string, targetHash: string): Promise<{
+    files: Array<{ path: string; status: string; additions: number; deletions: number }>;
+    summary: string;
+  }> {
+    const rawNumstat = await this.runGitRaw(`diff --numstat ${baseHash} ${targetHash}`, repoPath);
+    const rawStatus = await this.runGitRaw(`diff --name-status ${baseHash} ${targetHash}`, repoPath);
+    
+    const statusMap = new Map<string, string>();
+    for (const line of rawStatus.split('\n')) {
+      const parts = line.trim().split(/\t+/);
+      if (parts.length >= 2) {
+        statusMap.set(parts[1], parts[0]);
+      }
+    }
+
+    const files: Array<{ path: string; status: string; additions: number; deletions: number }> = [];
+    let totalAdd = 0;
+    let totalDel = 0;
+
+    for (const line of rawNumstat.split('\n')) {
+      const parts = line.trim().split(/\t+/);
+      if (parts.length >= 3) {
+        const add = parseInt(parts[0], 10) || 0;
+        const del = parseInt(parts[1], 10) || 0;
+        const filePath = parts[2];
+        const status = statusMap.get(filePath) || 'M';
+        files.push({ path: filePath, status, additions: add, deletions: del });
+        totalAdd += add;
+        totalDel += del;
+      }
+    }
+
+    const summary = `${files.length} files changed, +${totalAdd} -${totalDel}`;
+    return { files, summary };
+  }
+
+  async getComparisonFileDiff(repoPath: string, baseHash: string, targetHash: string, filePath: string): Promise<FileDiff[]> {
+    const rawDiff = await this.runGitRaw(`diff ${baseHash} ${targetHash} -- "${filePath}"`, repoPath);
+    return parseGitDiff(rawDiff);
+  }
+
+  // File content at git ref (e.g. :1:path, :2:path, :3:path, HEAD:path)
+  async getFileAtRef(repoPath: string, ref: string, filePath: string): Promise<string> {
+    try {
+      return await this.runGitRaw(`show ${ref}:"${filePath}"`, repoPath);
+    } catch {
+      return '';
+    }
+  }
+
+  // Save manual conflict resolution & optionally stage
+  async saveConflictResolution(repoPath: string, filePath: string, content: string, stage: boolean = true): Promise<void> {
+    const fullPath = path.resolve(repoPath, filePath);
+    await fs.promises.writeFile(fullPath, content, 'utf8');
+    if (stage) {
+      await this.runGitRaw(`add "${filePath}"`, repoPath);
+    }
+  }
+
+  // Undo last action using Reflog
+  async undoLastAction(repoPath: string): Promise<{ success: boolean; message: string; action: string }> {
+    const reflogOut = await this.runGitRaw('reflog -2 --format="%H %gd %gs"', repoPath);
+    const entries = reflogOut.trim().split('\n');
+    if (entries.length < 2) {
+      throw new Error('No previous action found in reflog to undo');
+    }
+
+    const currentEntry = entries[0];
+    const actionDesc = currentEntry.split(' ').slice(2).join(' ');
+
+    // If last action was a commit (e.g. "commit: ..."), undo with soft reset to preserve working tree changes
+    if (actionDesc.startsWith('commit:') || actionDesc.startsWith('commit (amend):')) {
+      await this.runGitRaw('reset --soft HEAD@{1}', repoPath);
+      return { success: true, message: `Undid commit: "${actionDesc}". Changes kept in staging area.`, action: actionDesc };
+    }
+
+    // If last action was checkout
+    if (actionDesc.startsWith('checkout:')) {
+      const match = actionDesc.match(/moving from (.+?) to (.+)/);
+      if (match) {
+        const previousBranch = match[1];
+        await this.runGitRaw(`checkout ${previousBranch}`, repoPath);
+        return { success: true, message: `Returned back to ${previousBranch}`, action: actionDesc };
+      }
+    }
+
+    // Otherwise soft reset to HEAD@{1}
+    await this.runGitRaw('reset --soft HEAD@{1}', repoPath);
+    return { success: true, message: `Rolled back to HEAD@{1} (${actionDesc})`, action: actionDesc };
+  }
 }
 
 export const gitService = new GitService();

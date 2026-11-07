@@ -16,6 +16,8 @@ import {
   Check,
   Tag as TagIcon,
   Sparkles,
+  Undo2,
+  History,
 } from 'lucide-react';
 import { Branch, Commit, Tag } from '../../types/git';
 
@@ -31,6 +33,8 @@ interface QuickLaunchModalProps {
   onFetch: () => void;
   onStash: () => void;
   onPopStash: () => void;
+  onUndo?: () => void;
+  onOpenReflog?: () => void;
   onCreateBranch: () => void;
   onOpenSettings: () => void;
   onOpenWorktrees: () => void;
@@ -61,6 +65,8 @@ export const QuickLaunchModal: React.FC<QuickLaunchModalProps> = ({
   onFetch,
   onStash,
   onPopStash,
+  onUndo,
+  onOpenReflog,
   onCreateBranch,
   onOpenSettings,
   onOpenWorktrees,
@@ -143,6 +149,28 @@ export const QuickLaunchModal: React.FC<QuickLaunchModalProps> = ({
       icon: <RotateCcw className="w-4 h-4 text-amber-400" />,
       run: () => {
         onPopStash();
+        onClose();
+      },
+    },
+    {
+      id: 'cmd-undo',
+      category: 'Commands',
+      title: 'Git: 1-Click Undo Last Action',
+      subtitle: 'Rollback commit, rebase, or checkout safely (Ctrl+Z)',
+      icon: <Undo2 className="w-4 h-4 text-amber-400" />,
+      run: () => {
+        onUndo?.();
+        onClose();
+      },
+    },
+    {
+      id: 'cmd-reflog',
+      category: 'Commands',
+      title: 'Git: View Reflog Timeline...',
+      subtitle: 'Inspect HEAD history and recover lost commits',
+      icon: <History className="w-4 h-4 text-teal-400" />,
+      run: () => {
+        onOpenReflog?.();
         onClose();
       },
     },

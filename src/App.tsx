@@ -23,7 +23,10 @@ import { StashModal } from './components/Modals/StashModal';
 import { CloneRepoModal } from './components/Modals/CloneRepoModal';
 import { OpenRepoModal } from './components/Modals/OpenRepoModal';
 import { SettingsModal } from './components/Modals/SettingsModal';
-import { ConflictModal } from './components/Modals/ConflictModal';
+import { ThreeWayConflictResolverModal } from './components/ConflictResolver/ThreeWayConflictResolverModal';
+import { CommitComparisonModal } from './components/CommitComparison/CommitComparisonModal';
+import { ReflogModal } from './components/Modals/ReflogModal';
+import { RepoTabBar, RepoTab } from './components/Navigation/RepoTabBar';
 import { InteractiveRebaseModal } from './components/Rebase/InteractiveRebaseModal';
 import { FileBlameModal } from './components/Blame/FileBlameModal';
 import { WorktreesModal } from './components/Worktrees/WorktreesModal';
@@ -98,6 +101,21 @@ export const App: React.FC = () => {
   const [conflictModalData, setConflictModalData] = useState<{ rawDiff: string; file: string } | null>(null);
   const [branchAction, setBranchAction] = useState<{ source: string; target: string } | null>(null);
 
+  // Multi-Repo Tabs
+  const [repoTabs, setRepoTabs] = useState<RepoTab[]>(() => {
+    try {
+      const stored = localStorage.getItem('gitter_open_repo_tabs');
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return [];
+  });
+
+  // Two-Commit Comparison
+  const [comparisonCommits, setComparisonCommits] = useState<{ base: Commit; target: Commit } | null>(null);
+
+  // Reflog Modal
+  const [showReflogModal, setShowReflogModal] = useState<boolean>(false);
+
   // Initialize repository
   const refreshRepo = useCallback(async (path?: string) => {
     setLoading(true);
@@ -106,6 +124,24 @@ export const App: React.FC = () => {
       const state = await api.getRepoState(current);
       setRepoState(state);
       if (!repoPath || path) setRepoPath(state.path);
+
+      // Sync open repository tabs
+      setRepoTabs((prev) => {
+        const repoName = state.path.split(/[\\/]/).filter(Boolean).pop() || 'repo';
+        const exists = prev.some((t) => t.path.toLowerCase() === state.path.toLowerCase());
+        let updated: RepoTab[];
+        if (exists) {
+          updated = prev.map((t) =>
+            t.path.toLowerCase() === state.path.toLowerCase()
+              ? { ...t, name: repoName, branch: state.currentBranch, isClean: state.isClean }
+              : t
+          );
+        } else {
+          updated = [...prev, { path: state.path, name: repoName, branch: state.currentBranch, isClean: state.isClean }];
+        }
+        localStorage.setItem('gitter_open_repo_tabs', JSON.stringify(updated));
+        return updated;
+      });
 
       // Fetch all Git and GitHub data in parallel
       const [
@@ -223,6 +259,20 @@ export const App: React.FC = () => {
       else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'a' || e.key === 'A')) {
         e.preventDefault();
         setIsAgentOpen((prev) => !prev);
+      }
+      // Ctrl+T: Open Launchpad in new tab
+      else if ((e.ctrlKey || e.metaKey) && (e.key === 't' || e.key === 'T')) {
+        e.preventDefault();
+        setShowLaunchpadModal(true);
+      }
+      // Ctrl+Z: 1-Click Undo (only when not in textarea/input)
+      else if (
+        (e.ctrlKey || e.metaKey) &&
+        (e.key === 'z' || e.key === 'Z') &&
+        !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)
+      ) {
+        e.preventDefault();
+        handleUndo();
       }
     };
 
@@ -567,6 +617,61 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleCloseTab = (pathToClose: string) => {
+    setRepoTabs((prev) => {
+      const filtered = prev.filter((t) => t.path.toLowerCase() !== pathToClose.toLowerCase());
+      localStorage.setItem('gitter_open_repo_tabs', JSON.stringify(filtered));
+      if (pathToClose.toLowerCase() === repoPath.toLowerCase()) {
+        if (filtered.length > 0) {
+          refreshRepo(filtered[0].path);
+        } else {
+          setShowLaunchpadModal(true);
+        }
+      }
+      return filtered;
+    });
+  };
+
+  const handleUndo = async () => {
+    setLoading(true);
+    try {
+      const res = await api.undoLastAction(repoPath);
+      alert(`Undo successful: ${res.message}`);
+      await refreshRepo();
+    } catch (e: any) {
+      alert(`Undo failed: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStagePatch = async (patch: string) => {
+    try {
+      await api.stagePatch(repoPath, patch);
+      await refreshRepo();
+    } catch (e: any) {
+      alert(`Stage patch failed: ${e.message}`);
+    }
+  };
+
+  const handleUnstagePatch = async (patch: string) => {
+    try {
+      await api.unstagePatch(repoPath, patch);
+      await refreshRepo();
+    } catch (e: any) {
+      alert(`Unstage patch failed: ${e.message}`);
+    }
+  };
+
+  const handleDiscardPatch = async (patch: string) => {
+    try {
+      await api.discardPatch(repoPath, patch);
+      await refreshRepo();
+    } catch (e: any) {
+      alert(`Discard patch failed: ${e.message}`);
+    }
+  };
+
   const handleDropStash = async (index: number = 0) => {
     await api.dropStash(repoPath, index);
     await refreshRepo();
@@ -610,6 +715,17 @@ export const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#14181f] text-slate-200">
+      {/* Top Multi-Repo Tab Bar */}
+      {repoTabs.length > 0 && (
+        <RepoTabBar
+          tabs={repoTabs}
+          activePath={repoPath}
+          onSelectTab={(path) => refreshRepo(path)}
+          onCloseTab={handleCloseTab}
+          onNewTab={() => setShowLaunchpadModal(true)}
+        />
+      )}
+
       {/* Top Header Toolbar */}
       <HeaderToolbar
         repoState={repoState}
@@ -617,6 +733,8 @@ export const App: React.FC = () => {
         onPull={handlePull}
         onPush={handlePush}
         onFetch={handleFetch}
+        onUndo={handleUndo}
+        onOpenReflog={() => setShowReflogModal(true)}
         onOpenBranchModal={() => {
           setBranchStartPoint(repoState?.currentBranch || 'HEAD');
           setShowBranchModal(true);
@@ -765,6 +883,7 @@ export const App: React.FC = () => {
             onInteractiveRebase={(baseHash) => setRebaseBaseHash(baseHash)}
             onOpenInVsCode={(hash) => handleOpenInVsCode()}
             onCreatePatch={handleCreatePatch}
+            onCompareCommits={(base, target) => setComparisonCommits({ base, target })}
           />
         </div>
 
@@ -865,6 +984,9 @@ export const App: React.FC = () => {
                   onResolveConflict={handleOpenConflictModal}
                   onOpenBlame={(file) => setBlameFilePath(file)}
                   onOpenExternalDiff={handleOpenExternalDiff}
+                  onStagePatch={handleStagePatch}
+                  onUnstagePatch={handleUnstagePatch}
+                  onDiscardPatch={handleDiscardPatch}
                 />
               </div>
 
@@ -1007,11 +1129,36 @@ export const App: React.FC = () => {
       )}
 
       {conflictModalData && (
-        <ConflictModal
+        <ThreeWayConflictResolverModal
           filePath={conflictModalData.file}
           rawDiff={conflictModalData.rawDiff}
+          repoPath={repoPath}
           onClose={() => setConflictModalData(null)}
-          onApplyResolution={handleApplyConflictResolution}
+          onResolved={() => {
+            setConflictModalData(null);
+            refreshRepo();
+          }}
+        />
+      )}
+
+      {comparisonCommits && (
+        <CommitComparisonModal
+          baseCommit={comparisonCommits.base}
+          targetCommit={comparisonCommits.target}
+          repoPath={repoPath}
+          onClose={() => setComparisonCommits(null)}
+        />
+      )}
+
+      {showReflogModal && (
+        <ReflogModal
+          repoPath={repoPath}
+          onClose={() => setShowReflogModal(false)}
+          onRefresh={() => refreshRepo()}
+          onCreateBranchAt={(hash) => {
+            setBranchStartPoint(hash);
+            setShowBranchModal(true);
+          }}
         />
       )}
 
@@ -1041,6 +1188,8 @@ export const App: React.FC = () => {
           onFetch={handleFetch}
           onStash={() => setShowStashModal(true)}
           onPopStash={() => handlePopStash(0)}
+          onUndo={handleUndo}
+          onOpenReflog={() => setShowReflogModal(true)}
           onCreateBranch={() => {
             setBranchStartPoint(repoState?.currentBranch || 'HEAD');
             setShowBranchModal(true);

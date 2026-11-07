@@ -17,6 +17,8 @@ import {
   PanelLeft,
   PanelRight,
   LayoutGrid,
+  Undo2,
+  History,
 } from 'lucide-react';
 import { RepositoryState } from '../types/git';
 
@@ -31,6 +33,8 @@ interface HeaderToolbarProps {
   onPopStash: () => void;
   onOpenQuickLaunch?: () => void;
   onOpenLaunchpad?: () => void;
+  onUndo?: () => void;
+  onOpenReflog?: () => void;
   onToggleSidebar?: () => void;
   onToggleStaging?: () => void;
   onToggleAgent: () => void;
@@ -55,6 +59,8 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
   onPopStash,
   onOpenQuickLaunch,
   onOpenLaunchpad,
+  onUndo,
+  onOpenReflog,
   onToggleSidebar,
   onToggleStaging,
   onToggleAgent,
@@ -307,6 +313,31 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
           <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${loading ? 'animate-spin' : ''}`} />
           <span>Fetch</span>
         </button>
+
+        {/* 1-Click Undo */}
+        {onUndo && (
+          <button
+            onClick={onUndo}
+            disabled={loading}
+            title="1-Click Undo last action (Ctrl+Z)"
+            className="flex items-center space-x-1.5 px-2.5 py-1.5 bg-[#202735] hover:bg-[#2d384c] border border-[#2a3447] rounded text-xs text-amber-300 hover:text-amber-200 transition disabled:opacity-50"
+          >
+            <Undo2 className="w-3.5 h-3.5 text-amber-400" />
+            <span>Undo</span>
+          </button>
+        )}
+
+        {/* Reflog Timeline */}
+        {onOpenReflog && (
+          <button
+            onClick={onOpenReflog}
+            title="View Git Reflog & History Timeline"
+            className="flex items-center space-x-1.5 px-2.5 py-1.5 bg-[#202735] hover:bg-[#2d384c] border border-[#2a3447] rounded text-xs text-slate-300 hover:text-teal-300 transition"
+          >
+            <History className="w-3.5 h-3.5 text-teal-400" />
+            <span>Reflog</span>
+          </button>
+        )}
       </div>
 
       {/* Right: Quick Launch, AI Agent, Staging Toggle, Settings, Refresh */}
