@@ -93,6 +93,12 @@ export const api = {
   deleteBranch: (path: string, name: string, force = false) =>
     fetchJson('/repo/branch/delete', { method: 'POST', body: JSON.stringify({ path, name, force }) }),
 
+  renameBranch: (path: string, oldName: string, newName: string) =>
+    fetchJson('/repo/branch/rename', { method: 'POST', body: JSON.stringify({ path, oldName, newName }) }),
+
+  revealInExplorer: (path: string, file?: string) =>
+    fetchJson('/repo/reveal', { method: 'POST', body: JSON.stringify({ path, file }) }),
+
   // Remotes
   getRemotes: (path: string): Promise<Remote[]> =>
     fetchJson(`/repo/remotes?path=${encodeURIComponent(path)}`),
@@ -116,6 +122,9 @@ export const api = {
   popStash: (path: string, index = 0) =>
     fetchJson('/repo/stash/pop', { method: 'POST', body: JSON.stringify({ path, index }) }),
 
+  applyStash: (path: string, index = 0) =>
+    fetchJson<{ success: boolean; output: string }>('/repo/stash/apply', { method: 'POST', body: JSON.stringify({ path, index }) }),
+
   dropStash: (path: string, index = 0) =>
     fetchJson('/repo/stash/drop', { method: 'POST', body: JSON.stringify({ path, index }) }),
 
@@ -128,6 +137,9 @@ export const api = {
 
   deleteTag: (path: string, name: string) =>
     fetchJson('/repo/tag/delete', { method: 'POST', body: JSON.stringify({ path, name }) }),
+
+  pushTag: (path: string, tag: string, remote = 'origin') =>
+    fetchJson<{ success: boolean; output: string }>('/repo/tag/push', { method: 'POST', body: JSON.stringify({ path, tag, remote }) }),
 
   // History
   revert: (path: string, hash: string) =>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FileStatus, GitFileState } from '../../types/git';
 import {
   Plus,
@@ -11,6 +11,8 @@ import {
   FileDiff,
   CheckCheck,
   Undo2,
+  Copy,
+  ExternalLink,
 } from 'lucide-react';
 
 interface StagingPanelProps {
@@ -23,6 +25,14 @@ interface StagingPanelProps {
   onUnstageAll: () => void;
   onDiscardFile: (file: string) => void;
   onDiscardAll: () => void;
+  onOpenBlame?: (file: string) => void;
+  onRevealInExplorer?: (file: string) => void;
+}
+
+interface ContextMenuState {
+  x: number;
+  y: number;
+  file: FileStatus;
 }
 
 export const StagingPanel: React.FC<StagingPanelProps> = ({
@@ -35,9 +45,18 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
   onUnstageAll,
   onDiscardFile,
   onDiscardAll,
+  onOpenBlame,
+  onRevealInExplorer,
 }) => {
   const stagedFiles = statuses.filter((s) => s.staged);
   const unstagedFiles = statuses.filter((s) => !s.staged);
+
+  // Drag and drop state
+  const [isDragOverStaged, setIsDragOverStaged] = useState<boolean>(false);
+  const [isDragOverUnstaged, setIsDragOverUnstaged] = useState<boolean>(false);
+
+  // Context Menu state
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   const getStatusBadge = (status: GitFileState) => {
     switch (status) {
@@ -56,8 +75,21 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
     }
   };
 
+  const handleFileContextMenu = (e: React.MouseEvent, file: FileStatus) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      file,
+    });
+  };
+
   return (
-    <div className="w-80 bg-[#181d26] border-l border-[#2a3447] flex flex-col h-full select-none text-slate-300">
+    <div
+      className="w-80 bg-[#181d26] border-l border-[#2a3447] flex flex-col h-full select-none text-slate-300 relative"
+      onClick={() => setContextMenu(null)}
+    >
       {/* Header */}
       <div className="h-10 bg-[#1b212c] border-b border-[#2a3447] flex items-center justify-between px-3 text-xs font-semibold text-slate-300">
         <div className="flex items-center space-x-2">
@@ -71,8 +103,27 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
 
       {/* Lists Container */}
       <div className="flex-1 overflow-y-auto">
-        {/* STAGED SECTION */}
-        <div className="border-b border-[#222a3a]">
+        {/* STAGED SECTION (DROPZONE FOR UNSTAGED FILES) */}
+        <div
+          className={`border-b border-[#222a3a] transition ${
+            isDragOverStaged ? 'bg-emerald-500/10 ring-2 ring-emerald-500' : ''
+          }`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            setIsDragOverStaged(true);
+          }}
+          onDragLeave={() => setIsDragOverStaged(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragOverStaged(false);
+            const path = e.dataTransfer.getData('application/x-gitter-file-path');
+            const staged = e.dataTransfer.getData('application/x-gitter-file-staged') === 'true';
+            if (path && !staged) {
+              onStageFile(path);
+            }
+          }}
+        >
           <div className="flex items-center justify-between px-3 py-2 bg-[#1c222e] text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
             <div className="flex items-center space-x-1.5">
               <span>Staged Files</span>
@@ -93,15 +144,26 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
 
           <div className="py-1">
             {stagedFiles.length === 0 ? (
-              <div className="px-4 py-2 text-xs text-slate-600 italic">No staged files</div>
+              <div className="px-4 py-2 text-xs text-slate-600 italic">
+                {isDragOverStaged ? 'Drop to stage file' : 'No staged files'}
+              </div>
             ) : (
               stagedFiles.map((file) => {
                 const isSelected = selectedFile === file.path;
                 return (
                   <div
                     key={`staged-${file.path}`}
+                    draggable={true}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('text/plain', file.path);
+                      e.dataTransfer.setData('application/x-gitter-file-path', file.path);
+                      e.dataTransfer.setData('application/x-gitter-file-staged', 'true');
+                    }}
                     onClick={() => onSelectFile(file.path, true)}
-                    className={`group flex items-center justify-between px-3 py-1 text-xs cursor-pointer transition ${
+                    onDoubleClick={() => onUnstageFile(file.path)}
+                    onContextMenu={(e) => handleFileContextMenu(e, file)}
+                    title={`Click to view diff. Double-click to unstage. Right-click for options. Drag to Unstaged below.`}
+                    className={`group flex items-center justify-between px-3 py-1 text-xs cursor-pointer transition select-none ${
                       isSelected ? 'bg-[#263245] text-white' : 'hover:bg-[#202735] text-slate-300'
                     }`}
                   >
@@ -129,8 +191,25 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
           </div>
         </div>
 
-        {/* UNSTAGED SECTION */}
-        <div>
+        {/* UNSTAGED SECTION (DROPZONE FOR STAGED FILES) */}
+        <div
+          className={`transition ${isDragOverUnstaged ? 'bg-amber-500/10 ring-2 ring-amber-500' : ''}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            setIsDragOverUnstaged(true);
+          }}
+          onDragLeave={() => setIsDragOverUnstaged(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragOverUnstaged(false);
+            const path = e.dataTransfer.getData('application/x-gitter-file-path');
+            const staged = e.dataTransfer.getData('application/x-gitter-file-staged') === 'true';
+            if (path && staged) {
+              onUnstageFile(path);
+            }
+          }}
+        >
           <div className="flex items-center justify-between px-3 py-2 bg-[#1c222e] text-[11px] font-bold text-amber-400 uppercase tracking-wider">
             <div className="flex items-center space-x-1.5">
               <span>Unstaged Files</span>
@@ -161,15 +240,26 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
 
           <div className="py-1">
             {unstagedFiles.length === 0 ? (
-              <div className="px-4 py-2 text-xs text-slate-600 italic">No unstaged changes</div>
+              <div className="px-4 py-2 text-xs text-slate-600 italic">
+                {isDragOverUnstaged ? 'Drop to unstage file' : 'No unstaged changes'}
+              </div>
             ) : (
               unstagedFiles.map((file) => {
                 const isSelected = selectedFile === file.path;
                 return (
                   <div
                     key={`unstaged-${file.path}`}
+                    draggable={true}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('text/plain', file.path);
+                      e.dataTransfer.setData('application/x-gitter-file-path', file.path);
+                      e.dataTransfer.setData('application/x-gitter-file-staged', 'false');
+                    }}
                     onClick={() => onSelectFile(file.path, false)}
-                    className={`group flex items-center justify-between px-3 py-1 text-xs cursor-pointer transition ${
+                    onDoubleClick={() => onStageFile(file.path)}
+                    onContextMenu={(e) => handleFileContextMenu(e, file)}
+                    title={`Click to view diff. Double-click to stage. Right-click for options. Drag to Staged above.`}
+                    className={`group flex items-center justify-between px-3 py-1 text-xs cursor-pointer transition select-none ${
                       isSelected ? 'bg-[#263245] text-white' : 'hover:bg-[#202735] text-slate-300'
                     }`}
                   >
@@ -209,6 +299,98 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
           </div>
         </div>
       </div>
+
+      {/* CONTEXT MENU */}
+      {contextMenu && (
+        <div
+          style={{
+            top: Math.min(contextMenu.y, window.innerHeight - 240),
+            left: Math.min(contextMenu.x, window.innerWidth - 220),
+          }}
+          className="fixed bg-[#1b212c] border border-[#2a3447] rounded-md shadow-2xl py-1 z-50 text-xs text-slate-200 min-w-[200px]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-3 py-1 font-mono text-[11px] text-teal-400 border-b border-[#2a3447] truncate">
+            {contextMenu.file.path}
+          </div>
+
+          {contextMenu.file.staged ? (
+            <button
+              onClick={() => {
+                onUnstageFile(contextMenu.file.path);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-amber-300"
+            >
+              <Minus className="w-3.5 h-3.5 text-amber-400" />
+              <span>Unstage file</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                onStageFile(contextMenu.file.path);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-teal-300"
+            >
+              <Plus className="w-3.5 h-3.5 text-teal-400" />
+              <span>Stage file</span>
+            </button>
+          )}
+
+          {onOpenBlame && (
+            <button
+              onClick={() => {
+                onOpenBlame(contextMenu.file.path);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-slate-200"
+            >
+              <FileText className="w-3.5 h-3.5 text-blue-400" />
+              <span>View Blame / File History</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(contextMenu.file.path);
+              setContextMenu(null);
+            }}
+            className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-slate-400"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            <span>Copy file path</span>
+          </button>
+
+          {onRevealInExplorer && (
+            <button
+              onClick={() => {
+                onRevealInExplorer(contextMenu.file.path);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-slate-300"
+            >
+              <ExternalLink className="w-3.5 h-3.5 text-teal-400" />
+              <span>Reveal in File Explorer</span>
+            </button>
+          )}
+
+          <div className="border-t border-[#2a3447] my-1" />
+
+          <button
+            onClick={() => {
+              if (confirm(`Discard changes to ${contextMenu.file.path}?`)) {
+                onDiscardFile(contextMenu.file.path);
+              }
+              setContextMenu(null);
+            }}
+            className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-red-400"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Discard changes</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

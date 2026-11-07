@@ -191,6 +191,26 @@ app.post('/api/repo/branch/delete', async (req, res) => {
   }
 });
 
+app.post('/api/repo/branch/rename', async (req, res) => {
+  try {
+    const { path: repoPath, oldName, newName } = req.body;
+    await gitService.renameBranch(resolvePath(repoPath), oldName, newName);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/reveal', async (req, res) => {
+  try {
+    const { path: repoPath, file } = req.body;
+    await gitService.revealInExplorer(resolvePath(repoPath), file);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Remotes & Network (Fetch, Pull, Push)
 app.get('/api/repo/remotes', async (req, res) => {
   try {
@@ -263,6 +283,16 @@ app.post('/api/repo/stash/pop', async (req, res) => {
   }
 });
 
+app.post('/api/repo/stash/apply', async (req, res) => {
+  try {
+    const { path: repoPath, index } = req.body;
+    const output = await gitService.applyStash(resolvePath(repoPath), index);
+    res.json({ success: true, output });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/repo/stash/drop', async (req, res) => {
   try {
     const { path: repoPath, index } = req.body;
@@ -299,6 +329,16 @@ app.post('/api/repo/tag/delete', async (req, res) => {
     const { path: repoPath, name } = req.body;
     await gitService.deleteTag(resolvePath(repoPath), name);
     res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/tag/push', async (req, res) => {
+  try {
+    const { path: repoPath, remote, tag } = req.body;
+    const output = await gitService.pushTag(resolvePath(repoPath), remote || 'origin', tag);
+    res.json({ success: true, output });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

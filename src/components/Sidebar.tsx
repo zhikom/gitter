@@ -16,6 +16,10 @@ import {
   Box,
   RefreshCw,
   GitPullRequest,
+  Copy,
+  Edit2,
+  UploadCloud,
+  DownloadCloud,
 } from 'lucide-react';
 import { Branch, PullRequest, Remote, Stash, Submodule, Tag, Worktree } from '../types/git';
 
@@ -30,16 +34,28 @@ interface SidebarProps {
   currentBranch: string;
   onCheckoutBranch: (name: string) => void;
   onDeleteBranch: (name: string) => void;
+  onRenameBranch?: (oldName: string, newName: string) => void;
+  onPushBranch?: (name: string) => void;
+  onBranchDrop?: (sourceBranch: string, targetBranch: string) => void;
   onPopStash: (index: number) => void;
+  onApplyStash?: (index: number) => void;
   onDropStash: (index: number) => void;
   onDeleteTag: (name: string) => void;
+  onPushTag?: (name: string) => void;
   onCreateBranch: () => void;
   onCreateTag: () => void;
   onViewPr?: (pr: PullRequest) => void;
-  onCreatePr?: () => void;
+  onCreatePr?: (branch?: string) => void;
   onOpenWorktrees?: () => void;
   onSwitchWorktree?: (path: string) => void;
   onUpdateSubmodules?: () => void;
+}
+
+interface ContextMenuState {
+  x: number;
+  y: number;
+  type: 'localBranch' | 'remoteBranch' | 'tag' | 'stash';
+  item: any;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -53,9 +69,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentBranch,
   onCheckoutBranch,
   onDeleteBranch,
+  onRenameBranch,
+  onPushBranch,
+  onBranchDrop,
   onPopStash,
+  onApplyStash,
   onDropStash,
   onDeleteTag,
+  onPushTag,
   onCreateBranch,
   onCreateTag,
   onViewPr,
@@ -73,11 +94,58 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [expandWorktrees, setExpandWorktrees] = useState(false);
   const [expandSubmodules, setExpandSubmodules] = useState(false);
 
-  const localBranches = branches.filter(b => !b.isRemote);
-  const remoteBranches = branches.filter(b => b.isRemote);
+  // Drag and drop state
+  const [draggedBranch, setDraggedBranch] = useState<string | null>(null);
+  const [dragOverBranch, setDragOverBranch] = useState<string | null>(null);
+
+  // Context Menu state
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+
+  const localBranches = branches.filter((b) => !b.isRemote);
+  const remoteBranches = branches.filter((b) => b.isRemote);
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+  };
+
+  const handleBranchContextMenu = (e: React.MouseEvent, branch: Branch) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      type: branch.isRemote ? 'remoteBranch' : 'localBranch',
+      item: branch,
+    });
+  };
+
+  const handleTagContextMenu = (e: React.MouseEvent, tag: Tag) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      type: 'tag',
+      item: tag,
+    });
+  };
+
+  const handleStashContextMenu = (e: React.MouseEvent, stash: Stash) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      type: 'stash',
+      item: stash,
+    });
+  };
 
   return (
-    <aside className="w-64 bg-[#181d26] border-r border-[#2a3447] flex flex-col h-full text-slate-300 select-none overflow-y-auto">
+    <aside
+      className="w-64 bg-[#181d26] border-r border-[#2a3447] flex flex-col h-full text-slate-300 select-none overflow-y-auto relative"
+      onClick={() => setContextMenu(null)}
+    >
       {/* LOCAL BRANCHES */}
       <div className="border-b border-[#222a3a]">
         <div
@@ -106,15 +174,49 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="pb-1">
             {localBranches.map((branch) => {
               const isCurrent = branch.name === currentBranch;
+              const isDragOver = dragOverBranch === branch.name;
+
               return (
                 <div
                   key={branch.name}
-                  onClick={() => onCheckoutBranch(branch.name)}
-                  className={`group flex items-center justify-between px-3 py-1.5 text-xs cursor-pointer transition ${
+                  draggable={true}
+                  onDragStart={(e) => {
+                    setDraggedBranch(branch.name);
+                    e.dataTransfer.setData('text/plain', branch.name);
+                    e.dataTransfer.setData('application/x-gitter-branch', branch.name);
+                  }}
+                  onDragEnd={() => {
+                    setDraggedBranch(null);
+                    setDragOverBranch(null);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (draggedBranch && draggedBranch !== branch.name) {
+                      setDragOverBranch(branch.name);
+                    }
+                  }}
+                  onDragLeave={() => {
+                    if (dragOverBranch === branch.name) {
+                      setDragOverBranch(null);
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const source = e.dataTransfer.getData('application/x-gitter-branch') || draggedBranch;
+                    setDragOverBranch(null);
+                    setDraggedBranch(null);
+                    if (source && source !== branch.name && onBranchDrop) {
+                      onBranchDrop(source, branch.name);
+                    }
+                  }}
+                  onDoubleClick={() => onCheckoutBranch(branch.name)}
+                  onContextMenu={(e) => handleBranchContextMenu(e, branch)}
+                  title={`Double click to checkout ${branch.name}. Drag onto another branch to merge/rebase.`}
+                  className={`group flex items-center justify-between px-3 py-1.5 text-xs cursor-pointer transition select-none ${
                     isCurrent
                       ? 'bg-teal-500/15 text-teal-300 font-semibold border-l-2 border-teal-400'
                       : 'hover:bg-[#202735] text-slate-300'
-                  }`}
+                  } ${isDragOver ? 'ring-2 ring-teal-400 bg-teal-500/20' : ''}`}
                 >
                   <div className="flex items-center space-x-2 truncate">
                     {isCurrent ? (
@@ -174,7 +276,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {remoteBranches.map((branch) => (
               <div
                 key={branch.name}
-                onClick={() => onCheckoutBranch(branch.name)}
+                draggable={true}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('text/plain', branch.name);
+                  e.dataTransfer.setData('application/x-gitter-branch', branch.name);
+                }}
+                onDoubleClick={() => onCheckoutBranch(branch.name)}
+                onContextMenu={(e) => handleBranchContextMenu(e, branch)}
+                title={`Double click to checkout ${branch.name}`}
                 className="group flex items-center justify-between px-3 py-1.5 text-xs cursor-pointer hover:bg-[#202735] text-slate-400 hover:text-slate-200 transition"
               >
                 <div className="flex items-center space-x-2 truncate">
@@ -272,14 +381,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
               tags.map((tag) => (
                 <div
                   key={tag.name}
-                  className="group flex items-center justify-between px-3 py-1.5 text-xs hover:bg-[#202735] text-slate-300"
+                  onDoubleClick={() => onCheckoutBranch(tag.name)}
+                  onContextMenu={(e) => handleTagContextMenu(e, tag)}
+                  className="group flex items-center justify-between px-3 py-1.5 text-xs hover:bg-[#202735] text-slate-300 cursor-pointer"
                 >
                   <div className="flex items-center space-x-2 truncate">
                     <TagIcon className="w-3 h-3 text-yellow-400/70" />
                     <span className="font-mono truncate">{tag.name}</span>
                   </div>
                   <button
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       if (confirm(`Delete tag '${tag.name}'?`)) {
                         onDeleteTag(tag.name);
                       }
@@ -318,7 +430,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               stashes.map((stash) => (
                 <div
                   key={stash.name}
-                  className="group flex items-center justify-between px-3 py-1.5 text-xs hover:bg-[#202735] text-slate-300"
+                  onContextMenu={(e) => handleStashContextMenu(e, stash)}
+                  className="group flex items-center justify-between px-3 py-1.5 text-xs hover:bg-[#202735] text-slate-300 cursor-pointer"
                 >
                   <div className="flex items-center space-x-2 truncate">
                     <Archive className="w-3 h-3 text-amber-400/70 flex-shrink-0" />
@@ -326,14 +439,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                   <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100">
                     <button
-                      onClick={() => onPopStash(stash.index)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onPopStash(stash.index);
+                      }}
                       title="Pop stash"
                       className="p-1 hover:text-emerald-400 text-slate-500 rounded"
                     >
                       <RotateCcw className="w-3 h-3" />
                     </button>
                     <button
-                      onClick={() => onDropStash(stash.index)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDropStash(stash.index);
+                      }}
                       title="Drop stash"
                       className="p-1 hover:text-red-400 text-slate-500 rounded"
                     >
@@ -379,6 +498,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
       </div>
+
       {/* WORKTREES */}
       <div className="border-b border-[#222a3a]">
         <div
@@ -473,6 +593,255 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
       </div>
+
+      {/* CONTEXT MENU */}
+      {contextMenu && (
+        <div
+          style={{ top: Math.min(contextMenu.y, window.innerHeight - 280), left: Math.min(contextMenu.x, window.innerWidth - 220) }}
+          className="fixed bg-[#1b212c] border border-[#2a3447] rounded-md shadow-2xl py-1 z-50 text-xs text-slate-200 min-w-[210px]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {contextMenu.type === 'localBranch' && (
+            <>
+              <div className="px-3 py-1 font-mono text-[11px] text-teal-400 border-b border-[#2a3447] truncate">
+                {contextMenu.item.name}
+              </div>
+              <button
+                onClick={() => {
+                  onCheckoutBranch(contextMenu.item.name);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"
+              >
+                <GitBranch className="w-3.5 h-3.5 text-teal-400" />
+                <span>Checkout branch</span>
+              </button>
+
+              {contextMenu.item.name !== currentBranch && (
+                <>
+                  <button
+                    onClick={() => {
+                      if (onBranchDrop) onBranchDrop(contextMenu.item.name, currentBranch);
+                      setContextMenu(null);
+                    }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-teal-300"
+                  >
+                    <GitMerge className="w-3.5 h-3.5 text-teal-400" />
+                    <span>Merge into {currentBranch}</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (onBranchDrop) onBranchDrop(currentBranch, contextMenu.item.name);
+                      setContextMenu(null);
+                    }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-blue-300"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Rebase {currentBranch} onto {contextMenu.item.name}</span>
+                  </button>
+                </>
+              )}
+
+              <div className="border-t border-[#2a3447] my-1" />
+
+              {onPushBranch && (
+                <button
+                  onClick={() => {
+                    onPushBranch(contextMenu.item.name);
+                    setContextMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"
+                >
+                  <UploadCloud className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Push to origin/{contextMenu.item.name}</span>
+                </button>
+              )}
+
+              {onRenameBranch && (
+                <button
+                  onClick={() => {
+                    const newName = prompt(`Rename branch '${contextMenu.item.name}' to:`, contextMenu.item.name);
+                    if (newName && newName !== contextMenu.item.name) {
+                      onRenameBranch(contextMenu.item.name, newName.trim());
+                    }
+                    setContextMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"
+                >
+                  <Edit2 className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Rename branch...</span>
+                </button>
+              )}
+
+              {onCreatePr && (
+                <button
+                  onClick={() => {
+                    onCreatePr(contextMenu.item.name);
+                    setContextMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"
+                >
+                  <GitPullRequest className="w-3.5 h-3.5 text-purple-400" />
+                  <span>Create Pull Request...</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => {
+                  copyToClipboard(contextMenu.item.name);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-slate-400"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Copy branch name</span>
+              </button>
+
+              {contextMenu.item.name !== currentBranch && (
+                <>
+                  <div className="border-t border-[#2a3447] my-1" />
+                  <button
+                    onClick={() => {
+                      if (confirm(`Delete branch '${contextMenu.item.name}'?`)) {
+                        onDeleteBranch(contextMenu.item.name);
+                      }
+                      setContextMenu(null);
+                    }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-red-400"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete branch</span>
+                  </button>
+                </>
+              )}
+            </>
+          )}
+
+          {contextMenu.type === 'remoteBranch' && (
+            <>
+              <div className="px-3 py-1 font-mono text-[11px] text-blue-400 border-b border-[#2a3447] truncate">
+                {contextMenu.item.name}
+              </div>
+              <button
+                onClick={() => {
+                  onCheckoutBranch(contextMenu.item.name);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"
+              >
+                <GitBranch className="w-3.5 h-3.5 text-blue-400" />
+                <span>Checkout as local branch</span>
+              </button>
+              <button
+                onClick={() => {
+                  copyToClipboard(contextMenu.item.name);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-slate-400"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Copy branch name</span>
+              </button>
+            </>
+          )}
+
+          {contextMenu.type === 'tag' && (
+            <>
+              <div className="px-3 py-1 font-mono text-[11px] text-yellow-400 border-b border-[#2a3447] truncate">
+                Tag: {contextMenu.item.name}
+              </div>
+              <button
+                onClick={() => {
+                  onCheckoutBranch(contextMenu.item.name);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"
+              >
+                <TagIcon className="w-3.5 h-3.5 text-yellow-400" />
+                <span>Checkout tag</span>
+              </button>
+              {onPushTag && (
+                <button
+                  onClick={() => {
+                    onPushTag(contextMenu.item.name);
+                    setContextMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"
+                >
+                  <UploadCloud className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Push tag to origin</span>
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  copyToClipboard(contextMenu.item.name);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-slate-400"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Copy tag name</span>
+              </button>
+              <div className="border-t border-[#2a3447] my-1" />
+              <button
+                onClick={() => {
+                  if (confirm(`Delete tag '${contextMenu.item.name}'?`)) {
+                    onDeleteTag(contextMenu.item.name);
+                  }
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-red-400"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete tag</span>
+              </button>
+            </>
+          )}
+
+          {contextMenu.type === 'stash' && (
+            <>
+              <div className="px-3 py-1 font-mono text-[11px] text-amber-400 border-b border-[#2a3447] truncate">
+                {contextMenu.item.name}: {contextMenu.item.message || 'WIP'}
+              </div>
+              {onApplyStash && (
+                <button
+                  onClick={() => {
+                    onApplyStash(contextMenu.item.index);
+                    setContextMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-emerald-300"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Apply stash (keep in stash list)</span>
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  onPopStash(contextMenu.item.index);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"
+              >
+                <DownloadCloud className="w-3.5 h-3.5 text-blue-400" />
+                <span>Pop stash (apply & remove)</span>
+              </button>
+              <div className="border-t border-[#2a3447] my-1" />
+              <button
+                onClick={() => {
+                  if (confirm(`Drop ${contextMenu.item.name}?`)) {
+                    onDropStash(contextMenu.item.index);
+                  }
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-red-400"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Drop stash</span>
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </aside>
   );
 };

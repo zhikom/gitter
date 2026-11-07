@@ -407,6 +407,23 @@ export class GitService {
     await this.runGitRaw(`branch ${flag} "${branchName}"`, repoPath);
   }
 
+  async renameBranch(repoPath: string, oldName: string, newName: string): Promise<void> {
+    await this.runGitRaw(`branch -m "${oldName}" "${newName}"`, repoPath);
+  }
+
+  async revealInExplorer(repoPath: string, filePath?: string): Promise<void> {
+    const target = filePath ? path.join(repoPath, filePath) : repoPath;
+    if (process.platform === 'win32') {
+      execAsync(`explorer /select,"${target.replace(/\//g, '\\')}"`).catch(() => {
+        execAsync(`explorer "${target.replace(/\//g, '\\')}"`).catch(() => {});
+      });
+    } else if (process.platform === 'darwin') {
+      execAsync(`open -R "${target}"`).catch(() => {});
+    } else {
+      execAsync(`xdg-open "${path.dirname(target)}"`).catch(() => {});
+    }
+  }
+
   async getRemotes(repoPath: string): Promise<Remote[]> {
     const out = await this.runGitRaw('remote -v', repoPath);
     const lines = out.split('\n').filter(Boolean);
@@ -481,6 +498,10 @@ export class GitService {
     await this.runGitRaw(`stash pop stash@{${index}}`, repoPath);
   }
 
+  async applyStash(repoPath: string, index: number = 0): Promise<string> {
+    return await this.runGitRaw(`stash apply stash@{${index}}`, repoPath);
+  }
+
   async dropStash(repoPath: string, index: number = 0): Promise<void> {
     await this.runGitRaw(`stash drop stash@{${index}}`, repoPath);
   }
@@ -513,6 +534,10 @@ export class GitService {
 
   async deleteTag(repoPath: string, tagName: string): Promise<void> {
     await this.runGitRaw(`tag -d "${tagName}"`, repoPath);
+  }
+
+  async pushTag(repoPath: string, remote: string = 'origin', tagName: string): Promise<string> {
+    return await this.runGitRaw(`push "${remote}" "${tagName}"`, repoPath);
   }
 
   async revert(repoPath: string, commitHash: string): Promise<void> {

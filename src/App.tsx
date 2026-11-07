@@ -28,6 +28,7 @@ import { InteractiveRebaseModal } from './components/Rebase/InteractiveRebaseMod
 import { FileBlameModal } from './components/Blame/FileBlameModal';
 import { WorktreesModal } from './components/Worktrees/WorktreesModal';
 import { PullRequestModal } from './components/PullRequests/PullRequestModal';
+import { BranchActionModal } from './components/Modals/BranchActionModal';
 import { PullRequest, Submodule, Worktree } from './types/git';
 
 export const App: React.FC = () => {
@@ -66,6 +67,7 @@ export const App: React.FC = () => {
   const [rebaseBaseHash, setRebaseBaseHash] = useState<string | null>(null);
   const [blameFilePath, setBlameFilePath] = useState<string | null>(null);
   const [conflictModalData, setConflictModalData] = useState<{ rawDiff: string; file: string } | null>(null);
+  const [branchAction, setBranchAction] = useState<{ source: string; target: string } | null>(null);
 
   // Initialize repository
   const refreshRepo = useCallback(async (path?: string) => {
@@ -128,6 +130,34 @@ export const App: React.FC = () => {
   useEffect(() => {
     refreshRepo();
   }, []);
+
+  // Window drag-and-drop to open repository folders
+  useEffect(() => {
+    const handleDragOver = (e: DragEvent) => {
+      if (e.dataTransfer?.types?.includes('Files')) {
+        e.preventDefault();
+      }
+    };
+
+    const handleDrop = (e: DragEvent) => {
+      if (!e.dataTransfer?.types?.includes('Files')) return;
+      e.preventDefault();
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        const potentialPath = (files[0] as any).path;
+        if (potentialPath) {
+          refreshRepo(potentialPath);
+        }
+      }
+    };
+
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+    return () => {
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, [refreshRepo]);
 
   // Fetch diff when selected file changes
   useEffect(() => {
@@ -294,6 +324,63 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleRenameBranch = async (oldName: string, newName: string) => {
+    setLoading(true);
+    try {
+      await api.renameBranch(repoPath, oldName, newName);
+      await refreshRepo();
+    } catch (e: any) {
+      alert(`Rename failed: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePushBranch = async (branchName: string) => {
+    setLoading(true);
+    try {
+      const res = await api.push(repoPath, 'origin', branchName);
+      alert(`Pushed ${branchName} to origin!\n${res.output || ''}`);
+      await refreshRepo();
+    } catch (e: any) {
+      alert(`Push failed: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleMergeBranch = async (source: string, target: string) => {
+    setLoading(true);
+    try {
+      if (repoState?.currentBranch !== target) {
+        await api.checkoutBranch(repoPath, target);
+      }
+      const res = await api.merge(repoPath, source);
+      alert(`Merged ${source} into ${target}!\n${res.output || ''}`);
+      await refreshRepo();
+    } catch (e: any) {
+      alert(`Merge error: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRebaseBranch = async (source: string, target: string) => {
+    setLoading(true);
+    try {
+      if (repoState?.currentBranch !== source) {
+        await api.checkoutBranch(repoPath, source);
+      }
+      const res = await api.rebase(repoPath, target);
+      alert(`Rebased ${source} onto ${target}!\n${res.output || ''}`);
+      await refreshRepo();
+    } catch (e: any) {
+      alert(`Rebase error: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleCreateBranch = async (name: string, startPoint: string) => {
     await api.createBranch(repoPath, name, startPoint);
     await refreshRepo();
@@ -309,6 +396,19 @@ export const App: React.FC = () => {
     await refreshRepo();
   };
 
+  const handlePushTag = async (tagName: string) => {
+    setLoading(true);
+    try {
+      const res = await api.pushTag(repoPath, tagName);
+      alert(`Pushed tag ${tagName} to origin!\n${res.output || ''}`);
+      await refreshRepo();
+    } catch (e: any) {
+      alert(`Push tag failed: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Stash actions
   const handleSaveStash = async (message: string, includeUntracked: boolean) => {
     await api.saveStash(repoPath, message, includeUntracked);
@@ -318,6 +418,27 @@ export const App: React.FC = () => {
   const handlePopStash = async (index: number = 0) => {
     await api.popStash(repoPath, index);
     await refreshRepo();
+  };
+
+  const handleApplyStash = async (index: number = 0) => {
+    setLoading(true);
+    try {
+      const res = await api.applyStash(repoPath, index);
+      alert(`Applied stash@{${index}}!\n${res.output || ''}`);
+      await refreshRepo();
+    } catch (e: any) {
+      alert(`Apply stash failed: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRevealInExplorer = async (file?: string) => {
+    try {
+      await api.revealInExplorer(repoPath, file);
+    } catch (e: any) {
+      console.error('Reveal error:', e);
+    }
   };
 
   const handleDropStash = async (index: number = 0) => {
@@ -405,9 +526,14 @@ export const App: React.FC = () => {
           currentBranch={repoState?.currentBranch || ''}
           onCheckoutBranch={handleCheckoutBranch}
           onDeleteBranch={handleDeleteBranch}
+          onRenameBranch={handleRenameBranch}
+          onPushBranch={handlePushBranch}
+          onBranchDrop={(source, target) => setBranchAction({ source, target })}
           onPopStash={handlePopStash}
+          onApplyStash={handleApplyStash}
           onDropStash={handleDropStash}
           onDeleteTag={handleDeleteTag}
+          onPushTag={handlePushTag}
           onCreateBranch={() => {
             setBranchStartPoint(repoState?.currentBranch || 'HEAD');
             setShowBranchModal(true);
@@ -486,6 +612,8 @@ export const App: React.FC = () => {
               onUnstageAll={handleUnstageAll}
               onDiscardFile={handleDiscardFile}
               onDiscardAll={handleDiscardAll}
+              onOpenBlame={(file) => setBlameFilePath(file)}
+              onRevealInExplorer={handleRevealInExplorer}
             />
 
             {/* Diff Viewer */}
@@ -629,6 +757,16 @@ export const App: React.FC = () => {
           rawDiff={conflictModalData.rawDiff}
           onClose={() => setConflictModalData(null)}
           onApplyResolution={handleApplyConflictResolution}
+        />
+      )}
+
+      {branchAction && (
+        <BranchActionModal
+          sourceBranch={branchAction.source}
+          targetBranch={branchAction.target}
+          onClose={() => setBranchAction(null)}
+          onMerge={handleMergeBranch}
+          onRebase={handleRebaseBranch}
         />
       )}
     </div>
