@@ -13,9 +13,13 @@
     "start": "concurrently -k -n \"SERVER,VITE\" -c \"blue,green\" \"npm run server\" \"npm run dev\"",
     "electron:build-main": "tsc -p tsconfig.electron.json",
     "electron:dev": "concurrently -k -n \"SERVER,VITE,ELECTRON\" -c \"blue,green,magenta\" \"npm run server\" \"npm run dev\" \"cross-env WAIT_ON_WEB=1 node electron/dev-runner.js\"",
-    "electron:pack": "npm run build && npm run electron:build-main && electron-builder"
+    "electron:pack": "npm run build && npm run electron:build-main && electron-builder",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.12.4",
     "clsx": "^2.1.1",
     "cors": "^2.8.5",
     "diff": "^7.0.0",
@@ -26,6 +30,7 @@
     "tailwind-merge": "^3.0.2"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.12.4",
     "@types/cors": "^2.8.17",
     "@types/diff": "^7.0.2",
     "@types/express": "^5.0.0",

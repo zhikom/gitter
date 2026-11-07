@@ -7,6 +7,8 @@ dist/
 dist-electron/
 release/
 out/
+src-tauri/target/
+src-tauri/gen/
 
 # Temp research & downloads
 temp_rea/
