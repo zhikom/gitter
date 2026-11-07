@@ -326,12 +326,12 @@ export class GitService {
   }
 
   async getBranches(repoPath: string): Promise<Branch[]> {
-    const out = await this.runGitRaw('branch -a -vv --format="%(refname:short)%x1f%(HEAD)%x1f%(upstream:short)%x1f%(upstream:track)%x1f%(objectname:short)"', repoPath);
+    const out = await this.runGitRaw('branch -a -vv --format="%(refname:short)|||%(HEAD)|||%(upstream:short)|||%(upstream:track)|||%(objectname:short)"', repoPath);
     const lines = out.split('\n').filter(l => l.trim().length > 0);
     const branches: Branch[] = [];
 
     for (const line of lines) {
-      const parts = line.split('\x1f');
+      const parts = line.split('|||');
       if (parts.length < 5) continue;
 
       const rawName = parts[0].trim();
@@ -340,7 +340,19 @@ export class GitService {
       const track = parts[3].trim();
       const targetHash = parts[4].trim();
 
-      const isRemote = rawName.startsWith('origin/') || rawName.includes('/');
+      let cleanName = rawName;
+      let isRemote = false;
+      let remoteName: string | undefined;
+
+      if (rawName.startsWith('remotes/')) {
+        cleanName = rawName.replace('remotes/', '');
+        isRemote = true;
+        remoteName = cleanName.split('/')[0];
+      } else if (rawName.startsWith('origin/')) {
+        isRemote = true;
+        remoteName = 'origin';
+      }
+
       let ahead = 0;
       let behind = 0;
 
@@ -352,10 +364,10 @@ export class GitService {
       }
 
       branches.push({
-        name: rawName,
+        name: cleanName,
         current: isCurrent,
         isRemote,
-        remoteName: isRemote ? rawName.split('/')[0] : undefined,
+        remoteName,
         upstream,
         ahead,
         behind,
@@ -423,12 +435,12 @@ export class GitService {
   }
 
   async getStashes(repoPath: string): Promise<Stash[]> {
-    const out = await this.runGitRaw('stash list --format="%gd%x1f%gs%x1f%H%x1f%ci"', repoPath);
+    const out = await this.runGitRaw('stash list --format="%gd|||%gs|||%H|||%ci"', repoPath);
     const lines = out.split('\n').filter(Boolean);
     const stashes: Stash[] = [];
 
     lines.forEach((l, idx) => {
-      const p = l.split('\x1f');
+      const p = l.split('|||');
       if (p.length >= 4) {
         stashes.push({
           index: idx,
@@ -458,12 +470,12 @@ export class GitService {
   }
 
   async getTags(repoPath: string): Promise<Tag[]> {
-    const out = await this.runGitRaw('tag -l --format="%(refname:short)%x1f%(objectname:short)%x1f%(contents:subject)"', repoPath);
+    const out = await this.runGitRaw('tag -l --format="%(refname:short)|||%(objectname:short)|||%(contents:subject)"', repoPath);
     const lines = out.split('\n').filter(Boolean);
     const tags: Tag[] = [];
 
     for (const line of lines) {
-      const p = line.split('\x1f');
+      const p = line.split('|||');
       if (p.length >= 2) {
         tags.push({
           name: p[0].trim(),
