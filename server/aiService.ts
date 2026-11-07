@@ -1,7 +1,7 @@
 import { AIExplanation } from '../src/types/git';
 
 export interface AIProviderConfig {
-  provider: 'gemini' | 'openai' | 'ollama' | 'builtin';
+  provider: 'gemini' | 'openai' | 'anthropic' | 'claude' | 'ollama' | 'builtin';
   apiKey?: string;
   model?: string;
   baseUrl?: string;
@@ -10,7 +10,7 @@ export interface AIProviderConfig {
 export class AIService {
   private config: AIProviderConfig = {
     provider: 'builtin',
-    model: 'gemini-1.5-flash',
+    model: 'claude-3-7-sonnet-20250219',
   };
 
   setConfig(newConfig: Partial<AIProviderConfig>) {
@@ -22,31 +22,43 @@ export class AIService {
   }
 
   async generateCommitMessage(diffText: string, stagedFiles: string[]): Promise<{ summary: string; description: string }> {
-    // If Gemini or OpenAI is configured with an API key, we can call it:
-    if (this.config.provider === 'gemini' && this.config.apiKey) {
+    const p = this.config.provider;
+    if ((p === 'anthropic' || p === 'claude') && this.config.apiKey) {
+      try {
+        return await this.callClaudeForCommit(diffText, stagedFiles);
+      } catch (e) {
+        console.warn('Claude API call failed, falling back:', e);
+      }
+    } else if (p === 'gemini' && this.config.apiKey) {
       try {
         return await this.callGeminiForCommit(diffText, stagedFiles);
       } catch (e) {
-        console.warn('Gemini API call failed, using built-in heuristic generator:', e);
+        console.warn('Gemini API call failed, falling back:', e);
       }
-    } else if (this.config.provider === 'openai' && this.config.apiKey) {
+    } else if (p === 'openai' && this.config.apiKey) {
       try {
         return await this.callOpenAIForCommit(diffText, stagedFiles);
       } catch (e) {
-        console.warn('OpenAI API call failed, using built-in heuristic generator:', e);
+        console.warn('OpenAI API call failed, falling back:', e);
       }
     }
 
-    // High quality intelligent heuristic fallback:
     return this.heuristicCommitGenerator(diffText, stagedFiles);
   }
 
   async explainChanges(diffText: string, contextTitle: string): Promise<AIExplanation> {
-    if (this.config.provider === 'gemini' && this.config.apiKey) {
+    const p = this.config.provider;
+    if ((p === 'anthropic' || p === 'claude') && this.config.apiKey) {
+      try {
+        return await this.callClaudeForExplain(diffText, contextTitle);
+      } catch (e) {
+        console.warn('Claude explain failed, falling back:', e);
+      }
+    } else if (p === 'gemini' && this.config.apiKey) {
       try {
         return await this.callGeminiForExplain(diffText, contextTitle);
       } catch (e) {
-        console.warn('Gemini explain failed, falling back to heuristics:', e);
+        console.warn('Gemini explain failed, falling back:', e);
       }
     }
 
@@ -81,10 +93,41 @@ export class AIService {
     };
   }
 
+  async generatePrDescription(commits: string[], diffSummary: string): Promise<{ title: string; body: string }> {
+    const p = this.config.provider;
+    if ((p === 'anthropic' || p === 'claude') && this.config.apiKey) {
+      try {
+        return await this.callClaudeForPr(commits, diffSummary);
+      } catch (e) {
+        console.warn('Claude PR generator failed, falling back:', e);
+      }
+    }
+
+    const title = commits.length > 0 ? commits[0] : 'feat: update project features';
+    const body = [
+      '### Summary of Changes',
+      ...commits.map((c) => `- ${c}`),
+      '',
+      '### Verification & Testing',
+      '- Tested branch changes locally in Gitter client',
+      '- Verified clean working tree and git status',
+    ].join('\n');
+
+    return { title, body };
+  }
+
   async chatWithAgent(message: string, repoContext: { branch: string; status: string; recentCommits: string }): Promise<{ reply: string; suggestedCommand?: string }> {
+    const p = this.config.provider;
+    if ((p === 'anthropic' || p === 'claude') && this.config.apiKey) {
+      try {
+        return await this.callClaudeForChat(message, repoContext);
+      } catch (e) {
+        console.warn('Claude agent chat failed, falling back to heuristics:', e);
+      }
+    }
+
     const lower = message.toLowerCase();
 
-    // Natural language command patterns
     if (lower.includes('undo') && (lower.includes('last commit') || lower.includes('recent commit'))) {
       if (lower.includes('keep') || lower.includes('soft') || !lower.includes('hard')) {
         return {
@@ -144,8 +187,130 @@ export class AIService {
     }
 
     return {
-      reply: `I am your Gitter Git Assistant. Current branch is **${repoContext.branch}**. You can ask me to draft commits, explain diffs, generate git commands, or resolve conflicts. Try asking: "Undo last commit", "Create branch feature/auth", or "Stash my changes".`,
+      reply: `I am your Gitter Git Assistant powered by ${this.config.provider.toUpperCase()}. Current branch is **${repoContext.branch}**. Ask me to draft commits, explain diffs, generate git commands, or resolve conflicts.`,
     };
+  }
+
+  // --- Anthropic Claude API Callers ---
+  private async callClaudeForCommit(diffText: string, stagedFiles: string[]): Promise<{ summary: string; description: string }> {
+    const prompt = `You are an expert Git assistant. Analyze this git diff and write a conventional commit message.
+Staged files: ${stagedFiles.join(', ')}
+Diff snippet:
+${diffText.slice(0, 6000)}
+
+Output ONLY valid JSON without markdown wrapping:
+{"summary": "feat(scope): concise summary", "description": "- point 1\n- point 2"}`;
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': this.config.apiKey!,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: this.config.model || 'claude-3-7-sonnet-20250219',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    const data = await res.json();
+    const content = data?.content?.[0]?.text || '{}';
+    const cleanJson = content.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleanJson);
+  }
+
+  private async callClaudeForExplain(diffText: string, contextTitle: string): Promise<AIExplanation> {
+    const prompt = `Analyze this git diff for ${contextTitle}.
+Diff snippet:
+${diffText.slice(0, 6000)}
+
+Output ONLY valid JSON without markdown wrapping:
+{
+  "summary": "concise overview of changes",
+  "keyChanges": ["highlight 1", "highlight 2"],
+  "riskAssessment": "low" | "medium" | "high",
+  "riskReasoning": "brief explanation of risk",
+  "suggestedAction": "recommended tests or review focus"
+}`;
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': this.config.apiKey!,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: this.config.model || 'claude-3-7-sonnet-20250219',
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    const data = await res.json();
+    const content = data?.content?.[0]?.text || '{}';
+    const cleanJson = content.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleanJson);
+  }
+
+  private async callClaudeForChat(message: string, repoContext: any): Promise<{ reply: string; suggestedCommand?: string }> {
+    const systemPrompt = `You are Gitter AI, an expert Git engineer and assistant. The user is currently in repository branch '${repoContext.branch}'. Status: ${repoContext.status}.
+Give helpful, precise answers. If suggesting a command, include it on a line starting with 'COMMAND: git ...' so the UI can offer a 1-click execution button.`;
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': this.config.apiKey!,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: this.config.model || 'claude-3-7-sonnet-20250219',
+        max_tokens: 2000,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: message }],
+      }),
+    });
+
+    const data = await res.json();
+    const text = data?.content?.[0]?.text || '';
+    const cmdMatch = text.match(/COMMAND:\s*(git\s+[^\r\n]+)/i);
+    const suggestedCommand = cmdMatch ? cmdMatch[1].trim() : undefined;
+    const reply = text.replace(/COMMAND:\s*git\s+[^\r\n]+/i, '').trim();
+
+    return { reply, suggestedCommand };
+  }
+
+  private async callClaudeForPr(commits: string[], diffSummary: string): Promise<{ title: string; body: string }> {
+    const prompt = `Generate a GitHub Pull Request title and description.
+Commits on branch:
+${commits.map((c) => `- ${c}`).join('\n')}
+
+Diff summary:
+${diffSummary.slice(0, 4000)}
+
+Output JSON: {"title": "pr title", "body": "markdown body"}`;
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': this.config.apiKey!,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: this.config.model || 'claude-3-7-sonnet-20250219',
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    const data = await res.json();
+    const content = data?.content?.[0]?.text || '{}';
+    const cleanJson = content.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleanJson);
   }
 
   private heuristicCommitGenerator(diffText: string, stagedFiles: string[]): { summary: string; description: string } {
@@ -153,7 +318,6 @@ export class AIService {
       return { summary: 'chore: update project files', description: '' };
     }
 
-    // Check file categories
     const isDocOnly = stagedFiles.every(f => f.endsWith('.md') || f.includes('docs/'));
     const isTestOnly = stagedFiles.every(f => f.includes('test') || f.includes('spec'));
     const isStyleOnly = stagedFiles.every(f => f.endsWith('.css') || f.endsWith('.scss'));
@@ -180,7 +344,6 @@ export class AIService {
       action = 'resolve issue and improve stability';
     }
 
-    // Determine scope from common directory
     const parts = stagedFiles[0].split('/');
     if (parts.length > 1) {
       scope = `(${parts[0]})`;

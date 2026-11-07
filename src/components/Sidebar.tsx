@@ -15,14 +15,16 @@ import {
   Layers,
   Box,
   RefreshCw,
+  GitPullRequest,
 } from 'lucide-react';
-import { Branch, Remote, Stash, Submodule, Tag, Worktree } from '../types/git';
+import { Branch, PullRequest, Remote, Stash, Submodule, Tag, Worktree } from '../types/git';
 
 interface SidebarProps {
   branches: Branch[];
   remotes: Remote[];
   tags: Tag[];
   stashes: Stash[];
+  pullRequests?: PullRequest[];
   worktrees?: Worktree[];
   submodules?: Submodule[];
   currentBranch: string;
@@ -33,6 +35,8 @@ interface SidebarProps {
   onDeleteTag: (name: string) => void;
   onCreateBranch: () => void;
   onCreateTag: () => void;
+  onViewPr?: (pr: PullRequest) => void;
+  onCreatePr?: () => void;
   onOpenWorktrees?: () => void;
   onSwitchWorktree?: (path: string) => void;
   onUpdateSubmodules?: () => void;
@@ -43,6 +47,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   remotes,
   tags,
   stashes,
+  pullRequests = [],
   worktrees = [],
   submodules = [],
   currentBranch,
@@ -53,12 +58,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDeleteTag,
   onCreateBranch,
   onCreateTag,
+  onViewPr,
+  onCreatePr,
   onOpenWorktrees,
   onSwitchWorktree,
   onUpdateSubmodules,
 }) => {
   const [expandLocal, setExpandLocal] = useState(true);
   const [expandRemote, setExpandRemote] = useState(true);
+  const [expandPrs, setExpandPrs] = useState(true);
   const [expandTags, setExpandTags] = useState(false);
   const [expandStashes, setExpandStashes] = useState(false);
   const [expandRemotes, setExpandRemotes] = useState(false);
@@ -177,6 +185,57 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* PULL REQUESTS (GITHUB) */}
+      <div className="border-b border-[#222a3a]">
+        <div
+          onClick={() => setExpandPrs(!expandPrs)}
+          className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-[#202735] text-xs font-bold text-slate-400 uppercase tracking-wider"
+        >
+          <div className="flex items-center space-x-1.5">
+            {expandPrs ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            <GitPullRequest className="w-3.5 h-3.5 text-purple-400" />
+            <span>Pull Requests</span>
+            <span className="text-[10px] text-slate-500 font-normal">({pullRequests.length})</span>
+          </div>
+          {onCreatePr && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onCreatePr();
+              }}
+              title="Create Pull Request"
+              className="p-0.5 hover:text-purple-300 text-slate-400 rounded"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {expandPrs && (
+          <div className="pb-1">
+            {pullRequests.length === 0 ? (
+              <div className="px-5 py-1 text-xs text-slate-600 italic">No pull requests</div>
+            ) : (
+              pullRequests.map((pr) => (
+                <div
+                  key={pr.number}
+                  onClick={() => onViewPr && onViewPr(pr)}
+                  className="group flex items-center justify-between px-3 py-1.5 text-xs cursor-pointer hover:bg-[#202735] text-slate-300 transition"
+                >
+                  <div className="flex items-center space-x-2 truncate">
+                    <span className="font-mono text-[10px] text-purple-400 flex-shrink-0">#{pr.number}</span>
+                    <span className="truncate">{pr.title}</span>
+                  </div>
+                  <span className="text-[9px] font-bold px-1 rounded bg-purple-500/20 text-purple-300 flex-shrink-0">
+                    {pr.state}
+                  </span>
+                </div>
+              ))
+            )}
           </div>
         )}
       </div>

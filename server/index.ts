@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { gitService } from './gitService';
 import { aiService } from './aiService';
+import { githubService } from './githubService';
 import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -541,6 +542,68 @@ app.get('/api/ai/config', (req, res) => {
 app.post('/api/ai/config', (req, res) => {
   aiService.setConfig(req.body);
   res.json(aiService.getConfig());
+});
+
+// GitHub Provider Endpoints
+app.get('/api/github/status', async (req, res) => {
+  try {
+    const status = await githubService.getAuthStatus();
+    res.json(status);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/github/prs', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const state = (req.query.state as 'open' | 'closed' | 'all') || 'open';
+    const prs = await githubService.getPullRequests(targetPath, state);
+    res.json(prs);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/github/pr-details', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const prNumber = parseInt(req.query.number as string, 10);
+    const details = await githubService.getPullRequestDetails(targetPath, prNumber);
+    res.json(details);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/github/pr/create', async (req, res) => {
+  try {
+    const { path: repoPath, title, body, head, base, isDraft } = req.body;
+    const result = await githubService.createPullRequest(resolvePath(repoPath), title, body, head, base, isDraft);
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/github/pr/checkout', async (req, res) => {
+  try {
+    const { path: repoPath, number: prNumber } = req.body;
+    const output = await githubService.checkoutPullRequest(resolvePath(repoPath), prNumber);
+    res.json({ success: true, output });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/ai/pr-description', async (req, res) => {
+  try {
+    const { commits, diffSummary } = req.body;
+    const result = await aiService.generatePrDescription(commits || [], diffSummary || '');
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.listen(PORT, () => {

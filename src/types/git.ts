@@ -183,3 +183,30 @@ export interface GitConfig {
   gpgSign?: boolean;
   gpgFormat?: string;
 }
+
+export interface GitHubUser {
+  login: string;
+  avatarUrl?: string;
+  isAuthenticated: boolean;
+}
+
+export interface PullRequest {
+  number: number;
+  title: string;
+  body?: string;
+  author: {
+    login: string;
+    avatarUrl?: string;
+  };
+  headRefName: string;
+  baseRefName: string;
+  state: 'OPEN' | 'CLOSED' | 'MERGED';
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+  isDraft: boolean;
+  mergeable?: string;
+  additions?: number;
+  deletions?: number;
+  changedFiles?: number;
+}

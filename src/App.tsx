@@ -27,7 +27,8 @@ import { ConflictModal } from './components/Modals/ConflictModal';
 import { InteractiveRebaseModal } from './components/Rebase/InteractiveRebaseModal';
 import { FileBlameModal } from './components/Blame/FileBlameModal';
 import { WorktreesModal } from './components/Worktrees/WorktreesModal';
-import { Submodule, Worktree } from './types/git';
+import { PullRequestModal } from './components/PullRequests/PullRequestModal';
+import { PullRequest, Submodule, Worktree } from './types/git';
 
 export const App: React.FC = () => {
   const [repoPath, setRepoPath] = useState<string>('');
@@ -40,6 +41,7 @@ export const App: React.FC = () => {
   const [remotes, setRemotes] = useState<Remote[]>([]);
   const [worktrees, setWorktrees] = useState<Worktree[]>([]);
   const [submodules, setSubmodules] = useState<Submodule[]>([]);
+  const [pullRequests, setPullRequests] = useState<PullRequest[]>([]);
 
   // Selection
   const [selectedCommit, setSelectedCommit] = useState<Commit | null>(null);
@@ -58,6 +60,9 @@ export const App: React.FC = () => {
   const [showOpenModal, setShowOpenModal] = useState<boolean>(false);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const [showWorktreesModal, setShowWorktreesModal] = useState<boolean>(false);
+  const [showPrModal, setShowPrModal] = useState<boolean>(false);
+  const [selectedPr, setSelectedPr] = useState<PullRequest | null>(null);
+  const [prModalMode, setPrModalMode] = useState<'view' | 'create'>('view');
   const [rebaseBaseHash, setRebaseBaseHash] = useState<string | null>(null);
   const [blameFilePath, setBlameFilePath] = useState<string | null>(null);
   const [conflictModalData, setConflictModalData] = useState<{ rawDiff: string; file: string } | null>(null);
@@ -71,7 +76,7 @@ export const App: React.FC = () => {
       setRepoState(state);
       if (!repoPath || path) setRepoPath(state.path);
 
-      // Fetch all Git data in parallel
+      // Fetch all Git and GitHub data in parallel
       const [
         fetchedCommits,
         fetchedStatuses,
@@ -81,6 +86,7 @@ export const App: React.FC = () => {
         fetchedRemotes,
         fetchedWorktrees,
         fetchedSubmodules,
+        fetchedPrs,
       ] = await Promise.all([
         api.getCommits(state.path, 300),
         api.getFileStatuses(state.path),
@@ -90,6 +96,7 @@ export const App: React.FC = () => {
         api.getRemotes(state.path),
         api.getWorktrees(state.path),
         api.getSubmodules(state.path),
+        api.getPullRequests(state.path).catch(() => []),
       ]);
 
       setCommits(fetchedCommits);
@@ -100,6 +107,7 @@ export const App: React.FC = () => {
       setRemotes(fetchedRemotes);
       setWorktrees(fetchedWorktrees);
       setSubmodules(fetchedSubmodules);
+      setPullRequests(fetchedPrs);
 
       // Auto-select WIP if changes exist, otherwise first commit
       if (!state.isClean) {
@@ -391,6 +399,7 @@ export const App: React.FC = () => {
           remotes={remotes}
           tags={tags}
           stashes={stashes}
+          pullRequests={pullRequests}
           worktrees={worktrees}
           submodules={submodules}
           currentBranch={repoState?.currentBranch || ''}
@@ -406,6 +415,16 @@ export const App: React.FC = () => {
           onCreateTag={() => {
             const name = prompt('Enter tag name:');
             if (name) handleCreateTag(name);
+          }}
+          onViewPr={(pr) => {
+            setSelectedPr(pr);
+            setPrModalMode('view');
+            setShowPrModal(true);
+          }}
+          onCreatePr={() => {
+            setSelectedPr(null);
+            setPrModalMode('create');
+            setShowPrModal(true);
           }}
           onOpenWorktrees={() => setShowWorktreesModal(true)}
           onSwitchWorktree={(path) => refreshRepo(path)}
@@ -559,6 +578,17 @@ export const App: React.FC = () => {
 
       {showSettingsModal && (
         <SettingsModal repoPath={repoPath} onClose={() => setShowSettingsModal(false)} />
+      )}
+
+      {showPrModal && (
+        <PullRequestModal
+          repoPath={repoPath}
+          currentBranch={repoState?.currentBranch || 'main'}
+          selectedPr={selectedPr}
+          mode={prModalMode}
+          onClose={() => setShowPrModal(false)}
+          onRefresh={() => refreshRepo()}
+        />
       )}
 
       {showWorktreesModal && (

@@ -8,6 +8,8 @@ import {
   FileDiff,
   FileStatus,
   GitConfig,
+  GitHubUser,
+  PullRequest,
   RebaseCommitItem,
   Remote,
   RepositoryState,
@@ -189,6 +191,33 @@ export const api = {
 
   setGitConfig: (path: string, key: string, value: string) =>
     fetchJson('/repo/config', { method: 'POST', body: JSON.stringify({ path, key, value }) }),
+
+  // GitHub
+  getGithubStatus: (): Promise<GitHubUser> => fetchJson('/github/status'),
+
+  getPullRequests: (path: string, state: 'open' | 'closed' | 'all' = 'open'): Promise<PullRequest[]> =>
+    fetchJson(`/github/prs?path=${encodeURIComponent(path)}&state=${state}`),
+
+  getPullRequestDetails: (path: string, number: number): Promise<PullRequest | null> =>
+    fetchJson(`/github/pr-details?path=${encodeURIComponent(path)}&number=${number}`),
+
+  createPullRequest: (path: string, title: string, body: string, head: string, base = 'main', isDraft = false) =>
+    fetchJson<{ url: string; number: number }>('/github/pr/create', {
+      method: 'POST',
+      body: JSON.stringify({ path, title, body, head, base, isDraft }),
+    }),
+
+  checkoutPullRequest: (path: string, number: number) =>
+    fetchJson<{ success: boolean; output: string }>('/github/pr/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ path, number }),
+    }),
+
+  generatePrDescription: (commits: string[], diffSummary: string) =>
+    fetchJson<{ title: string; body: string }>('/ai/pr-description', {
+      method: 'POST',
+      body: JSON.stringify({ commits, diffSummary }),
+    }),
 
   // AI
   generateCommitMessage: (diffText: string, stagedFiles: string[]) =>

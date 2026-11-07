@@ -12,7 +12,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repoPath = '', onC
   const [activeTab, setActiveTab] = useState<'ai' | 'git'>('ai');
 
   // AI Config
-  const [provider, setProvider] = useState<'builtin' | 'gemini' | 'openai' | 'ollama'>('builtin');
+  const [provider, setProvider] = useState<'builtin' | 'anthropic' | 'gemini' | 'openai' | 'ollama'>('builtin');
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('gemini-1.5-flash');
   const [baseUrl, setBaseUrl] = useState('');
@@ -138,6 +138,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repoPath = '', onC
                   >
                     <div className="font-bold">Built-in Engine</div>
                     <div className="text-[10px] text-slate-500 font-normal">Fast, offline, zero API key needed</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProvider('anthropic');
+                      setModel('claude-3-7-sonnet-20250219');
+                    }}
+                    className={`p-2.5 rounded border text-left transition ${
+                      provider === 'anthropic'
+                        ? 'border-purple-500 bg-purple-500/10 text-purple-300 font-semibold'
+                        : 'border-[#2a3447] bg-[#14181f] text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <div className="font-bold flex items-center space-x-1">
+                      <span>Anthropic Claude</span>
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-normal">Claude 3.7 / 3.5 Sonnet</div>
                   </button>
 
                   <button
