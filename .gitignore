@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build artifacts
+dist/
+dist-electron/
+release/
+out/
+
+# Temp research & downloads
+temp_rea/
+temp_craft/
+download_gk/
+gk_package.json
+
+# Logs & Environment
+*.log
+.env
+.env.local
