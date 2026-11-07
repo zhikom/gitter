@@ -29,6 +29,7 @@ import { FileBlameModal } from './components/Blame/FileBlameModal';
 import { WorktreesModal } from './components/Worktrees/WorktreesModal';
 import { PullRequestModal } from './components/PullRequests/PullRequestModal';
 import { BranchActionModal } from './components/Modals/BranchActionModal';
+import { QuickLaunchModal } from './components/Modals/QuickLaunchModal';
 import { PullRequest, Submodule, Worktree } from './types/git';
 
 export const App: React.FC = () => {
@@ -54,6 +55,32 @@ export const App: React.FC = () => {
   // Panels & Modals
   const [isAgentOpen, setIsAgentOpen] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(false);
+  const [showQuickLaunch, setShowQuickLaunch] = useState<boolean>(false);
+  const [ignoreWhitespace, setIgnoreWhitespace] = useState<boolean>(() => {
+    return localStorage.getItem('gitter_diff_ws') === 'true';
+  });
+
+  // Resizable panels & persistence
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    const saved = localStorage.getItem('gitter_sidebar_width');
+    return saved ? Math.max(160, Math.min(500, parseInt(saved, 10))) : 256;
+  });
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
+    return localStorage.getItem('gitter_sidebar_open') !== 'false';
+  });
+
+  const [rightPanelWidth, setRightPanelWidth] = useState<number>(() => {
+    const saved = localStorage.getItem('gitter_right_panel_width');
+    return saved ? Math.max(380, Math.min(950, parseInt(saved, 10))) : 560;
+  });
+  const [isStagingOpen, setIsStagingOpen] = useState<boolean>(() => {
+    return localStorage.getItem('gitter_staging_open') !== 'false';
+  });
+
+  const [stagingListWidth, setStagingListWidth] = useState<number>(() => {
+    const saved = localStorage.getItem('gitter_staging_list_width');
+    return saved ? Math.max(180, Math.min(450, parseInt(saved, 10))) : 280;
+  });
   const [branchStartPoint, setBranchStartPoint] = useState<string>('HEAD');
   const [showBranchModal, setShowBranchModal] = useState<boolean>(false);
   const [showStashModal, setShowStashModal] = useState<boolean>(false);
@@ -159,6 +186,43 @@ export const App: React.FC = () => {
     };
   }, [refreshRepo]);
 
+  // Keyboard Shortcuts Listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+P / Cmd+P or Ctrl+Shift+P: Quick Launch
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
+        e.preventDefault();
+        setShowQuickLaunch((prev) => !prev);
+      }
+      // Ctrl+B: Toggle Left Sidebar
+      else if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
+        e.preventDefault();
+        setIsSidebarOpen((prev) => {
+          const next = !prev;
+          localStorage.setItem('gitter_sidebar_open', next ? 'true' : 'false');
+          return next;
+        });
+      }
+      // Ctrl+J: Toggle Staging Panel
+      else if ((e.ctrlKey || e.metaKey) && (e.key === 'j' || e.key === 'J')) {
+        e.preventDefault();
+        setIsStagingOpen((prev) => {
+          const next = !prev;
+          localStorage.setItem('gitter_staging_open', next ? 'true' : 'false');
+          return next;
+        });
+      }
+      // Ctrl+Shift+A: Toggle AI Agent
+      else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        setIsAgentOpen((prev) => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // Fetch diff when selected file changes
   useEffect(() => {
     if (!selectedFile || !repoPath) {
@@ -166,7 +230,7 @@ export const App: React.FC = () => {
       return;
     }
 
-    api.getDiff(repoPath, selectedFile, isSelectedFileStaged)
+    api.getDiff(repoPath, selectedFile, isSelectedFileStaged, ignoreWhitespace)
       .then((diffs) => {
         setFileDiffs(diffs);
       })
@@ -174,7 +238,7 @@ export const App: React.FC = () => {
         console.error('Diff error:', e);
         setFileDiffs([]);
       });
-  }, [selectedFile, isSelectedFileStaged, repoPath, statuses]);
+  }, [selectedFile, isSelectedFileStaged, repoPath, statuses, ignoreWhitespace]);
 
   // Network operations
   const handlePull = async (rebase: boolean = false) => {
@@ -249,10 +313,21 @@ export const App: React.FC = () => {
   };
 
   // Commit
-  const handleCommit = async (summary: string, description: string, amend: boolean) => {
+  const handleCommit = async (
+    summary: string,
+    description: string,
+    amend: boolean,
+    postAction?: 'push' | 'sync'
+  ) => {
     setLoading(true);
     try {
       await api.commit(repoPath, summary, description, amend);
+      if (postAction === 'push') {
+        await api.push(repoPath, 'origin', repoState?.currentBranch || '');
+      } else if (postAction === 'sync') {
+        await api.pull(repoPath, 'origin', repoState?.currentBranch || '');
+        await api.push(repoPath, 'origin', repoState?.currentBranch || '');
+      }
       await refreshRepo();
     } catch (e: any) {
       alert(`Commit error: ${e.message}`);
@@ -497,7 +572,24 @@ export const App: React.FC = () => {
         }}
         onOpenStashModal={() => setShowStashModal(true)}
         onPopStash={() => handlePopStash(0)}
+        onOpenQuickLaunch={() => setShowQuickLaunch(true)}
+        onToggleSidebar={() => {
+          setIsSidebarOpen((prev) => {
+            const next = !prev;
+            localStorage.setItem('gitter_sidebar_open', next ? 'true' : 'false');
+            return next;
+          });
+        }}
+        onToggleStaging={() => {
+          setIsStagingOpen((prev) => {
+            const next = !prev;
+            localStorage.setItem('gitter_staging_open', next ? 'true' : 'false');
+            return next;
+          });
+        }}
         onToggleAgent={() => setIsAgentOpen(!isAgentOpen)}
+        isSidebarOpen={isSidebarOpen}
+        isStagingOpen={isStagingOpen}
         isAgentOpen={isAgentOpen}
         onOpenSettings={() => setShowSettingsModal(true)}
         onOpenRepo={() => setShowOpenModal(true)}
@@ -513,57 +605,83 @@ export const App: React.FC = () => {
       />
 
       {/* Main Workspace Body */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
         {/* Left Sidebar */}
-        <Sidebar
-          branches={branches}
-          remotes={remotes}
-          tags={tags}
-          stashes={stashes}
-          pullRequests={pullRequests}
-          worktrees={worktrees}
-          submodules={submodules}
-          currentBranch={repoState?.currentBranch || ''}
-          onCheckoutBranch={handleCheckoutBranch}
-          onDeleteBranch={handleDeleteBranch}
-          onRenameBranch={handleRenameBranch}
-          onPushBranch={handlePushBranch}
-          onBranchDrop={(source, target) => setBranchAction({ source, target })}
-          onPopStash={handlePopStash}
-          onApplyStash={handleApplyStash}
-          onDropStash={handleDropStash}
-          onDeleteTag={handleDeleteTag}
-          onPushTag={handlePushTag}
-          onCreateBranch={() => {
-            setBranchStartPoint(repoState?.currentBranch || 'HEAD');
-            setShowBranchModal(true);
-          }}
-          onCreateTag={() => {
-            const name = prompt('Enter tag name:');
-            if (name) handleCreateTag(name);
-          }}
-          onViewPr={(pr) => {
-            setSelectedPr(pr);
-            setPrModalMode('view');
-            setShowPrModal(true);
-          }}
-          onCreatePr={() => {
-            setSelectedPr(null);
-            setPrModalMode('create');
-            setShowPrModal(true);
-          }}
-          onOpenWorktrees={() => setShowWorktreesModal(true)}
-          onSwitchWorktree={(path) => refreshRepo(path)}
-          onUpdateSubmodules={async () => {
-            try {
-              const res = await api.updateSubmodules(repoPath);
-              alert(res.output || 'Submodules updated!');
-              await refreshRepo();
-            } catch (e: any) {
-              alert(`Submodules error: ${e.message}`);
-            }
-          }}
-        />
+        {isSidebarOpen && (
+          <>
+            <Sidebar
+              width={sidebarWidth}
+              branches={branches}
+              remotes={remotes}
+              tags={tags}
+              stashes={stashes}
+              pullRequests={pullRequests}
+              worktrees={worktrees}
+              submodules={submodules}
+              currentBranch={repoState?.currentBranch || ''}
+              onCheckoutBranch={handleCheckoutBranch}
+              onDeleteBranch={handleDeleteBranch}
+              onRenameBranch={handleRenameBranch}
+              onPushBranch={handlePushBranch}
+              onBranchDrop={(source, target) => setBranchAction({ source, target })}
+              onPopStash={handlePopStash}
+              onApplyStash={handleApplyStash}
+              onDropStash={handleDropStash}
+              onDeleteTag={handleDeleteTag}
+              onPushTag={handlePushTag}
+              onCreateBranch={() => {
+                setBranchStartPoint(repoState?.currentBranch || 'HEAD');
+                setShowBranchModal(true);
+              }}
+              onCreateTag={() => {
+                const name = prompt('Enter tag name:');
+                if (name) handleCreateTag(name);
+              }}
+              onViewPr={(pr) => {
+                setSelectedPr(pr);
+                setPrModalMode('view');
+                setShowPrModal(true);
+              }}
+              onCreatePr={() => {
+                setSelectedPr(null);
+                setPrModalMode('create');
+                setShowPrModal(true);
+              }}
+              onOpenWorktrees={() => setShowWorktreesModal(true)}
+              onSwitchWorktree={(path) => refreshRepo(path)}
+              onUpdateSubmodules={async () => {
+                try {
+                  const res = await api.updateSubmodules(repoPath);
+                  alert(res.output || 'Submodules updated!');
+                  await refreshRepo();
+                } catch (e: any) {
+                  alert(`Submodules error: ${e.message}`);
+                }
+              }}
+            />
+
+            {/* Draggable Sidebar Resizer */}
+            <div
+              className="w-1 hover:w-1.5 cursor-col-resize bg-[#222a3a] hover:bg-teal-500 transition-colors z-20 select-none flex-shrink-0"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const startX = e.clientX;
+                const startWidth = sidebarWidth;
+                const onMouseMove = (moveEvent: MouseEvent) => {
+                  const newWidth = Math.max(160, Math.min(500, startWidth + (moveEvent.clientX - startX)));
+                  setSidebarWidth(newWidth);
+                  localStorage.setItem('gitter_sidebar_width', newWidth.toString());
+                };
+                const onMouseUp = () => {
+                  window.removeEventListener('mousemove', onMouseMove);
+                  window.removeEventListener('mouseup', onMouseUp);
+                };
+                window.addEventListener('mousemove', onMouseMove);
+                window.addEventListener('mouseup', onMouseUp);
+              }}
+            />
+          </>
+        )}
 
         {/* Center: Interactive Commit Graph */}
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -596,55 +714,115 @@ export const App: React.FC = () => {
         </div>
 
         {/* Right Section: Working Tree / Diff Viewer & Commit Box */}
-        <div className="w-[520px] flex flex-col border-l border-[#2a3447] bg-[#14181f]">
-          <div className="flex-1 flex overflow-hidden">
-            {/* Staging file list */}
-            <StagingPanel
-              statuses={statuses}
-              selectedFile={selectedFile}
-              onSelectFile={(f, staged) => {
-                setSelectedFile(f);
-                setIsSelectedFileStaged(staged);
+        {isStagingOpen && (
+          <>
+            {/* Draggable Staging Resizer */}
+            <div
+              className="w-1 hover:w-1.5 cursor-col-resize bg-[#222a3a] hover:bg-teal-500 transition-colors z-20 select-none flex-shrink-0"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const startX = e.clientX;
+                const startWidth = rightPanelWidth;
+                const onMouseMove = (moveEvent: MouseEvent) => {
+                  const newWidth = Math.max(380, Math.min(950, startWidth - (moveEvent.clientX - startX)));
+                  setRightPanelWidth(newWidth);
+                  localStorage.setItem('gitter_right_panel_width', newWidth.toString());
+                };
+                const onMouseUp = () => {
+                  window.removeEventListener('mousemove', onMouseMove);
+                  window.removeEventListener('mouseup', onMouseUp);
+                };
+                window.addEventListener('mousemove', onMouseMove);
+                window.addEventListener('mouseup', onMouseUp);
               }}
-              onStageFile={handleStageFile}
-              onUnstageFile={handleUnstageFile}
-              onStageAll={handleStageAll}
-              onUnstageAll={handleUnstageAll}
-              onDiscardFile={handleDiscardFile}
-              onDiscardAll={handleDiscardAll}
-              onOpenBlame={(file) => setBlameFilePath(file)}
-              onRevealInExplorer={handleRevealInExplorer}
             />
 
-            {/* Diff Viewer */}
-            <DiffViewer
-              diffs={fileDiffs}
-              filePath={selectedFile || ''}
-              isStaged={isSelectedFileStaged}
-              onToggleStage={() => {
-                if (!selectedFile) return;
-                if (isSelectedFileStaged) {
-                  handleUnstageFile(selectedFile);
-                  setIsSelectedFileStaged(false);
-                } else {
-                  handleStageFile(selectedFile);
-                  setIsSelectedFileStaged(true);
-                }
-              }}
-              onExplainFile={handleExplainFile}
-              onResolveConflict={handleOpenConflictModal}
-              onOpenBlame={(file) => setBlameFilePath(file)}
-            />
-          </div>
+            <div
+              style={{ width: `${rightPanelWidth}px` }}
+              className="flex flex-col bg-[#14181f] flex-shrink-0 overflow-hidden"
+            >
+              <div className="flex-1 flex overflow-hidden">
+                {/* Staging file list */}
+                <StagingPanel
+                  width={stagingListWidth}
+                  statuses={statuses}
+                  selectedFile={selectedFile}
+                  onSelectFile={(f, staged) => {
+                    setSelectedFile(f);
+                    setIsSelectedFileStaged(staged);
+                  }}
+                  onStageFile={handleStageFile}
+                  onUnstageFile={handleUnstageFile}
+                  onStageAll={handleStageAll}
+                  onUnstageAll={handleUnstageAll}
+                  onDiscardFile={handleDiscardFile}
+                  onDiscardAll={handleDiscardAll}
+                  onStash={() => setShowStashModal(true)}
+                  onOpenBlame={(file) => setBlameFilePath(file)}
+                  onRevealInExplorer={handleRevealInExplorer}
+                />
 
-          {/* Commit Box at bottom of right panel */}
-          <CommitBox
-            stagedCount={repoState?.stagedCount || 0}
-            onCommit={handleCommit}
-            onGenerateAiMessage={handleGenerateAiMessage}
-            loading={loading}
-          />
-        </div>
+                {/* Splitter between file list and diff viewer */}
+                <div
+                  className="w-1 hover:w-1.5 cursor-col-resize bg-[#222a3a] hover:bg-teal-500 transition-colors z-10 select-none flex-shrink-0"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    const startX = e.clientX;
+                    const startWidth = stagingListWidth;
+                    const onMouseMove = (moveEvent: MouseEvent) => {
+                      const newWidth = Math.max(180, Math.min(450, startWidth + (moveEvent.clientX - startX)));
+                      setStagingListWidth(newWidth);
+                      localStorage.setItem('gitter_staging_list_width', newWidth.toString());
+                    };
+                    const onMouseUp = () => {
+                      window.removeEventListener('mousemove', onMouseMove);
+                      window.removeEventListener('mouseup', onMouseUp);
+                    };
+                    window.addEventListener('mousemove', onMouseMove);
+                    window.addEventListener('mouseup', onMouseUp);
+                  }}
+                />
+
+                {/* Diff Viewer */}
+                <DiffViewer
+                  diffs={fileDiffs}
+                  filePath={selectedFile || ''}
+                  isStaged={isSelectedFileStaged}
+                  ignoreWhitespace={ignoreWhitespace}
+                  onToggleIgnoreWhitespace={() => {
+                    const next = !ignoreWhitespace;
+                    setIgnoreWhitespace(next);
+                    localStorage.setItem('gitter_diff_ws', next ? 'true' : 'false');
+                  }}
+                  onToggleStage={() => {
+                    if (!selectedFile) return;
+                    if (isSelectedFileStaged) {
+                      handleUnstageFile(selectedFile);
+                      setIsSelectedFileStaged(false);
+                    } else {
+                      handleStageFile(selectedFile);
+                      setIsSelectedFileStaged(true);
+                    }
+                  }}
+                  onExplainFile={handleExplainFile}
+                  onResolveConflict={handleOpenConflictModal}
+                  onOpenBlame={(file) => setBlameFilePath(file)}
+                />
+              </div>
+
+              {/* Commit Box at bottom of right panel */}
+              <CommitBox
+                stagedCount={repoState?.stagedCount || 0}
+                currentBranch={repoState?.currentBranch || 'main'}
+                lastCommit={commits.length > 0 ? commits[0] : null}
+                onCommit={handleCommit}
+                onStash={() => setShowStashModal(true)}
+                onGenerateAiMessage={handleGenerateAiMessage}
+                loading={loading}
+              />
+            </div>
+          </>
+        )}
 
         {/* Far Right: AI Agent Dock */}
         {isAgentOpen && (
@@ -767,6 +945,51 @@ export const App: React.FC = () => {
           onClose={() => setBranchAction(null)}
           onMerge={handleMergeBranch}
           onRebase={handleRebaseBranch}
+        />
+      )}
+
+      {showQuickLaunch && (
+        <QuickLaunchModal
+          branches={branches}
+          tags={tags}
+          commits={commits}
+          onClose={() => setShowQuickLaunch(false)}
+          onCheckoutBranch={handleCheckoutBranch}
+          onSelectCommit={(c) => {
+            setSelectedCommit(c);
+            setInspectCommitModal(c);
+          }}
+          onPull={() => handlePull(false)}
+          onPush={() => handlePush(false)}
+          onFetch={handleFetch}
+          onStash={() => setShowStashModal(true)}
+          onPopStash={() => handlePopStash(0)}
+          onCreateBranch={() => {
+            setBranchStartPoint(repoState?.currentBranch || 'HEAD');
+            setShowBranchModal(true);
+          }}
+          onOpenSettings={() => setShowSettingsModal(true)}
+          onOpenWorktrees={() => setShowWorktreesModal(true)}
+          onCreatePr={() => {
+            setSelectedPr(null);
+            setPrModalMode('create');
+            setShowPrModal(true);
+          }}
+          onToggleSidebar={() => {
+            setIsSidebarOpen((prev) => {
+              const next = !prev;
+              localStorage.setItem('gitter_sidebar_open', next ? 'true' : 'false');
+              return next;
+            });
+          }}
+          onToggleStaging={() => {
+            setIsStagingOpen((prev) => {
+              const next = !prev;
+              localStorage.setItem('gitter_staging_open', next ? 'true' : 'false');
+              return next;
+            });
+          }}
+          onToggleAgent={() => setIsAgentOpen(!isAgentOpen)}
         />
       )}
     </div>

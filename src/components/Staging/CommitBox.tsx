@@ -1,24 +1,55 @@
-import React, { useState } from 'react';
-import { Sparkles, Check, RefreshCw, MessageSquare } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Sparkles, Check, ChevronDown, Archive, RotateCcw, MessageSquare, ArrowUp, RefreshCw } from 'lucide-react';
+import { Commit } from '../../types/git';
 
 interface CommitBoxProps {
   stagedCount: number;
-  onCommit: (summary: string, description: string, amend: boolean) => Promise<void>;
+  currentBranch?: string;
+  lastCommit?: Commit | null;
+  onCommit: (summary: string, description: string, amend: boolean, postAction?: 'push' | 'sync') => Promise<void>;
+  onStash?: () => void;
   onGenerateAiMessage: () => Promise<{ summary: string; description: string }>;
   loading: boolean;
 }
 
+const CONVENTIONAL_TAGS = ['feat', 'fix', 'refactor', 'docs', 'chore', 'perf', 'test'];
+
 export const CommitBox: React.FC<CommitBoxProps> = ({
   stagedCount,
+  currentBranch = 'main',
+  lastCommit,
   onCommit,
+  onStash,
   onGenerateAiMessage,
   loading,
 }) => {
   const [summary, setSummary] = useState('');
   const [description, setDescription] = useState('');
   const [amend, setAmend] = useState(false);
+  const [previousDraft, setPreviousDraft] = useState<{ summary: string; description: string }>({ summary: '', description: '' });
   const [isAiGenerating, setIsAiGenerating] = useState(false);
   const [showDesc, setShowDesc] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
+  const [commitMode, setCommitMode] = useState<'commit' | 'push' | 'sync'>('commit');
+
+  // When amend is toggled ON, prefill with last commit message
+  const handleToggleAmend = (checked: boolean) => {
+    setAmend(checked);
+    if (checked) {
+      setPreviousDraft({ summary, description });
+      if (lastCommit) {
+        setSummary(lastCommit.summary);
+        if (lastCommit.body) {
+          setDescription(lastCommit.body);
+          setShowDesc(true);
+        }
+      }
+    } else {
+      // Restore previous draft
+      setSummary(previousDraft.summary);
+      setDescription(previousDraft.description);
+    }
+  };
 
   const handleAiGenerate = async () => {
     setIsAiGenerating(true);
@@ -38,48 +69,116 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleApplyTag = (tag: string) => {
+    const prefix = `${tag}: `;
+    if (!summary.startsWith(prefix)) {
+      // Remove any existing prefix if present
+      const cleaned = summary.replace(/^[a-z]+(\([a-z0-9_-]+\))?:\s*/i, '');
+      setSummary(prefix + cleaned);
+    }
+  };
+
+  const handleSubmit = async (e?: React.FormEvent, overrideMode?: 'commit' | 'push' | 'sync') => {
+    if (e) e.preventDefault();
     if (!summary.trim() || (stagedCount === 0 && !amend)) return;
 
-    await onCommit(summary.trim(), description.trim(), amend);
+    const action = overrideMode || commitMode;
+    const postAction = action === 'push' ? 'push' : action === 'sync' ? 'sync' : undefined;
+
+    await onCommit(summary.trim(), description.trim(), amend, postAction);
     setSummary('');
     setDescription('');
     setAmend(false);
     setShowDesc(false);
+    setShowOptions(false);
   };
 
   const canCommit = summary.trim().length > 0 && (stagedCount > 0 || amend) && !loading;
 
+  const getCommitButtonLabel = () => {
+    if (amend) {
+      if (commitMode === 'push') return 'Amend & Push';
+      if (commitMode === 'sync') return 'Amend & Sync';
+      return 'Amend Commit';
+    }
+    const countStr = stagedCount > 0 ? `(${stagedCount} files)` : '';
+    if (commitMode === 'push') return `Commit & Push ${countStr}`;
+    if (commitMode === 'sync') return `Commit & Sync ${countStr}`;
+    return `Commit to ${currentBranch} ${countStr}`.trim();
+  };
+
   return (
-    <div className="bg-[#1b212c] border-t border-[#2a3447] p-3 select-none">
-      <form onSubmit={handleSubmit} className="space-y-2">
-        {/* Header with AI Generate button */}
+    <div className="bg-[#1b212c] border-t border-[#2a3447] p-3 select-none flex-shrink-0">
+      <form onSubmit={(e) => handleSubmit(e)} className="space-y-2">
+        {/* Header with AI Generate and Stash buttons */}
         <div className="flex items-center justify-between">
-          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-            Commit Changes
+          <div className="flex items-center space-x-2">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              {amend ? 'Amend Previous Commit' : 'Commit Changes'}
+            </span>
+            <span className="text-[10px] text-teal-400 font-mono">({currentBranch})</span>
           </div>
-          <button
-            type="button"
-            onClick={handleAiGenerate}
-            disabled={stagedCount === 0 || isAiGenerating}
-            title={stagedCount === 0 ? 'Stage files first to generate AI message' : 'Generate conventional commit message using AI'}
-            className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-gradient-to-r from-teal-500/20 to-emerald-500/20 hover:from-teal-500/30 hover:to-emerald-500/30 border border-teal-500/40 text-teal-300 text-xs font-medium transition disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Sparkles className={`w-3.5 h-3.5 ${isAiGenerating ? 'animate-spin' : ''}`} />
-            <span>{isAiGenerating ? 'Drafting...' : 'AI Generate'}</span>
-          </button>
+
+          <div className="flex items-center space-x-1.5">
+            {onStash && (
+              <button
+                type="button"
+                onClick={onStash}
+                title="Stash uncommitted changes"
+                className="flex items-center space-x-1 px-2 py-0.5 rounded bg-[#202735] hover:bg-[#283244] border border-[#2a3447] text-amber-300 text-xs font-medium transition"
+              >
+                <Archive className="w-3 h-3 text-amber-400" />
+                <span>Stash</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleAiGenerate}
+              disabled={stagedCount === 0 || isAiGenerating}
+              title={stagedCount === 0 ? 'Stage files first to generate AI message' : 'Generate conventional commit message using AI'}
+              className="flex items-center space-x-1.5 px-2.5 py-0.5 rounded bg-gradient-to-r from-teal-500/20 to-emerald-500/20 hover:from-teal-500/30 hover:to-emerald-500/30 border border-teal-500/40 text-teal-300 text-xs font-medium transition disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Sparkles className={`w-3 h-3 ${isAiGenerating ? 'animate-spin' : ''}`} />
+              <span>{isAiGenerating ? 'Drafting...' : 'AI Generate'}</span>
+            </button>
+          </div>
         </div>
 
-        {/* Commit Summary Input */}
-        <div>
+        {/* Conventional Commit Tag Chips */}
+        <div className="flex items-center space-x-1 overflow-x-auto py-0.5">
+          {CONVENTIONAL_TAGS.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              onClick={() => handleApplyTag(tag)}
+              className="px-1.5 py-0.5 rounded bg-[#14181f] hover:bg-[#252f40] border border-[#2a3447] text-[10px] text-slate-400 hover:text-teal-300 font-mono transition"
+            >
+              {tag}
+            </button>
+          ))}
+        </div>
+
+        {/* Commit Summary Input with Char Counter */}
+        <div className="relative">
           <input
             type="text"
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
-            placeholder="Commit summary (e.g. feat: add visual commit graph)"
-            className="w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-teal-500"
+            placeholder="Commit summary (e.g. feat: add configurable side panels)"
+            className="w-full bg-[#14181f] border border-[#2a3447] rounded pl-3 pr-14 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-teal-500 font-mono"
           />
+          <div
+            className={`absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono pointer-events-none ${
+              summary.length > 72
+                ? 'text-red-400 font-bold'
+                : summary.length > 50
+                ? 'text-amber-400'
+                : 'text-slate-500'
+            }`}
+          >
+            {summary.length}/72
+          </div>
         </div>
 
         {/* Description Toggle & Textarea */}
@@ -104,30 +203,108 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
           )}
         </div>
 
-        {/* Amend checkbox & Commit button */}
-        <div className="flex items-center justify-between pt-1">
-          <label className="flex items-center space-x-1.5 text-xs text-slate-400 cursor-pointer">
+        {/* Amend checkbox & Commit button with dropdown options */}
+        <div className="flex items-center justify-between pt-1 relative">
+          <label className="flex items-center space-x-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={amend}
-              onChange={(e) => setAmend(e.target.checked)}
+              onChange={(e) => handleToggleAmend(e.target.checked)}
               className="rounded bg-[#14181f] border-[#2a3447] text-teal-500 focus:ring-0"
             />
-            <span>Amend previous commit</span>
+            <span>Amend (replaces last commit)</span>
           </label>
 
-          <button
-            type="submit"
-            disabled={!canCommit}
-            className={`px-4 py-1.5 rounded text-xs font-semibold flex items-center space-x-1.5 transition ${
-              canCommit
-                ? 'bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-white shadow-lg shadow-teal-500/20 cursor-pointer'
-                : 'bg-[#202735] text-slate-500 border border-[#2a3447] cursor-not-allowed'
-            }`}
-          >
-            <Check className="w-3.5 h-3.5" />
-            <span>Commit {stagedCount > 0 ? `(${stagedCount} files)` : ''}</span>
-          </button>
+          {/* Split button with primary action and options dropdown */}
+          <div className="relative inline-flex rounded shadow-sm">
+            <button
+              type="submit"
+              disabled={!canCommit}
+              className={`px-3 py-1.5 rounded-l text-xs font-semibold flex items-center space-x-1.5 transition ${
+                canCommit
+                  ? 'bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-white shadow-lg shadow-teal-500/20 cursor-pointer'
+                  : 'bg-[#202735] text-slate-500 border border-[#2a3447] cursor-not-allowed'
+              }`}
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>{getCommitButtonLabel()}</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={!canCommit}
+              onClick={() => setShowOptions(!showOptions)}
+              className={`px-1.5 py-1.5 rounded-r border-l border-white/20 text-xs font-semibold flex items-center justify-center transition ${
+                canCommit
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'
+                  : 'bg-[#202735] text-slate-500 border border-[#2a3447] cursor-not-allowed'
+              }`}
+            >
+              <ChevronDown className="w-3 h-3" />
+            </button>
+
+            {/* Commit Options Dropdown */}
+            {showOptions && (
+              <div
+                className="absolute right-0 bottom-full mb-1 bg-[#1b212c] border border-[#2a3447] rounded-md shadow-2xl py-1 z-50 text-xs text-slate-200 min-w-[220px]"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-[#2a3447]">
+                  Commit Actions
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCommitMode('commit');
+                    handleSubmit(undefined, 'commit');
+                  }}
+                  className={`w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center justify-between ${
+                    commitMode === 'commit' ? 'text-teal-300 font-semibold' : ''
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    <Check className="w-3.5 h-3.5 text-teal-400" />
+                    <span>Commit changes</span>
+                  </div>
+                  {commitMode === 'commit' && <Check className="w-3 h-3 text-teal-400" />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCommitMode('push');
+                    handleSubmit(undefined, 'push');
+                  }}
+                  className={`w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center justify-between ${
+                    commitMode === 'push' ? 'text-blue-300 font-semibold' : ''
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    <ArrowUp className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Commit and push</span>
+                  </div>
+                  {commitMode === 'push' && <Check className="w-3 h-3 text-teal-400" />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCommitMode('sync');
+                    handleSubmit(undefined, 'sync');
+                  }}
+                  className={`w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center justify-between ${
+                    commitMode === 'sync' ? 'text-emerald-300 font-semibold' : ''
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Commit and sync (Pull & Push)</span>
+                  </div>
+                  {commitMode === 'sync' && <Check className="w-3 h-3 text-teal-400" />}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </form>
     </div>

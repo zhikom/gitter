@@ -13,6 +13,9 @@ import {
   Terminal,
   Layers,
   DownloadCloud,
+  Search,
+  PanelLeft,
+  PanelRight,
 } from 'lucide-react';
 import { RepositoryState } from '../types/git';
 
@@ -25,7 +28,12 @@ interface HeaderToolbarProps {
   onOpenBranchModal: () => void;
   onOpenStashModal: () => void;
   onPopStash: () => void;
+  onOpenQuickLaunch?: () => void;
+  onToggleSidebar?: () => void;
+  onToggleStaging?: () => void;
   onToggleAgent: () => void;
+  isSidebarOpen?: boolean;
+  isStagingOpen?: boolean;
   isAgentOpen: boolean;
   onOpenSettings: () => void;
   onOpenRepo: () => void;
@@ -43,7 +51,12 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
   onOpenBranchModal,
   onOpenStashModal,
   onPopStash,
+  onOpenQuickLaunch,
+  onToggleSidebar,
+  onToggleStaging,
   onToggleAgent,
+  isSidebarOpen = true,
+  isStagingOpen = true,
   isAgentOpen,
   onOpenSettings,
   onOpenRepo,
@@ -57,8 +70,20 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
 
   return (
     <header className="h-12 bg-[#1b212c] border-b border-[#2a3447] flex items-center justify-between px-3 select-none z-30">
-      {/* Left: App Logo & Repo Selector */}
+      {/* Left: App Logo, Sidebar Toggle, & Repo Selector */}
       <div className="flex items-center space-x-3">
+        {onToggleSidebar && (
+          <button
+            onClick={onToggleSidebar}
+            title={`Toggle Left Sidebar (${isSidebarOpen ? 'Ctrl+B to hide' : 'Ctrl+B to show'})`}
+            className={`p-1.5 rounded transition ${
+              isSidebarOpen ? 'text-teal-400 bg-[#202735]' : 'text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            <PanelLeft className="w-4 h-4" />
+          </button>
+        )}
+
         <div className="flex items-center space-x-2 mr-2">
           <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-emerald-500 via-teal-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-teal-500/20">
             <Layers className="w-4 h-4 text-white" />
@@ -260,8 +285,23 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
         </button>
       </div>
 
-      {/* Right: AI Agent, Settings, Refresh */}
+      {/* Right: Quick Launch, AI Agent, Staging Toggle, Settings, Refresh */}
       <div className="flex items-center space-x-2">
+        {/* Quick Launch / Command Palette Button */}
+        {onOpenQuickLaunch && (
+          <button
+            onClick={onOpenQuickLaunch}
+            title="Quick Launch / Command Palette (Ctrl+P)"
+            className="flex items-center space-x-1.5 px-2.5 py-1.5 bg-[#202735] hover:bg-[#2d384c] border border-[#2a3447] hover:border-teal-500/50 rounded text-xs text-slate-300 transition group"
+          >
+            <Search className="w-3.5 h-3.5 text-teal-400 group-hover:scale-110 transition-transform" />
+            <span>Quick Launch</span>
+            <kbd className="text-[10px] bg-[#14181f] text-slate-500 px-1 rounded border border-[#2a3447]">
+              Ctrl+P
+            </kbd>
+          </button>
+        )}
+
         {/* AI Agent Dock Toggle */}
         <button
           onClick={onToggleAgent}
@@ -275,6 +315,19 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
           <span>AI Agent</span>
         </button>
 
+        {/* Staging & Diff Panel Toggle */}
+        {onToggleStaging && (
+          <button
+            onClick={onToggleStaging}
+            title={`Toggle Working Tree & Diff (${isStagingOpen ? 'Ctrl+J to hide' : 'Ctrl+J to show'})`}
+            className={`p-1.5 rounded transition ${
+              isStagingOpen ? 'text-teal-400 bg-[#202735]' : 'text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            <PanelRight className="w-4 h-4" />
+          </button>
+        )}
+
         {/* Refresh button */}
         <button
           onClick={onRefresh}
@@ -287,7 +340,7 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
         {/* Settings button */}
         <button
           onClick={onOpenSettings}
-          title="Settings & AI Model Configuration"
+          title="Settings & Preferences"
           className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-[#202735] rounded transition"
         >
           <Settings className="w-4 h-4" />

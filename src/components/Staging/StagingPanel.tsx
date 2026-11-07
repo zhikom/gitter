@@ -13,6 +13,7 @@ import {
   Undo2,
   Copy,
   ExternalLink,
+  Archive,
 } from 'lucide-react';
 
 interface StagingPanelProps {
@@ -25,8 +26,10 @@ interface StagingPanelProps {
   onUnstageAll: () => void;
   onDiscardFile: (file: string) => void;
   onDiscardAll: () => void;
+  onStash?: () => void;
   onOpenBlame?: (file: string) => void;
   onRevealInExplorer?: (file: string) => void;
+  width?: number;
 }
 
 interface ContextMenuState {
@@ -45,8 +48,10 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
   onUnstageAll,
   onDiscardFile,
   onDiscardAll,
+  onStash,
   onOpenBlame,
   onRevealInExplorer,
+  width = 280,
 }) => {
   const stagedFiles = statuses.filter((s) => s.staged);
   const unstagedFiles = statuses.filter((s) => !s.staged);
@@ -87,7 +92,8 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
 
   return (
     <div
-      className="w-80 bg-[#181d26] border-l border-[#2a3447] flex flex-col h-full select-none text-slate-300 relative"
+      style={{ width: `${width}px` }}
+      className="bg-[#181d26] border-r border-[#2a3447] flex flex-col h-full select-none text-slate-300 relative flex-shrink-0"
       onClick={() => setContextMenu(null)}
     >
       {/* Header */}
@@ -218,6 +224,16 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
 
             {unstagedFiles.length > 0 && (
               <div className="flex items-center space-x-1">
+                {onStash && (
+                  <button
+                    onClick={onStash}
+                    title="Stash uncommitted changes"
+                    className="flex items-center space-x-1 px-1.5 py-0.5 rounded hover:bg-[#283244] text-[10px] text-amber-300 transition"
+                  >
+                    <Archive className="w-3 h-3 text-amber-400" />
+                    <span>Stash</span>
+                  </button>
+                )}
                 <button
                   onClick={onDiscardAll}
                   title="Discard all changes"

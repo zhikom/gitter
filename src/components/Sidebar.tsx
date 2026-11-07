@@ -49,6 +49,7 @@ interface SidebarProps {
   onOpenWorktrees?: () => void;
   onSwitchWorktree?: (path: string) => void;
   onUpdateSubmodules?: () => void;
+  width?: number;
 }
 
 interface ContextMenuState {
@@ -84,6 +85,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenWorktrees,
   onSwitchWorktree,
   onUpdateSubmodules,
+  width = 256,
 }) => {
   const [expandLocal, setExpandLocal] = useState(true);
   const [expandRemote, setExpandRemote] = useState(true);
@@ -143,7 +145,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
-      className="w-64 bg-[#181d26] border-r border-[#2a3447] flex flex-col h-full text-slate-300 select-none overflow-y-auto relative"
+      style={{ width: `${width}px` }}
+      className="bg-[#181d26] border-r border-[#2a3447] flex flex-col h-full text-slate-300 select-none overflow-y-auto relative flex-shrink-0"
       onClick={() => setContextMenu(null)}
     >
       {/* LOCAL BRANCHES */}

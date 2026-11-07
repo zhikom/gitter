@@ -243,10 +243,11 @@ export class GitService {
     }
   }
 
-  async getDiff(repoPath: string, filePath: string, staged: boolean = false): Promise<FileDiff[]> {
+  async getDiff(repoPath: string, filePath: string, staged: boolean = false, ignoreWhitespace: boolean = false): Promise<FileDiff[]> {
     try {
+      const wsFlag = ignoreWhitespace ? '-w' : '';
       if (staged) {
-        const out = await this.runGitRaw(`diff --cached -- "${filePath}"`, repoPath);
+        const out = await this.runGitRaw(`diff --cached ${wsFlag} -- "${filePath}"`, repoPath);
         return parseGitDiff(out);
       } else {
         // First check if file is untracked
@@ -272,7 +273,7 @@ export class GitService {
           }
         }
 
-        const out = await this.runGitRaw(`diff -- "${filePath}"`, repoPath);
+        const out = await this.runGitRaw(`diff ${wsFlag} -- "${filePath}"`, repoPath);
         return parseGitDiff(out);
       }
     } catch (e: any) {

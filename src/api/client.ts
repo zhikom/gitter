@@ -49,8 +49,8 @@ export const api = {
   getCommits: (path: string, limit = 300): Promise<Commit[]> =>
     fetchJson(`/repo/commits?path=${encodeURIComponent(path)}&limit=${limit}`),
 
-  getDiff: (path: string, file: string, staged: boolean): Promise<FileDiff[]> =>
-    fetchJson(`/repo/diff?path=${encodeURIComponent(path)}&file=${encodeURIComponent(file)}&staged=${staged}`),
+  getDiff: (path: string, file: string, staged: boolean, ignoreWhitespace = false): Promise<FileDiff[]> =>
+    fetchJson(`/repo/diff?path=${encodeURIComponent(path)}&file=${encodeURIComponent(file)}&staged=${staged}&ignoreWhitespace=${ignoreWhitespace}`),
 
   getCommitDiff: (path: string, hash: string): Promise<{ files: string[]; rawDiff: string }> =>
     fetchJson(`/repo/commit-diff?path=${encodeURIComponent(path)}&hash=${hash}`),

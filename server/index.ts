@@ -59,7 +59,8 @@ app.get('/api/repo/diff', async (req, res) => {
     const targetPath = resolvePath(req.query.path as string);
     const file = req.query.file as string;
     const staged = req.query.staged === 'true';
-    const diffs = await gitService.getDiff(targetPath, file, staged);
+    const ignoreWhitespace = req.query.ignoreWhitespace === 'true';
+    const diffs = await gitService.getDiff(targetPath, file, staged, ignoreWhitespace);
     res.json(diffs);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
