@@ -57,6 +57,7 @@ export const LaunchpadModal: React.FC<LaunchpadModalProps> = ({
     lastCommit?: string;
   }>>([]);
   const [scanning, setScanning] = useState(false);
+  const [browsingFolder, setBrowsingFolder] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
 
   const [repos, setRepos] = useState<RecentRepoItem[]>(() => {
@@ -167,6 +168,7 @@ export const LaunchpadModal: React.FC<LaunchpadModalProps> = ({
   };
 
   const handleBrowseScanFolder = async () => {
+    setBrowsingFolder(true);
     try {
       const res = await api.pickNativeFolder();
       if (res && res.path) {
@@ -185,6 +187,8 @@ export const LaunchpadModal: React.FC<LaunchpadModalProps> = ({
       }
     } catch (e: any) {
       alert(`Browse error: ${e.message}`);
+    } finally {
+      setBrowsingFolder(false);
     }
   };
 
@@ -513,11 +517,12 @@ export const LaunchpadModal: React.FC<LaunchpadModalProps> = ({
 
                 <button
                   onClick={handleBrowseScanFolder}
+                  disabled={browsingFolder}
                   title="Browse folder via OS dialog"
-                  className="px-3 py-1.5 rounded bg-[#202735] hover:bg-[#2c374b] border border-[#2a3447] text-slate-200 text-xs font-medium transition flex items-center space-x-1.5"
+                  className="px-3 py-1.5 rounded bg-[#202735] hover:bg-[#2c374b] border border-[#2a3447] text-slate-200 text-xs font-medium transition flex items-center space-x-1.5 disabled:opacity-50"
                 >
                   <FolderOpen className="w-3.5 h-3.5 text-teal-400" />
-                  <span>Browse...</span>
+                  <span>{browsingFolder ? 'Opening Dialog...' : 'Browse...'}</span>
                 </button>
 
                 <button

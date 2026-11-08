@@ -21,16 +21,94 @@ import {
 import { VirtualBranch, VirtualBranchCommitPayload } from '../types/virtualBranch';
 import { Shelf } from '../types/shelf';
 
-const BASE_URL = '/api';
+// Desktop/Electron global extensions
+declare global {
+  interface Window {
+    electronAPI?: {
+      openDirectoryDialog: () => Promise<string | null>;
+    };
+  }
+}
+
+function getBaseUrl(): string {
+  if (typeof window === 'undefined') return 'http://127.0.0.1:3001/api';
+
+  const custom = localStorage.getItem('gitter_api_url');
+  if (custom) return custom.replace(/\/$/, '') + '/api';
+
+  const { protocol, hostname, port } = window.location;
+
+  // If already on port 3001, relative /api is ideal
+  if (port === '3001') {
+    return '/api';
+  }
+
+  // When frontend is served on Vite dev (5173), Vite preview (4173),
+  // Tauri (tauri:// or http://tauri.localhost), or Electron (file://),
+  // connecting directly to Express on 127.0.0.1:3001 prevents proxy drops and HTML fallback errors.
+  if (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    protocol === 'tauri:' ||
+    protocol === 'file:' ||
+    hostname.includes('tauri.localhost')
+  ) {
+    return 'http://127.0.0.1:3001/api';
+  }
+
+  return '/api';
+}
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${url}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-  });
+  const primaryBase = getBaseUrl();
+  let res: Response;
+
+  try {
+    res = await fetch(`${primaryBase}${url}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options?.headers,
+      },
+    });
+  } catch (primaryErr: any) {
+    // If direct connection to 127.0.0.1:3001 failed, attempt relative /api
+    if (primaryBase !== '/api') {
+      try {
+        res = await fetch(`/api${url}`, {
+          ...options,
+          headers: {
+            'Content-Type': 'application/json',
+            ...options?.headers,
+          },
+        });
+      } catch (fallbackErr: any) {
+        throw new Error(
+          `Unable to connect to Gitter backend (${primaryErr.message}). Ensure the backend server is running with 'npm run server'.`
+        );
+      }
+    } else {
+      throw new Error(
+        `Unable to connect to Gitter backend. Ensure 'npm run server' is active on port 3001. (${primaryErr.message})`
+      );
+    }
+  }
+
+  // Explicitly check for HTML response to eliminate "Unexpected token '<' !doctype is not valid json"
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    const rawText = await res.text();
+    if (rawText.includes('<!DOCTYPE') || rawText.includes('<html')) {
+      throw new Error(
+        `Server returned an HTML document instead of JSON (Status ${res.status}). Ensure the Gitter backend server daemon is active on port 3001.`
+      );
+    }
+    try {
+      return JSON.parse(rawText);
+    } catch {
+      throw new Error(`Server returned non-JSON response (${res.status}): ${rawText.slice(0, 150)}`);
+    }
+  }
 
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({ error: res.statusText }));
@@ -383,8 +461,27 @@ export const api = {
     }>>(`/repo/scan?path=${encodeURIComponent(folderPath)}`),
 
   // Native OS folder picker dialog
-  pickNativeFolder: () =>
-    fetchJson<{ path: string | null }>('/dialog/pick-folder', { method: 'POST' }),
+  pickNativeFolder: async (): Promise<{ path: string | null }> => {
+    // 1. In Electron desktop runtime:
+    if (typeof window !== 'undefined' && window.electronAPI?.openDirectoryDialog) {
+      try {
+        const electronDir = await window.electronAPI.openDirectoryDialog();
+        if (electronDir) {
+          return { path: electronDir.replace(/\\/g, '/') };
+        }
+      } catch (e) {
+        console.warn('Electron directory picker error:', e);
+      }
+    }
+
+    // 2. Fall back to backend native dialog (PowerShell on Windows, osascript on macOS, zenity on Linux)
+    try {
+      return await fetchJson<{ path: string | null }>('/dialog/pick-folder', { method: 'POST' });
+    } catch (e: any) {
+      console.warn('Backend pick-folder failed:', e);
+      return { path: null };
+    }
+  },
 
   // Per-Repository Configuration
   getRepoConfig: (path: string) =>

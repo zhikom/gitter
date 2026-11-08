@@ -3,6 +3,10 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { promisify } from 'util';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import {
   BlameLine,
   Branch,
@@ -1370,11 +1374,22 @@ export class GitService {
 
     if (isWindows) {
       try {
-        const scriptPath = path.resolve(__dirname, 'pickFolder.ps1');
-        const { stdout } = await execAsync(
-          `powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File "${scriptPath}"`
-        );
-        const selected = stdout.trim().replace(/\\/g, '/');
+        const candidatePaths = [
+          path.resolve(__dirname, 'pickFolder.ps1'),
+          path.resolve(__dirname, 'server', 'pickFolder.ps1'),
+          path.resolve(__dirname, '..', 'pickFolder.ps1'),
+          path.resolve(process.cwd(), 'server', 'pickFolder.ps1'),
+          path.resolve(process.cwd(), 'pickFolder.ps1'),
+        ];
+        const scriptPath = candidatePaths.find((p) => fs.existsSync(p));
+
+        const cmd = scriptPath
+          ? `powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File "${scriptPath}"`
+          : `powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.ShowNewFolderButton = $true; $f = New-Object System.Windows.Forms.Form; $f.TopMost = $true; $f.Opacity = 0; $f.Show(); if ($d.ShowDialog($f) -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::WriteLine($d.SelectedPath) }; $f.Dispose(); $d.Dispose()"`;
+
+        const { stdout } = await execAsync(cmd, { timeout: 60000 });
+        const lines = stdout.trim().split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+        const selected = lines.length > 0 ? lines[lines.length - 1].replace(/\\/g, '/') : null;
         return selected || null;
       } catch (err: any) {
         console.error('Failed to invoke Windows folder dialog:', err);
@@ -1383,7 +1398,8 @@ export class GitService {
     } else if (isMac) {
       try {
         const { stdout } = await execAsync(
-          `osascript -e 'POSIX path of (choose folder with prompt "Select Git Repository Folder")'`
+          `osascript -e 'POSIX path of (choose folder with prompt "Select Git Repository Folder")'`,
+          { timeout: 60000 }
         );
         return stdout.trim() || null;
       } catch {
@@ -1393,11 +1409,17 @@ export class GitService {
       // Linux
       try {
         const { stdout } = await execAsync(
-          `zenity --file-selection --directory --title="Select Git Repository Folder"`
+          `zenity --file-selection --directory --title="Select Git Repository Folder"`,
+          { timeout: 60000 }
         );
         return stdout.trim() || null;
       } catch {
-        return null;
+        try {
+          const { stdout } = await execAsync(`kdialog --getexistingdirectory`, { timeout: 60000 });
+          return stdout.trim() || null;
+        } catch {
+          return null;
+        }
       }
     }
   }

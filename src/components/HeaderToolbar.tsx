@@ -20,6 +20,7 @@ import {
   Undo2,
   History,
   FolderSearch,
+  Code2,
 } from 'lucide-react';
 import { RepositoryState } from '../types/git';
 import { UpdateInfo } from '../types/update';
@@ -48,6 +49,9 @@ interface HeaderToolbarProps {
   availableUpdate?: UpdateInfo | null;
   onOpenRepo: () => void;
   onBrowseNative?: () => void;
+  onRevealInExplorer?: () => void;
+  onOpenVsCode?: () => void;
+  onOpenTerminal?: () => void;
   onCloneRepo: () => void;
   onInitRepo: () => void;
   loading: boolean;
@@ -77,6 +81,9 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
   availableUpdate,
   onOpenRepo,
   onBrowseNative,
+  onRevealInExplorer,
+  onOpenVsCode,
+  onOpenTerminal,
   onCloneRepo,
   onInitRepo,
   loading,
@@ -373,6 +380,39 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
 
       {/* Right: Quick Launch, AI Agent, Staging Toggle, Settings, Refresh */}
       <div className="flex items-center space-x-2">
+        {/* External Tools Launcher (File Explorer, VS Code, Terminal) */}
+        {repoState && (
+          <div className="flex items-center space-x-1 border-r border-[#2a3447] pr-2 mr-0.5">
+            {onRevealInExplorer && (
+              <button
+                onClick={onRevealInExplorer}
+                title="Open Repository in OS File Manager / File Explorer"
+                className="p-1.5 text-slate-400 hover:text-teal-300 hover:bg-[#202735] rounded transition"
+              >
+                <FolderOpen className="w-4 h-4 text-teal-400" />
+              </button>
+            )}
+            {onOpenVsCode && (
+              <button
+                onClick={onOpenVsCode}
+                title="Open in Visual Studio Code"
+                className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-[#202735] rounded transition"
+              >
+                <Code2 className="w-4 h-4 text-blue-400" />
+              </button>
+            )}
+            {onOpenTerminal && (
+              <button
+                onClick={onOpenTerminal}
+                title="Open in Terminal"
+                className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-[#202735] rounded transition"
+              >
+                <Terminal className="w-4 h-4 text-emerald-400" />
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Quick Launch / Command Palette Button */}
         {onOpenQuickLaunch && (
           <button

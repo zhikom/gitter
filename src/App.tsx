@@ -66,10 +66,8 @@ export const App: React.FC = () => {
   const [isSelectedFileStaged, setIsSelectedFileStaged] = useState<boolean>(false);
   const [fileDiffs, setFileDiffs] = useState<FileDiff[]>([]);
 
-  // Panels & Modals
-  const [isAgentOpen, setIsAgentOpen] = useState<boolean>(() => {
-    return localStorage.getItem('gitter_agent_open') === 'true';
-  });
+  // Panels & Modals - AI Agent dock closed by default on startup
+  const [isAgentOpen, setIsAgentOpen] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [showQuickLaunch, setShowQuickLaunch] = useState<boolean>(false);
   const [ignoreWhitespace, setIgnoreWhitespace] = useState<boolean>(() => {
@@ -705,6 +703,14 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleOpenTerminal = async () => {
+    try {
+      await api.openInTerminal(repoPath);
+    } catch (e: any) {
+      console.error('Open in Terminal failed:', e);
+    }
+  };
+
   const handleOpenExternalDiff = async (file: string, staged: boolean = false) => {
     try {
       const res = await api.openExternalDiff(repoPath, file, staged);
@@ -931,6 +937,9 @@ export const App: React.FC = () => {
             alert(`Browse error: ${e.message}`);
           }
         }}
+        onRevealInExplorer={() => handleRevealInExplorer()}
+        onOpenVsCode={() => handleOpenInVsCode()}
+        onOpenTerminal={handleOpenTerminal}
         onCloneRepo={() => setShowCloneModal(true)}
         onInitRepo={async () => {
           const p = prompt('Enter new repo path:');

@@ -4,8 +4,13 @@ import { gitService } from './gitService';
 import { aiService } from './aiService';
 import { githubService } from './githubService';
 import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const execAsync = promisify(exec);
 const app = express();
@@ -1020,6 +1025,25 @@ app.post('/api/repo/gitflow/finish', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// Serve built frontend assets if dist folder exists
+const distCandidates = [
+  path.resolve(__dirname, '../dist'),
+  path.resolve(__dirname, 'dist'),
+  path.resolve(process.cwd(), 'dist'),
+];
+const distPath = distCandidates.find((d) => fs.existsSync(d) && fs.existsSync(path.join(d, 'index.html')));
+
+if (distPath) {
+  app.use(express.static(distPath));
+  // Client-side SPA routing fallback for non-API routes
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
 
 app.listen(PORT, () => {
   console.log(`Gitter backend server running on http://localhost:${PORT}`);
