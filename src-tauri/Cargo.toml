@@ -1,6 +1,6 @@
 [package]
 name = "gitter"
-version = "1.1.0"
+version = "1.1.1"
 description = "Gitter - High-Performance Git GUI with AI and Virtual Branches"
 authors = ["Zhiko Mitov <zhikom@gmail.com>"]
 edition = "2021"

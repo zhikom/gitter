@@ -1245,7 +1245,8 @@ export class GitService {
     lastCommit?: string;
     lastCommitDate?: string;
   }>> {
-    const resolved = path.resolve(folderPath);
+    const cleanInput = folderPath.replace(/^["']|["']$/g, '').trim();
+    const resolved = path.resolve(cleanInput);
     const repos: Array<{
       name: string;
       path: string;
@@ -1254,6 +1255,25 @@ export class GitService {
       lastCommit?: string;
       lastCommitDate?: string;
     }> = [];
+
+    const IGNORED_DIRS = new Set([
+      'node_modules',
+      'target',
+      'dist',
+      'build',
+      'vendor',
+      '.git',
+      '.cache',
+      '.vscode',
+      '.idea',
+      'AppData',
+      'bin',
+      'obj',
+      'venv',
+      '.venv',
+      'env',
+      '__pycache__',
+    ]);
 
     const checkAndAddRepo = async (dirPath: string, name: string) => {
       try {
@@ -1266,10 +1286,23 @@ export class GitService {
           let lastCommitDate = '';
 
           try {
-            currentBranch = (await this.runGitRaw('rev-parse --abbrev-ref HEAD', dirPath)).trim();
-            const statusOut = await this.runGitRaw('status --porcelain', dirPath);
+            // Read HEAD directly or use git rev-parse with timeout
+            const headPath = path.join(dirPath, '.git', 'HEAD');
+            try {
+              const headContent = await fs.promises.readFile(headPath, 'utf8');
+              const match = headContent.trim().match(/^ref: refs\/heads\/(.+)$/);
+              if (match) {
+                currentBranch = match[1];
+              } else {
+                currentBranch = headContent.trim().slice(0, 7) || 'detached';
+              }
+            } catch {
+              currentBranch = (await this.runGitRaw('rev-parse --abbrev-ref HEAD', dirPath)).trim();
+            }
+
+            const statusOut = await this.runGitRaw('status --porcelain', dirPath).catch(() => '');
             isClean = statusOut.trim().length === 0;
-            const logOut = await this.runGitRaw('log -1 --format="%s (%cr)"', dirPath);
+            const logOut = await this.runGitRaw('log -1 --format="%s (%cr)"', dirPath).catch(() => '');
             lastCommit = logOut.trim();
           } catch {}
 
@@ -1288,18 +1321,36 @@ export class GitService {
     };
 
     try {
+      // First, check if the scanned directory itself is a git repository!
+      const isRootRepo = await checkAndAddRepo(resolved, path.basename(resolved) || 'root');
+      if (isRootRepo) {
+        return repos;
+      }
+
       const entries = await fs.promises.readdir(resolved, { withFileTypes: true });
       for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
+        if (!entry.isDirectory() || IGNORED_DIRS.has(entry.name)) continue;
         const subPath = path.join(resolved, entry.name);
         const isRepo = await checkAndAddRepo(subPath, entry.name);
+
+        // If not a repo and not ignored, look 1-2 levels deeper
         if (!isRepo && !entry.name.startsWith('.')) {
-          // Check 1 level deeper
           try {
             const nested = await fs.promises.readdir(subPath, { withFileTypes: true });
             for (const n of nested) {
-              if (n.isDirectory() && !n.name.startsWith('.')) {
-                await checkAndAddRepo(path.join(subPath, n.name), `${entry.name}/${n.name}`);
+              if (!n.isDirectory() || IGNORED_DIRS.has(n.name) || n.name.startsWith('.')) continue;
+              const nestedPath = path.join(subPath, n.name);
+              const isNestedRepo = await checkAndAddRepo(nestedPath, `${entry.name}/${n.name}`);
+
+              if (!isNestedRepo) {
+                try {
+                  const subNested = await fs.promises.readdir(nestedPath, { withFileTypes: true });
+                  for (const sn of subNested) {
+                    if (sn.isDirectory() && !IGNORED_DIRS.has(sn.name) && !sn.name.startsWith('.')) {
+                      await checkAndAddRepo(path.join(nestedPath, sn.name), `${entry.name}/${n.name}/${sn.name}`);
+                    }
+                  }
+                } catch {}
               }
             }
           } catch {}
@@ -1319,15 +1370,21 @@ export class GitService {
 
     if (isWindows) {
       try {
-        const psCommand = `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Select Git Repository Folder'; $d.ShowNewFolderButton = $true; if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::WriteLine($d.SelectedPath) }"`;
-        const { stdout } = await execAsync(psCommand);
-        return stdout.trim().replace(/\\/g, '/') || null;
-      } catch {
+        const scriptPath = path.resolve(__dirname, 'pickFolder.ps1');
+        const { stdout } = await execAsync(
+          `powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File "${scriptPath}"`
+        );
+        const selected = stdout.trim().replace(/\\/g, '/');
+        return selected || null;
+      } catch (err: any) {
+        console.error('Failed to invoke Windows folder dialog:', err);
         return null;
       }
     } else if (isMac) {
       try {
-        const { stdout } = await execAsync(`osascript -e 'POSIX path of (choose folder with prompt "Select Git Repository Folder")'`);
+        const { stdout } = await execAsync(
+          `osascript -e 'POSIX path of (choose folder with prompt "Select Git Repository Folder")'`
+        );
         return stdout.trim() || null;
       } catch {
         return null;
@@ -1335,7 +1392,9 @@ export class GitService {
     } else {
       // Linux
       try {
-        const { stdout } = await execAsync(`zenity --file-selection --directory --title="Select Git Repository Folder"`);
+        const { stdout } = await execAsync(
+          `zenity --file-selection --directory --title="Select Git Repository Folder"`
+        );
         return stdout.trim() || null;
       } catch {
         return null;

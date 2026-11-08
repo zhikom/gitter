@@ -19,6 +19,7 @@ import {
   LayoutGrid,
   Undo2,
   History,
+  FolderSearch,
 } from 'lucide-react';
 import { RepositoryState } from '../types/git';
 import { UpdateInfo } from '../types/update';
@@ -46,6 +47,7 @@ interface HeaderToolbarProps {
   onCheckUpdates?: () => void;
   availableUpdate?: UpdateInfo | null;
   onOpenRepo: () => void;
+  onBrowseNative?: () => void;
   onCloneRepo: () => void;
   onInitRepo: () => void;
   loading: boolean;
@@ -74,6 +76,7 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
   onCheckUpdates,
   availableUpdate,
   onOpenRepo,
+  onBrowseNative,
   onCloneRepo,
   onInitRepo,
   loading,
@@ -142,6 +145,15 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
                 <FolderOpen className="w-3.5 h-3.5 text-teal-400" />
                 <span>Open Local Repository...</span>
               </button>
+              {onBrowseNative && (
+                <button
+                  onClick={onBrowseNative}
+                  className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-slate-200"
+                >
+                  <FolderSearch className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Browse Native Folder...</span>
+                </button>
+              )}
               <button
                 onClick={onCloneRepo}
                 className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-slate-200"

@@ -24,6 +24,8 @@ import {
   Bookmark,
   SlidersHorizontal,
   Workflow,
+  Search,
+  X,
 } from 'lucide-react';
 import { Branch, PullRequest, Remote, Stash, Submodule, Tag, Worktree } from '../types/git';
 import { Shelf } from '../types/shelf';
@@ -196,11 +198,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [draggedBranch, setDraggedBranch] = useState<string | null>(null);
   const [dragOverBranch, setDragOverBranch] = useState<string | null>(null);
 
+  // Quick Search / Navigator Filter
+  const [searchQuery, setSearchQuery] = useState('');
+
   // Context Menu state
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   const localBranches = branches.filter((b) => !b.isRemote);
   const remoteBranches = branches.filter((b) => b.isRemote);
+
+  const q = searchQuery.trim().toLowerCase();
+  const filteredLocalBranches = q
+    ? localBranches.filter((b) => b.name.toLowerCase().includes(q))
+    : localBranches;
+  const filteredRemoteBranches = q
+    ? remoteBranches.filter((b) => b.name.toLowerCase().includes(q))
+    : remoteBranches;
+  const filteredTags = q ? tags.filter((t) => t.name.toLowerCase().includes(q)) : tags;
+  const filteredStashes = q
+    ? stashes.filter((s) => s.name.toLowerCase().includes(q) || (s.message || '').toLowerCase().includes(q))
+    : stashes;
+  const totalMatches =
+    filteredLocalBranches.length +
+    filteredRemoteBranches.length +
+    filteredTags.length +
+    filteredStashes.length;
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -408,6 +430,41 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
       </div>
+
+      {/* QUICK SEARCH FILTER BAR */}
+      <div className="px-2.5 py-1.5 border-b border-[#222a3a] bg-[#141820]/40 flex-shrink-0">
+        <div className="relative flex items-center">
+          <Search className="w-3 h-3 text-slate-500 absolute left-2 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Filter branches, tags..."
+            className="w-full bg-[#10141b] border border-[#2a3447] focus:border-teal-500/70 rounded pl-7 pr-6 py-1 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none transition"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-1.5 p-0.5 text-slate-500 hover:text-slate-300 rounded"
+              title="Clear filter"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+        {searchQuery && (
+          <div className="flex items-center justify-between text-[10px] text-teal-400 mt-1 px-1">
+            <span>{totalMatches} matching items</span>
+            <button
+              onClick={() => setSearchQuery('')}
+              className="text-slate-500 hover:text-slate-300 hover:underline"
+            >
+              clear
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* LOCAL BRANCHES */}
       {sectionConfig.localBranches && (
         <div className="border-b border-[#222a3a]">
@@ -419,7 +476,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {expandLocal ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
             <GitBranch className="w-3.5 h-3.5 text-teal-400" />
             <span>Local Branches</span>
-            <span className="text-[10px] text-slate-500 font-normal">({localBranches.length})</span>
+            <span className="text-[10px] text-slate-500 font-normal">
+              {q ? `(${filteredLocalBranches.length}/${localBranches.length})` : `(${localBranches.length})`}
+            </span>
           </div>
           <button
             onClick={(e) => {
@@ -433,9 +492,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        {expandLocal && (
+        {(expandLocal || !!q) && (
           <div className="pb-1">
-            {localBranches.map((branch) => {
+            {filteredLocalBranches.map((branch) => {
               const isCurrent = branch.name === currentBranch;
               const isDragOver = dragOverBranch === branch.name;
 
@@ -559,13 +618,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {expandRemote ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
               <Globe className="w-3.5 h-3.5 text-blue-400" />
               <span>Remote Branches</span>
-              <span className="text-[10px] text-slate-500 font-normal">({remoteBranches.length})</span>
+              <span className="text-[10px] text-slate-500 font-normal">
+                {q ? `(${filteredRemoteBranches.length}/${remoteBranches.length})` : `(${remoteBranches.length})`}
+              </span>
             </div>
           </div>
 
-          {expandRemote && (
+          {(expandRemote || !!q) && (
             <div className="pb-1">
-              {remoteBranches.map((branch) => (
+              {filteredRemoteBranches.map((branch) => (
                 <div
                   key={branch.name}
                   draggable={true}
@@ -700,7 +761,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {expandTags ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
             <TagIcon className="w-3.5 h-3.5 text-yellow-400" />
             <span>Tags</span>
-            <span className="text-[10px] text-slate-500 font-normal">({tags.length})</span>
+            <span className="text-[10px] text-slate-500 font-normal">
+              {q ? `(${filteredTags.length}/${tags.length})` : `(${tags.length})`}
+            </span>
           </div>
           <button
             onClick={(e) => {
@@ -714,12 +777,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        {expandTags && (
+        {(expandTags || !!q) && (
           <div className="pb-1">
-            {tags.length === 0 ? (
+            {filteredTags.length === 0 ? (
               <div className="px-5 py-1 text-xs text-slate-600 italic">No tags</div>
             ) : (
-              tags.map((tag) => (
+              filteredTags.map((tag) => (
                 <div
                   key={tag.name}
                   onDoubleClick={() => onCheckoutBranch(tag.name)}
@@ -761,16 +824,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {expandStashes ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
             <Archive className="w-3.5 h-3.5 text-amber-400" />
             <span>Stashes</span>
-            <span className="text-[10px] text-slate-500 font-normal">({stashes.length})</span>
+            <span className="text-[10px] text-slate-500 font-normal">
+              {q ? `(${filteredStashes.length}/${stashes.length})` : `(${stashes.length})`}
+            </span>
           </div>
         </div>
 
-        {expandStashes && (
+        {(expandStashes || !!q) && (
           <div className="pb-1">
-            {stashes.length === 0 ? (
+            {filteredStashes.length === 0 ? (
               <div className="px-5 py-1 text-xs text-slate-600 italic">No stashes</div>
             ) : (
-              stashes.map((stash) => (
+              filteredStashes.map((stash) => (
                 <div
                   key={stash.name}
                   onClick={() => onInspectStash?.(stash.index, stash.message || stash.name)}

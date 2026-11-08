@@ -67,12 +67,22 @@ export const App: React.FC = () => {
   const [fileDiffs, setFileDiffs] = useState<FileDiff[]>([]);
 
   // Panels & Modals
-  const [isAgentOpen, setIsAgentOpen] = useState<boolean>(true);
+  const [isAgentOpen, setIsAgentOpen] = useState<boolean>(() => {
+    return localStorage.getItem('gitter_agent_open') === 'true';
+  });
   const [loading, setLoading] = useState<boolean>(false);
   const [showQuickLaunch, setShowQuickLaunch] = useState<boolean>(false);
   const [ignoreWhitespace, setIgnoreWhitespace] = useState<boolean>(() => {
     return localStorage.getItem('gitter_diff_ws') === 'true';
   });
+
+  const handleToggleAgent = useCallback(() => {
+    setIsAgentOpen((prev) => {
+      const next = !prev;
+      localStorage.setItem('gitter_agent_open', next ? 'true' : 'false');
+      return next;
+    });
+  }, []);
 
   // Resizable panels & persistence
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
@@ -312,12 +322,34 @@ export const App: React.FC = () => {
       // Ctrl+Shift+A: Toggle AI Agent
       else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'a' || e.key === 'A')) {
         e.preventDefault();
-        setIsAgentOpen((prev) => !prev);
+        handleToggleAgent();
       }
       // Ctrl+T: Open Launchpad in new tab
       else if ((e.ctrlKey || e.metaKey) && (e.key === 't' || e.key === 'T')) {
         e.preventDefault();
         setShowLaunchpadModal(true);
+      }
+      // Ctrl+W: Close Current Tab (when more than 1 tab)
+      else if ((e.ctrlKey || e.metaKey) && (e.key === 'w' || e.key === 'W') && !e.shiftKey) {
+        if (repoTabs.length > 1 && repoPath) {
+          e.preventDefault();
+          handleCloseTab(repoPath);
+        }
+      }
+      // Ctrl+Tab / Ctrl+Shift+Tab: Cycle open repository tabs
+      else if (e.ctrlKey && e.key === 'Tab') {
+        if (repoTabs.length > 1) {
+          e.preventDefault();
+          const currentIndex = repoTabs.findIndex(
+            (t) => t.path.toLowerCase() === repoPath.toLowerCase()
+          );
+          if (currentIndex !== -1) {
+            const nextIndex = e.shiftKey
+              ? (currentIndex - 1 + repoTabs.length) % repoTabs.length
+              : (currentIndex + 1) % repoTabs.length;
+            handleSelectTab(repoTabs[nextIndex].path);
+          }
+        }
       }
       // Ctrl+Z: 1-Click Undo (only when not in textarea/input)
       else if (
@@ -709,16 +741,37 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleSelectTab = (path: string) => {
+    if (path.toLowerCase() === repoPath.toLowerCase()) return;
+    setSelectedCommit(null);
+    setSelectedFile(null);
+    setFileDiffs([]);
+    setComparisonCommits(null);
+    setConflictModalData(null);
+    refreshRepo(path);
+  };
+
   const handleCloseTab = (pathToClose: string) => {
     setRepoTabs((prev) => {
       const filtered = prev.filter((t) => t.path.toLowerCase() !== pathToClose.toLowerCase());
       localStorage.setItem('gitter_open_repo_tabs', JSON.stringify(filtered));
       if (pathToClose.toLowerCase() === repoPath.toLowerCase()) {
         if (filtered.length > 0) {
-          refreshRepo(filtered[0].path);
+          handleSelectTab(filtered[0].path);
         } else {
           setShowLaunchpadModal(true);
         }
+      }
+      return filtered;
+    });
+  };
+
+  const handleCloseOtherTabs = (keepPath: string) => {
+    setRepoTabs((prev) => {
+      const filtered = prev.filter((t) => t.path.toLowerCase() === keepPath.toLowerCase());
+      localStorage.setItem('gitter_open_repo_tabs', JSON.stringify(filtered));
+      if (keepPath.toLowerCase() !== repoPath.toLowerCase()) {
+        handleSelectTab(keepPath);
       }
       return filtered;
     });
@@ -808,15 +861,28 @@ export const App: React.FC = () => {
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#14181f] text-slate-200">
       {/* Top Multi-Repo Tab Bar */}
-      {repoTabs.length > 0 && (
-        <RepoTabBar
-          tabs={repoTabs}
-          activePath={repoPath}
-          onSelectTab={(path) => refreshRepo(path)}
-          onCloseTab={handleCloseTab}
-          onNewTab={() => setShowLaunchpadModal(true)}
-        />
-      )}
+      <RepoTabBar
+        tabs={
+          repoTabs.length > 0
+            ? repoTabs
+            : repoState
+            ? [
+                {
+                  path: repoState.path,
+                  name: repoState.path.split(/[\\/]/).filter(Boolean).pop() || 'repo',
+                  branch: repoState.currentBranch,
+                  isClean: repoState.isClean,
+                },
+              ]
+            : []
+        }
+        activePath={repoPath}
+        onSelectTab={handleSelectTab}
+        onCloseTab={handleCloseTab}
+        onCloseOtherTabs={handleCloseOtherTabs}
+        onRevealInExplorer={(p) => api.revealInExplorer(p)}
+        onNewTab={() => setShowLaunchpadModal(true)}
+      />
 
       {/* Top Header Toolbar */}
       <HeaderToolbar
@@ -849,12 +915,22 @@ export const App: React.FC = () => {
             return next;
           });
         }}
-        onToggleAgent={() => setIsAgentOpen(!isAgentOpen)}
+        onToggleAgent={handleToggleAgent}
         isSidebarOpen={isSidebarOpen}
         isStagingOpen={isStagingOpen}
         isAgentOpen={isAgentOpen}
         onOpenSettings={() => setShowSettingsModal(true)}
         onOpenRepo={() => setShowOpenModal(true)}
+        onBrowseNative={async () => {
+          try {
+            const res = await api.pickNativeFolder();
+            if (res && res.path) {
+              handleSelectTab(res.path);
+            }
+          } catch (e: any) {
+            alert(`Browse error: ${e.message}`);
+          }
+        }}
         onCloneRepo={() => setShowCloneModal(true)}
         onInitRepo={async () => {
           const p = prompt('Enter new repo path:');
@@ -1135,7 +1211,10 @@ export const App: React.FC = () => {
         {isAgentOpen && (
           <AgentSidebar
             repoState={repoState}
-            onClose={() => setIsAgentOpen(false)}
+            onClose={() => {
+              setIsAgentOpen(false);
+              localStorage.setItem('gitter_agent_open', 'false');
+            }}
             onRunGitCommand={handleRunAgentCommand}
           />
         )}
@@ -1361,7 +1440,7 @@ export const App: React.FC = () => {
               return next;
             });
           }}
-          onToggleAgent={() => setIsAgentOpen(!isAgentOpen)}
+          onToggleAgent={handleToggleAgent}
         />
       )}
 

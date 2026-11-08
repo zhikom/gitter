@@ -53,6 +53,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [repoAuthorName, setRepoAuthorName] = useState('');
   const [repoAuthorEmail, setRepoAuthorEmail] = useState('');
   const [repoDefaultBranch, setRepoDefaultBranch] = useState('');
+  const [repoPullStrategy, setRepoPullStrategy] = useState<'rebase' | 'merge' | 'ff-only'>('rebase');
+  const [repoAutocrlf, setRepoAutocrlf] = useState<'input' | 'true' | 'false'>('input');
+  const [repoBypassHooks, setRepoBypassHooks] = useState(false);
+  const [repoLfsPatterns, setRepoLfsPatterns] = useState('*.zip, *.onnx, *.pt, *.bin, *.tar.gz');
+  const [repoExternalDiffCmd, setRepoExternalDiffCmd] = useState('');
   const [gitflowDevelopBranch, setGitflowDevelopBranch] = useState('develop');
   const [gitflowMasterBranch, setGitflowMasterBranch] = useState('main');
   const [gitflowFeaturePrefix, setGitflowFeaturePrefix] = useState('feature/');
@@ -161,6 +166,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             setRepoAuthorEmail(cfg.authorEmail || '');
           }
           if (cfg.defaultBranch) setRepoDefaultBranch(cfg.defaultBranch);
+          if (cfg.pullStrategy) setRepoPullStrategy(cfg.pullStrategy);
+          if (cfg.autocrlf) setRepoAutocrlf(cfg.autocrlf);
+          if (cfg.bypassHooks !== undefined) setRepoBypassHooks(cfg.bypassHooks);
+          if (cfg.lfsPatterns) setRepoLfsPatterns(cfg.lfsPatterns);
+          if (cfg.externalDiffCmd) setRepoExternalDiffCmd(cfg.externalDiffCmd);
           if (cfg.gitflow) {
             if (cfg.gitflow.masterBranch) setGitflowMasterBranch(cfg.gitflow.masterBranch);
             if (cfg.gitflow.developBranch) setGitflowDevelopBranch(cfg.gitflow.developBranch);
@@ -212,6 +222,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           authorName: overrideIdentity ? repoAuthorName.trim() : undefined,
           authorEmail: overrideIdentity ? repoAuthorEmail.trim() : undefined,
           defaultBranch: repoDefaultBranch.trim() || undefined,
+          pullStrategy: repoPullStrategy,
+          autocrlf: repoAutocrlf,
+          bypassHooks: repoBypassHooks,
+          lfsPatterns: repoLfsPatterns.trim() || undefined,
+          externalDiffCmd: repoExternalDiffCmd.trim() || undefined,
           gitflow: {
             masterBranch: gitflowMasterBranch.trim() || 'main',
             developBranch: gitflowDevelopBranch.trim() || 'develop',
@@ -220,6 +235,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             hotfixPrefix: gitflowHotfixPrefix.trim() || 'hotfix/',
           },
         });
+
+        // Sync with local git config
+        await api.setGitConfig(repoPath, 'core.autocrlf', repoAutocrlf);
+        await api.setGitConfig(repoPath, 'pull.rebase', repoPullStrategy === 'rebase' ? 'true' : 'false');
       }
 
       setSaved(true);
@@ -413,6 +432,83 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         className="w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
                       />
                     </div>
+                  </div>
+                </div>
+
+                {/* PULL & MERGE STRATEGY */}
+                <div className="pt-3 border-t border-[#2a3447] space-y-3">
+                  <div className="font-semibold text-slate-200 flex items-center space-x-2">
+                    <RotateCcw className="w-4 h-4 text-cyan-400" />
+                    <span>Pull & Merge Behavior</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-400 font-semibold mb-1">Pull Strategy</label>
+                      <select
+                        value={repoPullStrategy}
+                        onChange={(e) => setRepoPullStrategy(e.target.value as any)}
+                        className="w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
+                      >
+                        <option value="rebase">Rebase local commits onto upstream (Recommended)</option>
+                        <option value="merge">Create merge commit on pull</option>
+                        <option value="ff-only">Fast-forward only (Reject divergent branches)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 font-semibold mb-1">Line Endings (core.autocrlf)</label>
+                      <select
+                        value={repoAutocrlf}
+                        onChange={(e) => setRepoAutocrlf(e.target.value as any)}
+                        className="w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 font-mono"
+                      >
+                        <option value="input">input (Commit LF, checkout as-is — Cross-Platform)</option>
+                        <option value="true">true (Commit LF, checkout CRLF — Windows standard)</option>
+                        <option value="false">false (Preserve exact working tree line endings)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* HOOKS & LFS */}
+                <div className="pt-3 border-t border-[#2a3447] space-y-3">
+                  <div className="font-semibold text-slate-200 flex items-center space-x-2">
+                    <Shield className="w-4 h-4 text-amber-400" />
+                    <span>Hooks & Large File Storage (LFS)</span>
+                  </div>
+
+                  <label className="flex items-center space-x-2 cursor-pointer font-medium text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={repoBypassHooks}
+                      onChange={(e) => setRepoBypassHooks(e.target.checked)}
+                      className="rounded bg-[#14181f] border-[#2a3447] text-amber-500"
+                    />
+                    <span>Bypass Git pre-commit & commit-msg hooks (--no-verify)</span>
+                  </label>
+
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">Git LFS Tracked Patterns</label>
+                    <input
+                      type="text"
+                      value={repoLfsPatterns}
+                      onChange={(e) => setRepoLfsPatterns(e.target.value)}
+                      placeholder="*.zip, *.onnx, *.pt, *.bin, *.tar.gz"
+                      className="w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500 font-mono"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">Comma-separated glob patterns tracked by Git LFS.</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">Custom External Diff Tool Command</label>
+                    <input
+                      type="text"
+                      value={repoExternalDiffCmd}
+                      onChange={(e) => setRepoExternalDiffCmd(e.target.value)}
+                      placeholder="e.g. code --diff $LOCAL $REMOTE or bcomp $LOCAL $REMOTE"
+                      className="w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500 font-mono"
+                    />
                   </div>
                 </div>
 
@@ -911,12 +1007,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <td className="py-2 px-3">Quick Launch All Commands</td>
                       </tr>
                       <tr>
+                        <td className="py-2 px-3 font-mono text-teal-400">Ctrl + T</td>
+                        <td className="py-2 px-3">Open Repository in New Tab / Launchpad</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 px-3 font-mono text-teal-400">Ctrl + W</td>
+                        <td className="py-2 px-3">Close Current Repository Tab</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2 px-3 font-mono text-teal-400">Ctrl + Tab</td>
+                        <td className="py-2 px-3">Cycle Open Repository Tabs</td>
+                      </tr>
+                      <tr>
                         <td className="py-2 px-3 font-mono text-teal-400">Ctrl + Enter</td>
                         <td className="py-2 px-3">Commit Staged Changes</td>
                       </tr>
                       <tr>
+                        <td className="py-2 px-3 font-mono text-teal-400">Ctrl + Z</td>
+                        <td className="py-2 px-3">1-Click Undo Last Git Action (Reflog roll)</td>
+                      </tr>
+                      <tr>
                         <td className="py-2 px-3 font-mono text-teal-400">Ctrl + B</td>
-                        <td className="py-2 px-3">Toggle Left Sidebar</td>
+                        <td className="py-2 px-3">Toggle Left Sidebar (Navigator)</td>
                       </tr>
                       <tr>
                         <td className="py-2 px-3 font-mono text-teal-400">Ctrl + J</td>

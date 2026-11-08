@@ -172,8 +172,20 @@ export const LaunchpadModal: React.FC<LaunchpadModalProps> = ({
       if (res && res.path) {
         setScanFolder(res.path);
         localStorage.setItem('gitter_scan_parent_folder', res.path);
+        setScanning(true);
+        setScanError(null);
+        try {
+          const results = await api.scanRepositories(res.path);
+          setScannedRepos(results);
+        } catch (e: any) {
+          setScanError(e.message || 'Failed to scan folder for repositories');
+        } finally {
+          setScanning(false);
+        }
       }
-    } catch {}
+    } catch (e: any) {
+      alert(`Browse error: ${e.message}`);
+    }
   };
 
   const handleScanFolder = async () => {
