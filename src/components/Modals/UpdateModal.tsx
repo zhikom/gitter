@@ -13,9 +13,11 @@ import {
   Monitor,
   Apple,
   Terminal,
+  Zap,
 } from 'lucide-react';
 import { checkForAppUpdate, CURRENT_VERSION } from '../../services/updateService';
 import { ReleaseAsset, UpdateInfo } from '../../types/update';
+import { api } from '../../api/client';
 
 interface UpdateModalProps {
   onClose: () => void;
@@ -37,6 +39,43 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
   const [autoCheck, setAutoCheck] = useState<boolean>(() => {
     return localStorage.getItem('gitter_auto_check_updates') !== 'false';
   });
+  const [updating, setUpdating] = useState<boolean>(false);
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null);
+  const [updateComplete, setUpdateComplete] = useState<boolean>(false);
+
+  const handleInPlaceUpdate = async () => {
+    if (!updateInfo) return;
+    setUpdating(true);
+    setError(null);
+    setUpdateStatus('Initiating in-place update...');
+    try {
+      setUpdateStatus('Checking environment & applying update...');
+      const res = await api.inPlaceUpdate(
+        updateInfo.latestVersion,
+        updateInfo.recommendedAsset?.browser_download_url,
+        updateInfo.recommendedAsset?.name
+      );
+      setUpdateStatus(res.message || 'Update completed successfully!');
+      setUpdateComplete(true);
+      if (res.method === 'git-rebuild') {
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      }
+    } catch (err: any) {
+      setError(`In-place update failed: ${err.message}`);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleOpenBrowser = async (url: string) => {
+    try {
+      await api.openExternalUrl(url);
+    } catch {
+      window.open(url, '_blank');
+    }
+  };
 
   const checkUpdates = async () => {
     setLoading(true);
@@ -139,7 +178,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
             <>
               {/* Status Banner */}
               {updateInfo.hasUpdate ? (
-                <div className="bg-gradient-to-r from-teal-500/15 via-emerald-500/10 to-transparent border border-teal-500/30 rounded-xl p-4 flex items-center justify-between">
+                <div className="bg-gradient-to-r from-teal-500/15 via-emerald-500/10 to-transparent border border-teal-500/30 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
                   <div className="space-y-1">
                     <div className="flex items-center space-x-2">
                       <Sparkles className="w-4 h-4 text-teal-400" />
@@ -152,17 +191,42 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
                       {new Date(updateInfo.publishedAt).toLocaleDateString()}.
                     </p>
                   </div>
-                  {updateInfo.recommendedAsset && (
-                    <a
-                      href={updateInfo.recommendedAsset.browser_download_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="px-4 py-2 rounded-lg bg-teal-500 hover:bg-teal-400 text-slate-900 font-bold text-xs shadow-lg shadow-teal-500/20 transition flex items-center space-x-1.5 flex-shrink-0"
+
+                  <div className="flex items-center space-x-2 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleInPlaceUpdate}
+                      disabled={updating || updateComplete}
+                      className="px-4 py-2 rounded-lg bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-white font-bold text-xs shadow-lg shadow-teal-500/20 transition flex items-center space-x-1.5 disabled:opacity-50"
                     >
-                      <DownloadCloud className="w-4 h-4" />
-                      <span>Download Update</span>
-                    </a>
-                  )}
+                      {updating ? (
+                        <RefreshCw className="w-4 h-4 animate-spin text-teal-200" />
+                      ) : updateComplete ? (
+                        <CheckCircle2 className="w-4 h-4 text-white" />
+                      ) : (
+                        <Zap className="w-4 h-4 text-amber-300" />
+                      )}
+                      <span>
+                        {updating
+                          ? 'Applying Update...'
+                          : updateComplete
+                          ? 'Reloading...'
+                          : '⚡ One-Click In-Place Update'}
+                      </span>
+                    </button>
+
+                    {updateInfo.recommendedAsset && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenBrowser(updateInfo.recommendedAsset!.browser_download_url)}
+                        title="Download manually in default web browser"
+                        className="px-3 py-2 rounded-lg bg-[#202737] hover:bg-[#2b3548] border border-[#2a3447] text-slate-300 hover:text-white text-xs font-semibold flex items-center space-x-1.5 transition"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>Manual</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 flex items-center space-x-3">
@@ -176,21 +240,38 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
                 </div>
               )}
 
+              {/* In-Place Update Status Notification */}
+              {updateStatus && (
+                <div
+                  className={`p-3 rounded-lg border flex items-center space-x-2 text-xs font-medium ${
+                    updateComplete
+                      ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                      : 'bg-teal-500/15 border-teal-500/30 text-teal-300 animate-pulse'
+                  }`}
+                >
+                  {updateComplete ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4 animate-spin text-teal-400 flex-shrink-0" />
+                  )}
+                  <span>{updateStatus}</span>
+                </div>
+              )}
+
               {/* Changelog & Release Notes */}
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-semibold text-slate-300 text-xs flex items-center space-x-1.5">
                     <span>What's New in {updateInfo.releaseTitle}</span>
                   </span>
-                  <a
-                    href={updateInfo.htmlUrl}
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    type="button"
+                    onClick={() => handleOpenBrowser(updateInfo.htmlUrl)}
                     className="text-teal-400 hover:text-teal-300 flex items-center space-x-1 text-[11px]"
                   >
                     <span>View on GitHub</span>
                     <ExternalLink className="w-3 h-3" />
-                  </a>
+                  </button>
                 </div>
 
                 <div className="bg-[#14181f] border border-[#2a3447] rounded-lg p-3 max-h-56 overflow-y-auto font-mono text-[11px] leading-relaxed text-slate-300 whitespace-pre-wrap selection:bg-teal-500/30">
@@ -219,12 +300,11 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
                   {showAllAssets && (
                     <div className="border-t border-[#2a3447] p-2 space-y-1 bg-[#13171f]">
                       {updateInfo.assets.map((asset) => (
-                        <a
+                        <button
                           key={asset.name}
-                          href={asset.browser_download_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center justify-between px-3 py-1.5 rounded hover:bg-[#1d2432] text-xs transition group"
+                          type="button"
+                          onClick={() => handleOpenBrowser(asset.browser_download_url)}
+                          className="w-full flex items-center justify-between px-3 py-1.5 rounded hover:bg-[#1d2432] text-xs transition group text-left"
                         >
                           <div className="flex items-center space-x-2 truncate">
                             {getPlatformIcon(asset.platform)}
@@ -236,7 +316,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
                             {asset.size > 0 && <span>{formatSize(asset.size)}</span>}
                             <DownloadCloud className="w-3 h-3 group-hover:text-teal-400 transition" />
                           </div>
-                        </a>
+                        </button>
                       ))}
                     </div>
                   )}

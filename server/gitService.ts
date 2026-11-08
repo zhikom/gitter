@@ -1873,6 +1873,85 @@ export class GitService {
     }
     return false;
   }
+
+  // Zero-Friction In-Place Software Updater
+  async performInPlaceUpdate(
+    targetVersion: string,
+    downloadUrl?: string,
+    assetName?: string
+  ): Promise<{ success: boolean; method: string; message: string }> {
+    const cwd = process.cwd();
+    let isGitRepo = false;
+
+    try {
+      const remoteUrl = await this.runGitRaw('config --get remote.origin.url', cwd);
+      if (remoteUrl && remoteUrl.includes('gitter')) {
+        isGitRepo = true;
+      }
+    } catch {
+      isGitRepo = false;
+    }
+
+    // Mode A: Running from Git clone (Local Dev / Source Installation)
+    if (isGitRepo) {
+      try {
+        await this.runGitRaw('fetch origin --tags', cwd);
+        await this.runGitRaw('pull origin main', cwd);
+        await execAsync('npm run build', { cwd });
+        return {
+          success: true,
+          method: 'git-rebuild',
+          message: `In-place update to v${targetVersion} pulled & compiled successfully! Reloading...`,
+        };
+      } catch (err: any) {
+        console.warn('Git in-place update fallback to binary download:', err);
+      }
+    }
+
+    // Mode B: Packaged binary / Installer update
+    if (!downloadUrl) {
+      throw new Error(`No direct download URL available for v${targetVersion} on this platform.`);
+    }
+
+    const tempDir = os.tmpdir();
+    const filename = assetName || `gitter-update-${targetVersion}.exe`;
+    const tempFilePath = path.join(tempDir, filename);
+
+    const res = await fetch(downloadUrl);
+    if (!res.ok) {
+      throw new Error(`Failed to download update binary from GitHub (${res.status} ${res.statusText})`);
+    }
+    const buffer = Buffer.from(await res.arrayBuffer());
+    await fs.promises.writeFile(tempFilePath, buffer);
+
+    const isWindows = process.platform === 'win32';
+    const isMac = process.platform === 'darwin';
+
+    if (isWindows) {
+      if (filename.endsWith('.exe')) {
+        exec(`start "" "${tempFilePath}"`);
+      } else if (filename.endsWith('.msi')) {
+        exec(`msiexec /i "${tempFilePath}" /passive`);
+      } else {
+        exec(`start "" "${tempFilePath}"`);
+      }
+    } else if (isMac) {
+      exec(`open "${tempFilePath}"`);
+    } else {
+      if (filename.endsWith('.AppImage')) {
+        await execAsync(`chmod +x "${tempFilePath}"`);
+        exec(`"${tempFilePath}"`);
+      } else if (filename.endsWith('.deb')) {
+        exec(`xdg-open "${tempFilePath}"`);
+      }
+    }
+
+    return {
+      success: true,
+      method: 'installer-launched',
+      message: `Update package saved to ${tempFilePath}. Installer launched automatically!`,
+    };
+  }
 }
 
 export const gitService = new GitService();

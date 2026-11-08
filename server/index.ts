@@ -1087,6 +1087,38 @@ app.post('/api/agent-fleet/clear-lock', async (req, res) => {
   }
 });
 
+// In-Place Software Updater Endpoint
+app.post('/api/app/in-place-update', async (req, res) => {
+  try {
+    const { targetVersion, downloadUrl, assetName } = req.body;
+    const result = await gitService.performInPlaceUpdate(targetVersion, downloadUrl, assetName);
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// OS Native URL Opener (Bypasses sandboxed webview restrictions)
+app.post('/api/open-url', async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url || typeof url !== 'string' || !url.startsWith('http')) {
+      return res.status(400).json({ error: 'Invalid URL parameter' });
+    }
+    const isWindows = process.platform === 'win32';
+    const isMac = process.platform === 'darwin';
+    const cmd = isWindows
+      ? `start "" "${url}"`
+      : isMac
+      ? `open "${url}"`
+      : `xdg-open "${url}"`;
+    await execAsync(cmd);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Serve built frontend assets if dist folder exists
 const distCandidates = [
   path.resolve(__dirname, '../dist'),

@@ -561,4 +561,27 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ path }),
     }),
+
+  // Zero-Friction In-Place Software Updater
+  inPlaceUpdate: (targetVersion: string, downloadUrl?: string, assetName?: string) =>
+    fetchJson<{ success: boolean; method: string; message: string }>('/app/in-place-update', {
+      method: 'POST',
+      body: JSON.stringify({ targetVersion, downloadUrl, assetName }),
+    }),
+
+  // OS Native URL Opener (Opens in default web browser without sandboxed webview blocks)
+  openExternalUrl: async (url: string): Promise<{ success: boolean }> => {
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.openExternalUrl) {
+      try {
+        await (window as any).electronAPI.openExternalUrl(url);
+        return { success: true };
+      } catch (e) {
+        console.warn('Electron openExternalUrl error:', e);
+      }
+    }
+    return fetchJson<{ success: boolean }>('/open-url', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    });
+  },
 };

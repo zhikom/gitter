@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, Menu, dialog, ipcMain, shell } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -45,6 +45,15 @@ ipcMain.handle('dialog:open-directory', async () => {
     return null;
   }
   return result.filePaths[0];
+});
+
+// IPC for opening external links in system browser
+ipcMain.handle('shell:open-external', async (_, url: string) => {
+  if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+    await shell.openExternal(url);
+    return true;
+  }
+  return false;
 });
 
 app.whenReady().then(() => {
