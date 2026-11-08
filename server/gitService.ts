@@ -1929,7 +1929,8 @@ export class GitService {
 
     if (isWindows) {
       if (filename.endsWith('.exe')) {
-        exec(`start "" "${tempFilePath}"`);
+        // NSIS installer silent update with /S
+        exec(`start "" "${tempFilePath}" /S`);
       } else if (filename.endsWith('.msi')) {
         exec(`msiexec /i "${tempFilePath}" /passive`);
       } else {
