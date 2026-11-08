@@ -2,7 +2,7 @@
   "name": "gitter-vscode",
   "displayName": "Gitter - The Elite Git Client for VS Code",
   "description": "Ultra-fast interactive Git graph, 3-way merge conflict resolver, JetBrains shelves, GitButler virtual branches, and AI commit assistant directly inside VS Code.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "zhikom",
   "repository": {
     "type": "git",
