@@ -16,7 +16,19 @@ const execAsync = promisify(exec);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
+// Handle Private Network Access (PNA) and preflight requests for Chrome/Edge/Tauri/Vite
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Private-Network', 'true');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 app.use(express.json({ limit: '50mb' }));
 
 // Helper to sanitize path
@@ -1127,6 +1139,11 @@ const distCandidates = [
 ];
 const distPath = distCandidates.find((d) => fs.existsSync(d) && fs.existsSync(path.join(d, 'index.html')));
 
+// Catch unhandled /api calls to prevent falling into the SPA HTML fallback
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: `API endpoint not found: ${req.method} ${req.path}` });
+});
+
 if (distPath) {
   app.use(express.static(distPath));
   // Client-side SPA routing fallback for non-API routes
@@ -1138,6 +1155,6 @@ if (distPath) {
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`Gitter backend server running on http://localhost:${PORT}`);
+app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`Gitter backend server running on http://127.0.0.1:${PORT} and http://localhost:${PORT}`);
 });

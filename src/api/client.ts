@@ -31,92 +31,102 @@ declare global {
   }
 }
 
-function getBaseUrl(): string {
-  if (typeof window === 'undefined') return 'http://127.0.0.1:3001/api';
+let cachedWorkingBase: string | null = null;
+
+function getCandidateBases(): string[] {
+  if (typeof window === 'undefined') return ['http://127.0.0.1:3001/api', 'http://localhost:3001/api'];
 
   const custom = localStorage.getItem('gitter_api_url');
-  if (custom) return custom.replace(/\/$/, '') + '/api';
+  if (custom) return [custom.replace(/\/$/, '') + '/api'];
 
-  const { protocol, hostname, port } = window.location;
+  const { hostname, port } = window.location;
+  const candidates: string[] = [];
 
-  // If already on port 3001, relative /api is ideal
+  if (cachedWorkingBase) {
+    candidates.push(cachedWorkingBase);
+  }
+
+  // If already served directly by Express on port 3001, /api is preferred
   if (port === '3001') {
-    return '/api';
+    candidates.push('/api');
   }
 
-  // When frontend is served on Vite dev (5173), Vite preview (4173),
-  // Tauri (tauri:// or http://tauri.localhost), or Electron (file://),
-  // connecting directly to Express on 127.0.0.1:3001 prevents proxy drops and HTML fallback errors.
-  if (
-    hostname === 'localhost' ||
-    hostname === '127.0.0.1' ||
-    protocol === 'tauri:' ||
-    protocol === 'file:' ||
-    hostname.includes('tauri.localhost')
-  ) {
-    return 'http://127.0.0.1:3001/api';
+  // Host-matching candidate (prevents Private Network Access / PNA blocks in Edge/Chrome)
+  if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+    candidates.push(`http://${hostname}:3001/api`);
   }
 
-  return '/api';
+  candidates.push('http://127.0.0.1:3001/api');
+  candidates.push('http://localhost:3001/api');
+  candidates.push('/api');
+
+  // Return unique candidates preserving priority order
+  return Array.from(new Set(candidates));
 }
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const primaryBase = getBaseUrl();
-  let res: Response;
+  const candidates = getCandidateBases();
+  let lastError: Error | null = null;
 
-  try {
-    res = await fetch(`${primaryBase}${url}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers,
-      },
-    });
-  } catch (primaryErr: any) {
-    // If direct connection to 127.0.0.1:3001 failed, attempt relative /api
-    if (primaryBase !== '/api') {
-      try {
-        res = await fetch(`/api${url}`, {
-          ...options,
-          headers: {
-            'Content-Type': 'application/json',
-            ...options?.headers,
-          },
-        });
-      } catch (fallbackErr: any) {
-        throw new Error(
-          `Unable to connect to Gitter backend (${primaryErr.message}). Ensure the backend server is running with 'npm run server'.`
-        );
-      }
-    } else {
-      throw new Error(
-        `Unable to connect to Gitter backend. Ensure 'npm run server' is active on port 3001. (${primaryErr.message})`
-      );
-    }
-  }
-
-  // Explicitly check for HTML response to eliminate "Unexpected token '<' !doctype is not valid json"
-  const contentType = res.headers.get('content-type') || '';
-  if (!contentType.includes('application/json')) {
-    const rawText = await res.text();
-    if (rawText.includes('<!DOCTYPE') || rawText.includes('<html')) {
-      throw new Error(
-        `Server returned an HTML document instead of JSON (Status ${res.status}). Ensure the Gitter backend server daemon is active on port 3001.`
-      );
-    }
+  for (const base of candidates) {
     try {
-      return JSON.parse(rawText);
-    } catch {
-      throw new Error(`Server returned non-JSON response (${res.status}): ${rawText.slice(0, 150)}`);
+      const fullUrl = `${base}${url}`;
+      const res = await fetch(fullUrl, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...options?.headers,
+        },
+      });
+
+      const contentType = res.headers.get('content-type') || '';
+
+      // If an endpoint returned HTML (e.g. Vite SPA index.html fallback when proxying times out or drops),
+      // DO NOT accept it as valid API data - skip to the next candidate (direct port 3001)!
+      if (!contentType.includes('application/json')) {
+        const rawText = await res.text();
+        if (rawText.includes('<!DOCTYPE') || rawText.includes('<html') || rawText.includes('<head>')) {
+          lastError = new Error(`Candidate '${base}' returned SPA HTML fallback instead of JSON (Status ${res.status}).`);
+          continue;
+        }
+
+        try {
+          const parsed = JSON.parse(rawText);
+          cachedWorkingBase = base;
+          return parsed;
+        } catch {
+          lastError = new Error(`Candidate '${base}' returned non-JSON text (${res.status}): ${rawText.slice(0, 100)}`);
+          continue;
+        }
+      }
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(errorData.error || `HTTP error ${res.status}`);
+      }
+
+      cachedWorkingBase = base;
+      return await res.json();
+    } catch (err: any) {
+      lastError = err;
+      // If error was an explicit API business-logic error (e.g. invalid git branch, rebase conflict),
+      // re-throw immediately rather than attempting unrelated candidates
+      if (
+        err.message &&
+        !err.message.includes('Failed to fetch') &&
+        !err.message.includes('NetworkError') &&
+        !err.message.includes('SPA HTML fallback') &&
+        !err.message.includes('Load failed') &&
+        !err.message.includes('non-JSON')
+      ) {
+        throw err;
+      }
     }
   }
 
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(errorData.error || `HTTP error ${res.status}`);
-  }
-
-  return res.json();
+  throw new Error(
+    `Cannot connect to Gitter backend daemon on port 3001. Please ensure 'npm run server' is running. (${lastError?.message || 'Connection failed'})`
+  );
 }
 
 export const api = {
