@@ -30,15 +30,15 @@ Instead of 350MB+ of Electron bloat and monthly SaaS subscriptions, Gitter ships
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────┐
-│  GIT KRAKEN                    SUBMILE MERGE                 GITBUTLER         │
-│  • Visual Bezier commit graph  • Line-level & hunk staging   • Virtual branch  │
-│  • 3-way merge conflict tool   • Lightning search queries      stacking lanes  │
-│  • Ahead/Behind live badges    • Instant diff rendering      • Multi-feature WIP│
+│  MULTI-AGENT FLEET             GIT KRAKEN                    GITBUTLER         │
+│  • Collision Radar 2.0         • Visual Bezier commit graph  • Virtual branch  │
+│  • Worktree sandboxes per agent• 3-way merge conflict tool     stacking lanes  │
+│  • Pre-flight file claim matrix• Ahead/Behind live badges    • Multi-feature WIP│
 ├────────────────────────────────────────────────────────────────────────────────┤
-│  JETBRAINS (IDEA / RIDER)      AI COPILOT                    VS CODE           │
-│  • Persistent named shelves    • Claude, GPT-4o, Gemini 2.0  • Embedded webview│
-│  • Rebase-immune patch store   • Conventional commit generator• Native extension│
-│  • Lifetime file history       • AI conflict resolution agent • Activity bar UI│
+│  JETBRAINS (IDEA / RIDER)      AI COPILOT & AGENTS           VS CODE & TABS    │
+│  • Persistent named shelves    • Claude Code, Antigravity,   • Embedded webview│
+│  • Rebase-immune patch store     Codex, Grok, Cursor, Aider  • Native extension│
+│  • Lifetime file history       • AI conflict resolution agent• Multi-repo tabs │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -46,7 +46,24 @@ Instead of 350MB+ of Electron bloat and monthly SaaS subscriptions, Gitter ships
 
 ## 🚀 Key Innovations & Feature Tour
 
-### 1. 📊 Interactive Visual Commit Graph *(GitKraken & Fork Parity)*
+### 1. 🤖 Multi-Agent Fleet Orchestrator & Collision Radar 2.0 *(Industry First)*
+- **Real-Time Collision Radar**: Inspects modified and claimed files across parallel agent worktrees and branches. If two agents (e.g. Claude Code and Antigravity) touch the same file or overlapping hunks, a pulsating top-bar warning (`⚠️ N Collisions!`) alerts you immediately before commits happen.
+- **1-Click Agent Worktree Sandboxing**: Automatically provisions dedicated Git worktrees (`../gitter-agent-<harness>-<task>`) linked to `agent/*` branches. Every agent gets an isolated file system directory sharing the central `.git` object store, guaranteeing zero file overwrites.
+- **Pre-Flight File Territory & Claim Matrix**: Declare module boundaries and claim files before dispatching agents. If another agent touches claimed territory, the Collision Radar flags the contention.
+- **Stale Git Index Lock Breaker**: Automatically detects and cleanly clears stale `.git/index.lock` files left behind by interrupted background agent runners.
+- **Agent Attribution Badges in Visual Commit Graph**: Commits authored or co-authored by agents display distinct color-coded badges (`Claude`, `AGY`, `Codex`, `Grok`, `Cursor`, `AI`) directly beside author names.
+- **1-Click "Tag Agent" in Commit Box**: Standardized Git trailers (`Co-authored-by: Agent <...>`, `Agent-Harness: ...`) injected into commit descriptions with one click.
+
+### 2. 🗂️ Permanent Multi-Repo Tab Management *(Browser-Class Tabs)*
+- **Permanent Repo Tab Bar**: Tab bar elevated to primary top-level navigation with instant repository switching.
+- **Productivity Shortcuts**:
+  - `Ctrl+W` / `Cmd+W`: Close current repository tab.
+  - `Ctrl+Tab` / `Ctrl+Shift+Tab`: Cycle through open repository tabs forward and backward.
+  - Middle-click: Close tab immediately.
+- **Context Menu**: Right-click tabs to *Close*, *Close Other Tabs*, *Copy Full Path*, or *Reveal in OS File Explorer*.
+- **State Cleanliness**: Clean state resets between tab switches to isolate commit selection, diffs, and staging lists.
+
+### 3. 📊 Interactive Visual Commit Graph *(GitKraken & Fork Parity)*
 - **Topological Multi-Lane Layout**: Automatically assigns vibrant, accessible neon color lanes to branches (`teal`, `blue`, `purple`, `orange`, `pink`, `cyan`, `amber`).
 - **Smooth Cubic Bezier Curves**: Merge, fork, and passing lanes rendered with anti-aliased SVG curves.
 - **Dynamic Density Switcher**: Toggle instantly between **Compact** (24px), **Normal** (32px), and **Comfortable** (40px) row densities with persistent user settings.
