@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, FolderOpen, FolderSearch } from 'lucide-react';
 import { api } from '../../api/client';
 
+import { toast } from '../../utils/toast';
 interface OpenRepoModalProps {
   currentPath: string;
   onClose: () => void;
@@ -26,7 +27,7 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
         onClose();
       }
     } catch (e: any) {
-      alert(`Browse error: ${e.message}`);
+      toast(`Browse error: ${e.message}`);
     } finally {
       setBrowsing(false);
     }

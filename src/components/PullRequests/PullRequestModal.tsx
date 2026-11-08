@@ -14,6 +14,7 @@ import {
   GitBranch,
 } from 'lucide-react';
 
+import { toast } from '../../utils/toast';
 interface PullRequestModalProps {
   repoPath: string;
   currentBranch: string;
@@ -57,11 +58,11 @@ export const PullRequestModal: React.FC<PullRequestModalProps> = ({
   const handleCheckout = async (number: number) => {
     try {
       await api.checkoutPullRequest(repoPath, number);
-      alert(`Checked out Pull Request #${number}`);
+      toast(`Checked out Pull Request #${number}`);
       onRefresh();
       onClose();
     } catch (e: any) {
-      alert(`Checkout error: ${e.message}`);
+      toast(`Checkout error: ${e.message}`);
     }
   };
 
@@ -74,7 +75,7 @@ export const PullRequestModal: React.FC<PullRequestModalProps> = ({
       setTitle(res.title);
       setBody(res.body);
     } catch (e: any) {
-      alert(`AI PR generation error: ${e.message}`);
+      toast(`AI PR generation error: ${e.message}`);
     } finally {
       setIsAiGenerating(false);
     }
@@ -87,11 +88,11 @@ export const PullRequestModal: React.FC<PullRequestModalProps> = ({
     setSubmitting(true);
     try {
       const res = await api.createPullRequest(repoPath, title.trim(), body.trim(), headBranch, baseBranch, isDraft);
-      alert(`Pull Request created! ${res.url}`);
+      toast(`Pull Request created! ${res.url}`);
       onRefresh();
       onClose();
     } catch (e: any) {
-      alert(`Create PR error: ${e.message}`);
+      toast(`Create PR error: ${e.message}`);
     } finally {
       setSubmitting(false);
     }

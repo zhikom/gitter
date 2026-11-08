@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../api/client';
 
+import { toast } from '../../utils/toast';
 interface ReflogEntry {
   hash: string;
   selector: string;
@@ -71,11 +72,11 @@ export const ReflogModal: React.FC<ReflogModalProps> = ({
     setActionLoading(true);
     try {
       await api.reset(repoPath, hash, mode);
-      alert(`Reset to ${hash.slice(0, 7)} (${mode}) completed!`);
+      toast(`Reset to ${hash.slice(0, 7)} (${mode}) completed!`);
       onRefresh();
       onClose();
     } catch (e: any) {
-      alert(`Reset failed: ${e.message}`);
+      toast(`Reset failed: ${e.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -85,11 +86,11 @@ export const ReflogModal: React.FC<ReflogModalProps> = ({
     setActionLoading(true);
     try {
       await api.checkoutBranch(repoPath, hash);
-      alert(`Checked out ${hash.slice(0, 7)} (detached HEAD)`);
+      toast(`Checked out ${hash.slice(0, 7)} (detached HEAD)`);
       onRefresh();
       onClose();
     } catch (e: any) {
-      alert(`Checkout failed: ${e.message}`);
+      toast(`Checkout failed: ${e.message}`);
     } finally {
       setActionLoading(false);
     }

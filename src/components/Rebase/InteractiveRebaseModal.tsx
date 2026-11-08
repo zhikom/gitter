@@ -14,6 +14,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 
+import { toast } from '../../utils/toast';
 interface InteractiveRebaseModalProps {
   baseHash: string;
   repoPath: string;
@@ -42,7 +43,7 @@ export const InteractiveRebaseModal: React.FC<InteractiveRebaseModalProps> = ({
         setCommits(items);
       })
       .catch((e) => {
-        alert(`Failed to load rebase commits: ${e.message}`);
+        toast(`Failed to load rebase commits: ${e.message}`);
         onClose();
       })
       .finally(() => {
@@ -109,23 +110,23 @@ export const InteractiveRebaseModal: React.FC<InteractiveRebaseModalProps> = ({
   const handleStartRebase = async () => {
     if (commits.length === 0) return;
     if (commits.every((c) => c.action === 'drop')) {
-      alert('Cannot drop all commits.');
+      toast('Cannot drop all commits.');
       return;
     }
 
     if (commits[0].action === 'squash' || commits[0].action === 'fixup') {
-      alert('The first commit in the rebase plan cannot be squashed.');
+      toast('The first commit in the rebase plan cannot be squashed.');
       return;
     }
 
     setExecuting(true);
     try {
       const res = await api.executeRebase(repoPath, baseHash, commits);
-      alert(res.output || 'Interactive rebase completed successfully!');
+      toast(res.output || 'Interactive rebase completed successfully!');
       onComplete();
       onClose();
     } catch (e: any) {
-      alert(`Rebase failed: ${e.message}`);
+      toast(`Rebase failed: ${e.message}`);
     } finally {
       setExecuting(false);
     }

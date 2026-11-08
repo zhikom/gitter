@@ -17,6 +17,7 @@ import { Commit, FileDiff } from '../../types/git';
 import { api } from '../../api/client';
 import { DiffViewer } from '../Staging/DiffViewer';
 
+import { toast } from '../../utils/toast';
 interface ChangedFileItem {
   path: string;
   status: string;
@@ -121,7 +122,7 @@ export const CommitComparisonModal: React.FC<CommitComparisonModalProps> = ({
       const res = await api.generatePrDescription(commitMessages, summary);
       setAiNotes(`### ${res.title}\n\n${res.body}`);
     } catch (e: any) {
-      alert(`AI Release notes error: ${e.message}`);
+      toast(`AI Release notes error: ${e.message}`);
     } finally {
       setAiLoading(false);
     }

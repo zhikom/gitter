@@ -38,3 +38,38 @@ export interface AgentFleetState {
   activeWorktrees: string[];
   indexLockDetected: boolean;
 }
+
+export interface AgentFileChange {
+  path: string;
+  additions: number;
+  deletions: number;
+  /** 'M' modified, 'A' added, 'D' deleted, 'R' renamed, '?' untracked */
+  status: string;
+}
+
+export interface AgentActivityEvent {
+  id: string;
+  agentId: string;
+  agentName: string;
+  harness: AgentHarness;
+  color: string;
+  kind: 'commit' | 'uncommitted';
+  /** Commit hash for commits; undefined for live working-tree changes */
+  hash?: string;
+  subject: string;
+  timestamp: number;
+  files: AgentFileChange[];
+}
+
+export interface AgentFileOwnership {
+  filePath: string;
+  agentIds: string[];
+  additions: number;
+  deletions: number;
+}
+
+export interface AgentActivityState {
+  generatedAt: number;
+  events: AgentActivityEvent[];
+  fileOwnership: AgentFileOwnership[];
+}

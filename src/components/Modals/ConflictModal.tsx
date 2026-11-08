@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, AlertTriangle, Sparkles, Check, ArrowRight } from 'lucide-react';
 import { api } from '../../api/client';
 
+import { toast } from '../../utils/toast';
 interface ConflictModalProps {
   filePath: string;
   rawDiff: string;
@@ -48,7 +49,7 @@ export const ConflictModal: React.FC<ConflictModalProps> = ({
       await onApplyResolution(resolution);
       onClose();
     } catch (e: any) {
-      alert(`Apply resolution error: ${e.message}`);
+      toast(`Apply resolution error: ${e.message}`);
     } finally {
       setApplying(false);
     }

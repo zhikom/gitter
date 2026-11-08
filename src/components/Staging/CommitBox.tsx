@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Sparkles, Check, ChevronDown, Archive, RotateCcw, MessageSquare, ArrowUp, RefreshCw, Bot } from 'lucide-react';
 import { Commit } from '../../types/git';
 
+import { toast } from '../../utils/toast';
 interface CommitBoxProps {
   stagedCount: number;
   currentBranch?: string;
@@ -74,7 +75,7 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
         }
       }
     } catch (e: any) {
-      alert(`AI Generation error: ${e.message}`);
+      toast(`AI Generation error: ${e.message}`);
     } finally {
       setIsAiGenerating(false);
     }

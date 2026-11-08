@@ -20,6 +20,7 @@ import { VirtualBranch, VirtualBranchCommitPayload } from '../../types/virtualBr
 import { FileStatus } from '../../types/git';
 import { api } from '../../api/client';
 
+import { toast } from '../../utils/toast';
 interface VirtualBranchPanelProps {
   repoPath: string;
   currentBranch: string;
@@ -152,7 +153,7 @@ export const VirtualBranchPanel: React.FC<VirtualBranchPanelProps> = ({
   const handleCommitLane = async (lane: VirtualBranch, pushUpstream = false) => {
     const msg = commitMessages[lane.id] || { summary: '', description: '' };
     if (!msg.summary.trim()) {
-      alert('Please enter a commit message for this virtual branch');
+      toast('Please enter a commit message for this virtual branch');
       return;
     }
 
@@ -169,7 +170,7 @@ export const VirtualBranchPanel: React.FC<VirtualBranchPanelProps> = ({
       };
 
       const res = await api.commitVirtualBranch(repoPath, payload);
-      alert(`Committed ${lane.filePaths.length} files to branch "${res.branchName}" (SHA: ${res.commitHash.slice(0, 7)})!`);
+      toast(`Committed ${lane.filePaths.length} files to branch "${res.branchName}" (SHA: ${res.commitHash.slice(0, 7)})!`);
 
       // Clear assigned files that were committed
       const next = virtualBranches.map((vb) =>
@@ -179,7 +180,7 @@ export const VirtualBranchPanel: React.FC<VirtualBranchPanelProps> = ({
       setCommitMessages((prev) => ({ ...prev, [lane.id]: { summary: '', description: '' } }));
       await onRefresh();
     } catch (e: any) {
-      alert(`Commit virtual branch failed: ${e.message}`);
+      toast(`Commit virtual branch failed: ${e.message}`);
     } finally {
       setCommittingLaneId(null);
     }
@@ -199,7 +200,7 @@ export const VirtualBranchPanel: React.FC<VirtualBranchPanelProps> = ({
         await updateBranches(next);
         await onRefresh();
       } catch (e: any) {
-        alert(`Restore lane failed: ${e.message}`);
+        toast(`Restore lane failed: ${e.message}`);
       }
     } else {
       // Stash lane
@@ -211,7 +212,7 @@ export const VirtualBranchPanel: React.FC<VirtualBranchPanelProps> = ({
         await updateBranches(next);
         await onRefresh();
       } catch (e: any) {
-        alert(`Hide lane failed: ${e.message}`);
+        toast(`Hide lane failed: ${e.message}`);
       }
     }
   };

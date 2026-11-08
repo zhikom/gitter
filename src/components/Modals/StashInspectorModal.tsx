@@ -16,6 +16,7 @@ import { Shelf } from '../../types/shelf';
 import { api } from '../../api/client';
 import { DiffViewer } from '../Staging/DiffViewer';
 
+import { toast } from '../../utils/toast';
 interface StashFileItem {
   path: string;
   status: string;
@@ -128,11 +129,11 @@ export const StashInspectorModal: React.FC<StashInspectorModalProps> = ({
     setActionLoading(true);
     try {
       await api.applyStash(repoPath, target.index);
-      alert(`Applied stash@{${target.index}}!`);
+      toast(`Applied stash@{${target.index}}!`);
       onRefresh();
       onClose();
     } catch (e: any) {
-      alert(`Apply stash failed: ${e.message}`);
+      toast(`Apply stash failed: ${e.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -143,11 +144,11 @@ export const StashInspectorModal: React.FC<StashInspectorModalProps> = ({
     setActionLoading(true);
     try {
       await api.popStash(repoPath, target.index);
-      alert(`Popped stash@{${target.index}}!`);
+      toast(`Popped stash@{${target.index}}!`);
       onRefresh();
       onClose();
     } catch (e: any) {
-      alert(`Pop stash failed: ${e.message}`);
+      toast(`Pop stash failed: ${e.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -159,11 +160,11 @@ export const StashInspectorModal: React.FC<StashInspectorModalProps> = ({
     setActionLoading(true);
     try {
       await api.dropStash(repoPath, target.index);
-      alert(`Dropped stash@{${target.index}}!`);
+      toast(`Dropped stash@{${target.index}}!`);
       onRefresh();
       onClose();
     } catch (e: any) {
-      alert(`Drop stash failed: ${e.message}`);
+      toast(`Drop stash failed: ${e.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -174,11 +175,11 @@ export const StashInspectorModal: React.FC<StashInspectorModalProps> = ({
     setActionLoading(true);
     try {
       await api.unshelve(repoPath, target.shelf.id, deleteAfter);
-      alert(`Unshelved "${target.shelf.name}"! Changes restored to working directory.`);
+      toast(`Unshelved "${target.shelf.name}"! Changes restored to working directory.`);
       onRefresh();
       onClose();
     } catch (e: any) {
-      alert(`Unshelve failed: ${e.message}`);
+      toast(`Unshelve failed: ${e.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -193,7 +194,7 @@ export const StashInspectorModal: React.FC<StashInspectorModalProps> = ({
       onRefresh();
       onClose();
     } catch (e: any) {
-      alert(`Delete shelf failed: ${e.message}`);
+      toast(`Delete shelf failed: ${e.message}`);
     } finally {
       setActionLoading(false);
     }

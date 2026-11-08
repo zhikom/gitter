@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Archive } from 'lucide-react';
 
+import { toast } from '../../utils/toast';
 interface StashModalProps {
   onClose: () => void;
   onSave: (message: string, includeUntracked: boolean) => Promise<void>;
@@ -18,7 +19,7 @@ export const StashModal: React.FC<StashModalProps> = ({ onClose, onSave }) => {
       await onSave(message.trim(), includeUntracked);
       onClose();
     } catch (e: any) {
-      alert(`Stash failed: ${e.message}`);
+      toast(`Stash failed: ${e.message}`);
     } finally {
       setLoading(false);
     }

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../api/client';
 
+import { toast } from '../../utils/toast';
 interface GitflowModalProps {
   repoPath: string;
   onClose: () => void;
@@ -103,7 +104,7 @@ export const GitflowModal: React.FC<GitflowModalProps> = ({ repoPath, onClose, o
       setActionName('');
       await loadStatus();
       onRefresh();
-      alert(`Started ${actionType}: checked out branch '${res.branch}'`);
+      toast(`Started ${actionType}: checked out branch '${res.branch}'`);
     } catch (e: any) {
       setError(e.message || `Failed to start ${actionType}`);
     } finally {
@@ -120,7 +121,7 @@ export const GitflowModal: React.FC<GitflowModalProps> = ({ repoPath, onClose, o
       const res = await api.gitflowFinish(repoPath, type, name);
       await loadStatus();
       onRefresh();
-      alert(res.message);
+      toast(res.message);
     } catch (e: any) {
       setError(e.message || `Failed to finish ${type}`);
     } finally {

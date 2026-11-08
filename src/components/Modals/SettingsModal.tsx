@@ -23,6 +23,7 @@ import {
 import { api } from '../../api/client';
 import { CURRENT_VERSION } from '../../services/updateService';
 
+import { toast } from '../../utils/toast';
 interface SettingsModalProps {
   repoPath?: string;
   onClose: () => void;
@@ -247,7 +248,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         onClose();
       }, 700);
     } catch (e: any) {
-      alert(`Save error: ${e.message}`);
+      toast(`Save error: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -724,7 +725,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       type="button"
                       onClick={() => {
                         navigator.clipboard.writeText(sshPublicKey);
-                        alert('SSH Public key copied to clipboard!');
+                        toast('SSH Public key copied to clipboard!');
                       }}
                       className="text-teal-400 hover:text-teal-300 flex items-center space-x-1"
                     >

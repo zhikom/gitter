@@ -1049,6 +1049,15 @@ app.get('/api/agent-fleet', async (req, res) => {
   }
 });
 
+app.get('/api/agent-activity', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    res.json(await gitService.getAgentActivity(targetPath));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/agent-fleet/register', async (req, res) => {
   try {
     const { path: repoPath, agent } = req.body;

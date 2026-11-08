@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, DownloadCloud, Folder } from 'lucide-react';
 
+import { toast } from '../../utils/toast';
 interface CloneRepoModalProps {
   onClose: () => void;
   onClone: (url: string, targetPath: string) => Promise<void>;
@@ -20,7 +21,7 @@ export const CloneRepoModal: React.FC<CloneRepoModalProps> = ({ onClose, onClone
       await onClone(url.trim(), targetPath.trim());
       onClose();
     } catch (e: any) {
-      alert(`Clone failed: ${e.message}`);
+      toast(`Clone failed: ${e.message}`);
     } finally {
       setLoading(false);
     }

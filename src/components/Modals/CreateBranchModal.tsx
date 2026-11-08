@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, GitBranch } from 'lucide-react';
 
+import { toast } from '../../utils/toast';
 interface CreateBranchModalProps {
   startPoint: string;
   onClose: () => void;
@@ -24,7 +25,7 @@ export const CreateBranchModal: React.FC<CreateBranchModalProps> = ({
       await onCreate(name.trim(), startPoint);
       onClose();
     } catch (e: any) {
-      alert(`Error creating branch: ${e.message}`);
+      toast(`Error creating branch: ${e.message}`);
     } finally {
       setLoading(false);
     }

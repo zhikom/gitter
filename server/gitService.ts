@@ -25,14 +25,32 @@ import {
   Worktree,
 } from '../src/types/git';
 import {
+  AgentActivityEvent,
+  AgentActivityState,
+  AgentFileChange,
+  AgentFileOwnership,
   AgentFleetState,
   AgentHarness,
   AgentInstance,
-  FileCollision,
 } from '../src/types/agentFleet';
 import { parseGitDiff } from '../src/utils/diffParser';
+import { AGENT_BRANCH_PREFIX, HARNESS_REGISTRY, detectCollisions, harnessColor, harnessFromBranch } from '../src/utils/agentFleet';
 
 const execAsync = promisify(exec);
+
+
+// "added\tdeleted\tpath" from `git diff --numstat`; binary files report "-" and count as 0.
+function parseNumstatLine(line: string): AgentFileChange | null {
+  const [adds, dels, ...rest] = line.split('\t');
+  const filePath = rest.join('\t').trim();
+  if (!filePath) return null;
+  return {
+    path: filePath,
+    additions: Number(adds) || 0,
+    deletions: Number(dels) || 0,
+    status: 'M',
+  };
+}
 
 export class GitService {
   async runGit(args: string[], cwd: string): Promise<string> {
@@ -1633,147 +1651,177 @@ export class GitService {
   }
 
   async getAgentFleet(repoPath: string): Promise<AgentFleetState> {
-    const lockPath = path.join(repoPath, '.git', 'index.lock');
-    const indexLockDetected = fs.existsSync(lockPath);
-
-    const fleetPath = this.getAgentFleetFilePath(repoPath);
-    let storedAgents: AgentInstance[] = [];
-    if (fs.existsSync(fleetPath)) {
-      try {
-        const raw = await fs.promises.readFile(fleetPath, 'utf8');
-        storedAgents = JSON.parse(raw);
-      } catch {
-        storedAgents = [];
-      }
-    }
-
-    // Auto-discover worktrees & agent branches
+    const indexLockDetected = fs.existsSync(path.join(repoPath, '.git', 'index.lock'));
     const worktrees = await this.getWorktrees(repoPath).catch(() => []);
-    const branches = await this.getBranches(repoPath).catch(() => []);
-    const agentBranches = branches.filter((b) => b.name.startsWith('agent/'));
+    const agents = await this.discoverAgents(repoPath, worktrees);
+    await this.refreshAgentFiles(repoPath, agents);
+    await this.saveAgents(repoPath, agents);
 
-    // Synchronize auto-discovered branches
-    for (const b of agentBranches) {
-      if (!storedAgents.some((a) => a.branchName === b.name)) {
-        const branchParts = b.name.replace('agent/', '').split('-');
-        const inferredHarness = (['claude-code', 'antigravity', 'codex', 'grok', 'cursor', 'aider'].includes(branchParts[0])
-          ? branchParts[0]
-          : 'custom') as AgentHarness;
+    return {
+      agents,
+      collisions: detectCollisions(agents),
+      activeWorktrees: worktrees.map((w) => w.path),
+      indexLockDetected,
+    };
+  }
 
-        const colorMap: Record<string, string> = {
-          'claude-code': '#a855f7',
-          'antigravity': '#10b981',
-          'codex': '#3b82f6',
-          'grok': '#f97316',
-          'cursor': '#06b6d4',
-          'aider': '#ec4899',
-          'custom': '#eab308',
-        };
+  async getAgentActivity(repoPath: string): Promise<AgentActivityState> {
+    const fleet = await this.getAgentFleet(repoPath);
+    const baseBranch = await this.getBaseBranch(repoPath);
+    const events: AgentActivityEvent[] = [];
 
-        storedAgents.push({
-          id: `auto-${b.name.replace(/[^a-zA-Z0-9]/g, '-')}`,
-          name: `${inferredHarness.toUpperCase()} (${b.name.replace('agent/', '')})`,
-          harness: inferredHarness,
-          status: 'running',
-          branchName: b.name,
-          taskDescription: `Autonomous task running on ${b.name}`,
-          claimedFiles: [],
-          modifiedFiles: [],
-          lastHeartbeat: Date.now(),
-          color: colorMap[inferredHarness] || '#a855f7',
+    for (const agent of fleet.agents) {
+      const meta = { agentId: agent.id, agentName: agent.name, harness: agent.harness, color: agent.color };
+      const log = await this.runGitRaw(
+        `log ${baseBranch}..${agent.branchName} --no-merges --no-renames --numstat --format=%x1e%H%x1f%at%x1f%s`,
+        repoPath
+      ).catch(() => '');
+
+      for (const block of log.split('\x1e').filter((b) => b.trim())) {
+        const [header, ...statLines] = block.split('\n');
+        const [hash, at, subject] = header.split('\x1f');
+        events.push({
+          id: hash,
+          ...meta,
+          kind: 'commit',
+          hash,
+          subject,
+          timestamp: Number(at) * 1000,
+          files: statLines.map(parseNumstatLine).filter((f): f is AgentFileChange => f !== null),
         });
       }
-    }
 
-    // Update worktree paths and dynamically read modified files
-    for (const agent of storedAgents) {
-      const matchingWt = worktrees.find(
-        (wt) => wt.branch === agent.branchName || (agent.worktreePath && wt.path === agent.worktreePath)
-      );
-      if (matchingWt) {
-        agent.worktreePath = matchingWt.path;
-      }
-
-      // Query modified files for this agent
-      const inspectDir = agent.worktreePath && fs.existsSync(agent.worktreePath) ? agent.worktreePath : repoPath;
-      try {
-        // Changed files between base (main/master) and agent branch
-        const baseBranch = (await this.getRepoState(repoPath).catch(() => null))?.currentBranch || 'main';
-        const diffOut = await this.runGitRaw(`diff --name-only ${baseBranch}...${agent.branchName}`, inspectDir).catch(() => '');
-        const branchFiles = diffOut.split('\n').map((f) => f.trim()).filter(Boolean);
-
-        // Also check uncommitted working tree files in that worktree
-        const statusOut = await this.runGitRaw('status --porcelain', inspectDir).catch(() => '');
-        const uncommittedFiles = statusOut
-          .split('\n')
-          .map((l) => l.slice(3).trim())
-          .filter(Boolean);
-
-        agent.modifiedFiles = Array.from(new Set([...branchFiles, ...uncommittedFiles]));
-      } catch {
-        // keep existing if diff fails
-      }
-    }
-
-    // Save synced agents state
-    await fs.promises.writeFile(fleetPath, JSON.stringify(storedAgents, null, 2), 'utf8');
-
-    // Run Collision Radar Analysis
-    const fileContenders = new Map<string, Array<{ agentId: string; name: string; isMod: boolean; isClaim: boolean }>>();
-
-    for (const agent of storedAgents) {
-      if (agent.status === 'completed') continue;
-
-      for (const file of agent.modifiedFiles) {
-        if (!fileContenders.has(file)) fileContenders.set(file, []);
-        fileContenders.get(file)!.push({ agentId: agent.id, name: agent.name, isMod: true, isClaim: false });
-      }
-
-      for (const file of agent.claimedFiles) {
-        if (!fileContenders.has(file)) fileContenders.set(file, []);
-        const existing = fileContenders.get(file)!.find((c) => c.agentId === agent.id);
-        if (existing) {
-          existing.isClaim = true;
-        } else {
-          fileContenders.get(file)!.push({ agentId: agent.id, name: agent.name, isMod: false, isClaim: true });
-        }
-      }
-    }
-
-    const collisions: FileCollision[] = [];
-    for (const [filePath, contenders] of fileContenders.entries()) {
-      if (contenders.length > 1) {
-        const modCount = contenders.filter((c) => c.isMod).length;
-        const agentNames = contenders.map((c) => c.name);
-
-        if (modCount > 1) {
-          collisions.push({
-            filePath,
-            contendingAgents: agentNames,
-            collisionType: 'direct_overlap',
-            severity: 'high',
-            details: `Concurrent edits detected! ${agentNames.join(' and ')} are modifying '${filePath}' simultaneously. High risk of overwrite or merge conflict.`,
-            suggestedAction: `Isolate tasks into dedicated Git worktrees or partition file modifications into distinct commits before merging.`,
-          });
-        } else {
-          collisions.push({
-            filePath,
-            contendingAgents: agentNames,
-            collisionType: 'claim_contention',
-            severity: 'medium',
-            details: `Territory claim contention: '${filePath}' is claimed by one agent while touched by ${agentNames.join(' & ')}.`,
-            suggestedAction: `Review agent file assignments in the Fleet Orchestrator to ensure clean domain boundaries.`,
+      // Live edits only count for the agent's own worktree; the main checkout belongs to the human.
+      if (agent.worktreePath && fs.existsSync(agent.worktreePath)) {
+        const live = await this.getLiveChanges(agent.worktreePath);
+        if (live.length > 0) {
+          events.push({
+            id: `live-${agent.id}`,
+            ...meta,
+            kind: 'uncommitted',
+            subject: 'Uncommitted changes in worktree',
+            timestamp: Date.now(),
+            files: live,
           });
         }
+      }
+    }
+
+    events.sort((a, b) => b.timestamp - a.timestamp);
+
+    const ownership = new Map<string, AgentFileOwnership>();
+    for (const event of events) {
+      for (const file of event.files) {
+        const entry = ownership.get(file.path) ?? { filePath: file.path, agentIds: [], additions: 0, deletions: 0 };
+        if (!entry.agentIds.includes(event.agentId)) entry.agentIds.push(event.agentId);
+        entry.additions += file.additions;
+        entry.deletions += file.deletions;
+        ownership.set(file.path, entry);
       }
     }
 
     return {
-      agents: storedAgents,
-      collisions,
-      activeWorktrees: worktrees.map((w) => w.path),
-      indexLockDetected,
+      generatedAt: Date.now(),
+      events: events.slice(0, 200),
+      fileOwnership: Array.from(ownership.values()).sort(
+        (a, b) => b.agentIds.length - a.agentIds.length || a.filePath.localeCompare(b.filePath)
+      ),
     };
+  }
+
+  private async getBaseBranch(repoPath: string): Promise<string> {
+    const state = await this.getRepoState(repoPath).catch(() => null);
+    return state?.currentBranch || 'main';
+  }
+
+  private resolveAgentDir(repoPath: string, agent: AgentInstance): string {
+    return agent.worktreePath && fs.existsSync(agent.worktreePath) ? agent.worktreePath : repoPath;
+  }
+
+  private async getLiveChanges(dir: string): Promise<AgentFileChange[]> {
+    const [numstat, status] = await Promise.all([
+      this.runGitRaw('diff --numstat --no-renames HEAD', dir).catch(() => ''),
+      this.runGitRaw('status --porcelain --no-renames', dir).catch(() => ''),
+    ]);
+    const byPath = new Map<string, AgentFileChange>();
+
+    for (const line of status.split('\n').filter(Boolean)) {
+      const code = line.slice(0, 2).trim() || 'M';
+      const filePath = line.slice(3).trim();
+      byPath.set(filePath, { path: filePath, additions: 0, deletions: 0, status: code === '??' ? '?' : code });
+    }
+    for (const line of numstat.split('\n').filter(Boolean)) {
+      const parsed = parseNumstatLine(line);
+      if (!parsed) continue;
+      const existing = byPath.get(parsed.path);
+      if (existing) {
+        existing.additions = parsed.additions;
+        existing.deletions = parsed.deletions;
+      } else {
+        byPath.set(parsed.path, parsed);
+      }
+    }
+    return Array.from(byPath.values());
+  }
+
+  private async discoverAgents(repoPath: string, worktrees: Worktree[]): Promise<AgentInstance[]> {
+    const stored = await this.loadStoredAgents(repoPath);
+    const branches = await this.getBranches(repoPath).catch(() => []);
+
+    for (const b of branches.filter((b) => b.name.startsWith(AGENT_BRANCH_PREFIX))) {
+      if (stored.some((a) => a.branchName === b.name)) continue;
+      const harness = harnessFromBranch(b.name);
+      stored.push({
+        id: `auto-${b.name.replace(/[^a-zA-Z0-9]/g, '-')}`,
+        name: `${HARNESS_REGISTRY[harness].label} (${b.name.slice(AGENT_BRANCH_PREFIX.length)})`,
+        harness,
+        status: 'running',
+        branchName: b.name,
+        taskDescription: `Autonomous task running on ${b.name}`,
+        claimedFiles: [],
+        modifiedFiles: [],
+        lastHeartbeat: Date.now(),
+        color: harnessColor(harness),
+      });
+    }
+
+    for (const agent of stored) {
+      const wt = worktrees.find(
+        (w) => w.branch === agent.branchName || (agent.worktreePath && w.path === agent.worktreePath)
+      );
+      if (wt) agent.worktreePath = wt.path;
+    }
+    return stored;
+  }
+
+  private async refreshAgentFiles(repoPath: string, agents: AgentInstance[]): Promise<void> {
+    const baseBranch = await this.getBaseBranch(repoPath);
+    for (const agent of agents) {
+      const dir = this.resolveAgentDir(repoPath, agent);
+      const [diffOut, statusOut] = await Promise.all([
+        this.runGitRaw(`diff --name-only ${baseBranch}...${agent.branchName}`, dir).catch(() => null),
+        this.runGitRaw('status --porcelain', dir).catch(() => null),
+      ]);
+      if (diffOut === null || statusOut === null) continue; // keep last known state on failure
+
+      const branchFiles = diffOut.split('\n').map((f) => f.trim()).filter(Boolean);
+      const uncommitted = statusOut.split('\n').map((l) => l.slice(3).trim()).filter(Boolean);
+      agent.modifiedFiles = Array.from(new Set([...branchFiles, ...uncommitted]));
+    }
+  }
+
+  private async loadStoredAgents(repoPath: string): Promise<AgentInstance[]> {
+    const fleetPath = this.getAgentFleetFilePath(repoPath);
+    if (!fs.existsSync(fleetPath)) return [];
+    try {
+      return JSON.parse(await fs.promises.readFile(fleetPath, 'utf8'));
+    } catch {
+      return [];
+    }
+  }
+
+  private async saveAgents(repoPath: string, agents: AgentInstance[]): Promise<void> {
+    await fs.promises.writeFile(this.getAgentFleetFilePath(repoPath), JSON.stringify(agents, null, 2), 'utf8');
   }
 
   async registerAgent(repoPath: string, payload: Partial<AgentInstance>): Promise<AgentInstance> {
@@ -1781,15 +1829,6 @@ export class GitService {
     const fleet = await this.getAgentFleet(repoPath);
 
     const harness = payload.harness || 'custom';
-    const colorMap: Record<string, string> = {
-      'claude-code': '#a855f7',
-      'antigravity': '#10b981',
-      'codex': '#3b82f6',
-      'grok': '#f97316',
-      'cursor': '#06b6d4',
-      'aider': '#ec4899',
-      'custom': '#eab308',
-    };
 
     const newAgent: AgentInstance = {
       id: payload.id || `agent-${Date.now()}`,
@@ -1802,7 +1841,7 @@ export class GitService {
       claimedFiles: payload.claimedFiles || [],
       modifiedFiles: payload.modifiedFiles || [],
       lastHeartbeat: Date.now(),
-      color: payload.color || colorMap[harness] || '#a855f7',
+      color: payload.color || harnessColor(harness),
     };
 
     const updated = [...fleet.agents.filter((a) => a.id !== newAgent.id), newAgent];

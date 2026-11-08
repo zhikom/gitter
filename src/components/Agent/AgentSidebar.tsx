@@ -13,6 +13,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 
+import { toast } from '../../utils/toast';
 interface AgentSidebarProps {
   repoState: RepositoryState | null;
   onClose: () => void;
@@ -103,7 +104,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
         },
       ]);
     } catch (e: any) {
-      alert(`Command failed: ${e.message}`);
+      toast(`Command failed: ${e.message}`);
     }
   };
 
@@ -115,9 +116,9 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
   ];
 
   return (
-    <div className="w-88 bg-[#181d26] border-l border-[#2a3447] flex flex-col h-full select-none text-slate-300 shadow-2xl z-20">
+    <div className="w-88 bg-[#131821] border-l border-white/[0.06] flex flex-col h-full select-none text-slate-300 shadow-2xl z-20">
       {/* Header */}
-      <div className="h-12 bg-[#1b212c] border-b border-[#2a3447] flex items-center justify-between px-3">
+      <div className="h-12 bg-white/[0.02] border-b border-white/[0.06] flex items-center justify-between px-3">
         <div className="flex items-center space-x-2">
           <div className="w-6 h-6 rounded bg-gradient-to-tr from-teal-500 to-emerald-500 flex items-center justify-center text-white">
             <Sparkles className="w-3.5 h-3.5" />
@@ -130,7 +131,8 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
 
         <button
           onClick={onClose}
-          className="p-1 hover:bg-[#283244] text-slate-400 hover:text-slate-200 rounded transition"
+          aria-label="Close agent sidebar"
+          className="p-1.5 rounded-md text-slate-400 hover:text-slate-100 hover:bg-white/[0.06] transition-colors focus-visible:ring-2 focus-visible:ring-teal-400/60 outline-none"
         >
           <X className="w-4 h-4" />
         </button>
@@ -171,7 +173,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
                 className={`max-w-[85%] rounded-lg p-2.5 text-xs select-text leading-relaxed ${
                   isUser
                     ? 'bg-blue-600 text-white'
-                    : 'bg-[#202735] text-slate-200 border border-[#2a3447]'
+                    : 'bg-white/[0.04] text-slate-200 ring-1 ring-inset ring-white/[0.06]'
                 }`}
               >
                 <p className="whitespace-pre-wrap">{m.text}</p>
@@ -208,12 +210,12 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
       </div>
 
       {/* Quick Prompts */}
-      <div className="px-3 py-1.5 bg-[#14181f] border-t border-[#222a3a] flex flex-wrap gap-1">
+      <div className="px-3 py-2 border-t border-white/[0.06] flex flex-wrap gap-1.5">
         {promptSuggestions.map((p) => (
           <button
             key={p}
             onClick={() => handleSend(p)}
-            className="px-2 py-0.5 rounded-full bg-[#202735] hover:bg-[#2d384c] text-[10px] text-slate-400 hover:text-teal-300 border border-[#2a3447] transition"
+            className="px-2.5 py-1 rounded-full bg-white/[0.04] hover:bg-white/[0.08] text-[10px] text-slate-400 hover:text-teal-300 ring-1 ring-inset ring-white/10 transition-colors"
           >
             {p}
           </button>
@@ -221,7 +223,7 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
       </div>
 
       {/* Input Box */}
-      <div className="p-3 bg-[#1b212c] border-t border-[#2a3447]">
+      <div className="p-3 bg-white/[0.02] border-t border-white/[0.06]">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -234,12 +236,13 @@ export const AgentSidebar: React.FC<AgentSidebarProps> = ({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask agent about Git, undo, diffs..."
-            className="flex-1 bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-teal-500"
+            className="flex-1 bg-black/30 rounded-lg px-3 py-2 text-xs text-slate-100 ring-1 ring-inset ring-white/10 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-400/60 transition-shadow"
           />
           <button
             type="submit"
             disabled={!input.trim() || loading}
-            className="p-1.5 rounded bg-teal-500 hover:bg-teal-400 text-white transition disabled:opacity-40"
+            aria-label="Send"
+            className="p-2 rounded-lg bg-teal-500 hover:bg-teal-400 text-slate-950 transition-colors disabled:opacity-40"
           >
             <Send className="w-3.5 h-3.5" />
           </button>

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Bookmark, CheckSquare, Square, FileText } from 'lucide-react';
 import { FileStatus } from '../../types/git';
 
+import { toast } from '../../utils/toast';
 interface ShelveModalProps {
   files: FileStatus[];
   onClose: () => void;
@@ -46,7 +47,7 @@ export const ShelveModal: React.FC<ShelveModalProps> = ({ files, onClose, onShel
       await onShelve(shelfName.trim(), Array.from(selectedFiles), keepWorkingChanges);
       onClose();
     } catch (e: any) {
-      alert(`Shelve failed: ${e.message}`);
+      toast(`Shelve failed: ${e.message}`);
     } finally {
       setLoading(false);
     }

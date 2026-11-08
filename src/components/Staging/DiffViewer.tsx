@@ -22,6 +22,7 @@ import {
   Square,
 } from 'lucide-react';
 
+import { toast } from '../../utils/toast';
 interface DiffViewerProps {
   diffs: FileDiff[];
   filePath: string;
@@ -95,7 +96,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       const patch = generateHunkPatch(filePath, hunk);
       await onStagePatch(patch);
     } catch (e: any) {
-      alert(`Stage hunk failed: ${e.message}`);
+      toast(`Stage hunk failed: ${e.message}`);
     } finally {
       setPatchLoading(false);
     }
@@ -108,7 +109,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       const patch = generateHunkPatch(filePath, hunk);
       await onUnstagePatch(patch);
     } catch (e: any) {
-      alert(`Unstage hunk failed: ${e.message}`);
+      toast(`Unstage hunk failed: ${e.message}`);
     } finally {
       setPatchLoading(false);
     }
@@ -123,7 +124,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       const patch = generateHunkPatch(filePath, hunk);
       await onDiscardPatch(patch);
     } catch (e: any) {
-      alert(`Discard hunk failed: ${e.message}`);
+      toast(`Discard hunk failed: ${e.message}`);
     } finally {
       setPatchLoading(false);
     }
@@ -143,7 +144,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       }
       clearSelection();
     } catch (e: any) {
-      alert(`Stage selected lines failed: ${e.message}`);
+      toast(`Stage selected lines failed: ${e.message}`);
     } finally {
       setPatchLoading(false);
     }
@@ -163,7 +164,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       }
       clearSelection();
     } catch (e: any) {
-      alert(`Unstage selected lines failed: ${e.message}`);
+      toast(`Unstage selected lines failed: ${e.message}`);
     } finally {
       setPatchLoading(false);
     }
@@ -185,7 +186,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       }
       clearSelection();
     } catch (e: any) {
-      alert(`Discard selected lines failed: ${e.message}`);
+      toast(`Discard selected lines failed: ${e.message}`);
     } finally {
       setPatchLoading(false);
     }

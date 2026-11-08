@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../api/client';
 
+import { toast } from '../../utils/toast';
 export interface RecentRepoItem {
   path: string;
   name: string;
@@ -103,17 +104,17 @@ export const LaunchpadModal: React.FC<LaunchpadModalProps> = ({
 
   const handleOpenInVsCode = (repoPath: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    api.openInVsCode(repoPath).catch((err) => alert(`VS Code error: ${err.message}`));
+    api.openInVsCode(repoPath).catch((err) => toast(`VS Code error: ${err.message}`));
   };
 
   const handleOpenInTerminal = (repoPath: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    api.openInTerminal(repoPath).catch((err) => alert(`Terminal error: ${err.message}`));
+    api.openInTerminal(repoPath).catch((err) => toast(`Terminal error: ${err.message}`));
   };
 
   const handleRevealInExplorer = (repoPath: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    api.revealInExplorer(repoPath).catch((err) => alert(`Explorer error: ${err.message}`));
+    api.revealInExplorer(repoPath).catch((err) => toast(`Explorer error: ${err.message}`));
   };
 
   const filteredRepos = repos
@@ -149,7 +150,7 @@ export const LaunchpadModal: React.FC<LaunchpadModalProps> = ({
         onClose();
       }
     } catch (e: any) {
-      alert(`Native dialog error: ${e.message}`);
+      toast(`Native dialog error: ${e.message}`);
     }
   };
 
@@ -186,7 +187,7 @@ export const LaunchpadModal: React.FC<LaunchpadModalProps> = ({
         }
       }
     } catch (e: any) {
-      alert(`Browse error: ${e.message}`);
+      toast(`Browse error: ${e.message}`);
     } finally {
       setBrowsingFolder(false);
     }
@@ -497,7 +498,7 @@ export const LaunchpadModal: React.FC<LaunchpadModalProps> = ({
                         }
                       });
                       setRepos(newRecents);
-                      alert(`Added ${scannedRepos.length} repositories to Recents!`);
+                      toast(`Added ${scannedRepos.length} repositories to Recents!`);
                     }}
                     className="px-3 py-1 rounded bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/40 text-teal-300 text-xs font-semibold transition"
                   >

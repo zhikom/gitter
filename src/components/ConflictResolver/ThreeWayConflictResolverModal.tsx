@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../api/client';
 
+import { toast } from '../../utils/toast';
 interface ConflictSection {
   id: number;
   type: 'conflict';
@@ -230,7 +231,7 @@ export const ThreeWayConflictResolverModal: React.FC<ThreeWayConflictResolverMod
         );
       }
     } catch (e: any) {
-      alert(`AI resolution failed: ${e.message}`);
+      toast(`AI resolution failed: ${e.message}`);
     } finally {
       setAiLoading(false);
     }
@@ -248,11 +249,11 @@ export const ThreeWayConflictResolverModal: React.FC<ThreeWayConflictResolverMod
     setSaving(true);
     try {
       await api.saveConflictResolution(repoPath, filePath, manualOutput, true);
-      alert(`Conflict in ${filePath} resolved and staged successfully!`);
+      toast(`Conflict in ${filePath} resolved and staged successfully!`);
       onResolved();
       onClose();
     } catch (e: any) {
-      alert(`Save conflict error: ${e.message}`);
+      toast(`Save conflict error: ${e.message}`);
     } finally {
       setSaving(false);
     }

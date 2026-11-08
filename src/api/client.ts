@@ -20,7 +20,7 @@ import {
 } from '../types/git';
 import { VirtualBranch, VirtualBranchCommitPayload } from '../types/virtualBranch';
 import { Shelf } from '../types/shelf';
-import { AgentFleetState, AgentHarness, AgentInstance } from '../types/agentFleet';
+import { AgentActivityState, AgentFleetState, AgentHarness, AgentInstance } from '../types/agentFleet';
 
 // Desktop/Electron global extensions
 declare global {
@@ -536,6 +536,9 @@ export const api = {
   // Multi-Agent Fleet Orchestrator & Collision Radar
   getAgentFleet: (path: string): Promise<AgentFleetState> =>
     fetchJson(`/agent-fleet?path=${encodeURIComponent(path)}`),
+
+  getAgentActivity: (path: string): Promise<AgentActivityState> =>
+    fetchJson(`/agent-activity?path=${encodeURIComponent(path)}`),
 
   registerAgent: (path: string, agent: Partial<AgentInstance>): Promise<AgentInstance> =>
     fetchJson('/agent-fleet/register', {

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { DiffViewer } from '../Staging/DiffViewer';
 
+import { toast } from '../../utils/toast';
 interface CommitDetailModalProps {
   commit: Commit;
   repoPath: string;
@@ -75,7 +76,7 @@ export const CommitDetailModal: React.FC<CommitDetailModalProps> = ({
       const res = await api.explainChanges(rawDiff, `Commit ${commit.shortHash}: ${commit.summary}`);
       setExplanation(res);
     } catch (e: any) {
-      alert(`AI Explain error: ${e.message}`);
+      toast(`AI Explain error: ${e.message}`);
     } finally {
       setIsExplaining(false);
     }

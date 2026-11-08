@@ -12,6 +12,7 @@ import {
   Layers,
 } from 'lucide-react';
 
+import { toast } from '../../utils/toast';
 interface FileBlameModalProps {
   filePath: string;
   repoPath: string;
@@ -64,7 +65,7 @@ export const FileBlameModal: React.FC<FileBlameModalProps> = ({
       const res = await api.chatWithAgent(prompt, { branch: 'main' });
       setAiSummary(res.reply);
     } catch (e: any) {
-      alert(`AI Summary error: ${e.message}`);
+      toast(`AI Summary error: ${e.message}`);
     } finally {
       setIsAiSummarizing(false);
     }

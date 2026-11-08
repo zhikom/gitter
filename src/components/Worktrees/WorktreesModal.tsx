@@ -11,6 +11,7 @@ import {
   CheckCircle,
 } from 'lucide-react';
 
+import { toast } from '../../utils/toast';
 interface WorktreesModalProps {
   repoPath: string;
   onClose: () => void;
@@ -53,7 +54,7 @@ export const WorktreesModal: React.FC<WorktreesModalProps> = ({
       setShowAddForm(false);
       fetchWorktrees();
     } catch (e: any) {
-      alert(`Add worktree error: ${e.message}`);
+      toast(`Add worktree error: ${e.message}`);
     } finally {
       setIsAdding(false);
     }
@@ -66,7 +67,7 @@ export const WorktreesModal: React.FC<WorktreesModalProps> = ({
       await api.removeWorktree(repoPath, wtPath);
       fetchWorktrees();
     } catch (e: any) {
-      alert(`Remove error: ${e.message}`);
+      toast(`Remove error: ${e.message}`);
     }
   };
 

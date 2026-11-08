@@ -47,6 +47,7 @@ import { AgentFleetState } from './types/agentFleet';
 import { PullRequest, Submodule, Worktree } from './types/git';
 import { Shelf } from './types/shelf';
 
+import { toast } from './utils/toast';
 export const App: React.FC = () => {
   const [repoPath, setRepoPath] = useState<string>('');
   const [repoState, setRepoState] = useState<RepositoryState | null>(null);
@@ -216,7 +217,7 @@ export const App: React.FC = () => {
       setAvailableUpdate(info);
       setShowUpdateModal(true);
     } catch (e: any) {
-      alert(`Update check failed: ${e.message}`);
+      toast(`Update check failed: ${e.message}`);
     }
   };
 
@@ -434,10 +435,10 @@ export const App: React.FC = () => {
     setLoading(true);
     try {
       const res = await api.pull(repoPath, 'origin', '', rebase);
-      alert(`Pull successful!\n${res.output || 'Up to date'}`);
+      toast(`Pull successful!\n${res.output || 'Up to date'}`);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Pull error: ${e.message}`);
+      toast(`Pull error: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -447,10 +448,10 @@ export const App: React.FC = () => {
     setLoading(true);
     try {
       const res = await api.push(repoPath, 'origin', '', forceWithLease);
-      alert(`Push successful!\n${res.output || 'Everything up-to-date'}`);
+      toast(`Push successful!\n${res.output || 'Everything up-to-date'}`);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Push error: ${e.message}`);
+      toast(`Push error: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -462,7 +463,7 @@ export const App: React.FC = () => {
       await api.fetchRepo(repoPath);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Fetch error: ${e.message}`);
+      toast(`Fetch error: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -519,7 +520,7 @@ export const App: React.FC = () => {
       }
       await refreshRepo();
     } catch (e: any) {
-      alert(`Commit error: ${e.message}`);
+      toast(`Commit error: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -548,9 +549,9 @@ export const App: React.FC = () => {
   const handleExplainFile = async (rawDiff: string, filename: string) => {
     try {
       const explanation = await api.explainChanges(rawDiff, `File: ${filename}`);
-      alert(`AI Review for ${filename}:\n\n${explanation.summary}\n\nRisk: ${explanation.riskAssessment.toUpperCase()}\n${explanation.keyChanges.join('\n')}`);
+      toast(`AI Review for ${filename}:\n\n${explanation.summary}\n\nRisk: ${explanation.riskAssessment.toUpperCase()}\n${explanation.keyChanges.join('\n')}`);
     } catch (e: any) {
-      alert(`Explain error: ${e.message}`);
+      toast(`Explain error: ${e.message}`);
     }
   };
 
@@ -573,7 +574,7 @@ export const App: React.FC = () => {
       await api.checkoutBranch(repoPath, name);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Checkout failed: ${e.message}`);
+      toast(`Checkout failed: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -584,7 +585,7 @@ export const App: React.FC = () => {
       await api.deleteBranch(repoPath, name, true);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Delete branch failed: ${e.message}`);
+      toast(`Delete branch failed: ${e.message}`);
     }
   };
 
@@ -594,7 +595,7 @@ export const App: React.FC = () => {
       await api.renameBranch(repoPath, oldName, newName);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Rename failed: ${e.message}`);
+      toast(`Rename failed: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -604,10 +605,10 @@ export const App: React.FC = () => {
     setLoading(true);
     try {
       const res = await api.push(repoPath, 'origin', branchName);
-      alert(`Pushed ${branchName} to origin!\n${res.output || ''}`);
+      toast(`Pushed ${branchName} to origin!\n${res.output || ''}`);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Push failed: ${e.message}`);
+      toast(`Push failed: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -620,10 +621,10 @@ export const App: React.FC = () => {
         await api.checkoutBranch(repoPath, target);
       }
       const res = await api.merge(repoPath, source);
-      alert(`Merged ${source} into ${target}!\n${res.output || ''}`);
+      toast(`Merged ${source} into ${target}!\n${res.output || ''}`);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Merge error: ${e.message}`);
+      toast(`Merge error: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -636,10 +637,10 @@ export const App: React.FC = () => {
         await api.checkoutBranch(repoPath, source);
       }
       const res = await api.rebase(repoPath, target);
-      alert(`Rebased ${source} onto ${target}!\n${res.output || ''}`);
+      toast(`Rebased ${source} onto ${target}!\n${res.output || ''}`);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Rebase error: ${e.message}`);
+      toast(`Rebase error: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -664,10 +665,10 @@ export const App: React.FC = () => {
     setLoading(true);
     try {
       const res = await api.pushTag(repoPath, tagName);
-      alert(`Pushed tag ${tagName} to origin!\n${res.output || ''}`);
+      toast(`Pushed tag ${tagName} to origin!\n${res.output || ''}`);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Push tag failed: ${e.message}`);
+      toast(`Push tag failed: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -688,10 +689,10 @@ export const App: React.FC = () => {
     setLoading(true);
     try {
       const res = await api.applyStash(repoPath, index);
-      alert(`Applied stash@{${index}}!\n${res.output || ''}`);
+      toast(`Applied stash@{${index}}!\n${res.output || ''}`);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Apply stash failed: ${e.message}`);
+      toast(`Apply stash failed: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -704,7 +705,7 @@ export const App: React.FC = () => {
       await api.shelve(repoPath, name, files, keepWorkingChanges);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Shelve failed: ${e.message}`);
+      toast(`Shelve failed: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -716,7 +717,7 @@ export const App: React.FC = () => {
       await api.unshelve(repoPath, shelfId, false);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Unshelve failed: ${e.message}`);
+      toast(`Unshelve failed: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -729,7 +730,7 @@ export const App: React.FC = () => {
       await api.deleteShelf(repoPath, shelfId);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Delete shelf failed: ${e.message}`);
+      toast(`Delete shelf failed: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -763,19 +764,19 @@ export const App: React.FC = () => {
     try {
       const res = await api.openExternalDiff(repoPath, file, staged);
       if (!res.success) {
-        alert(`External diff failed: ${res.error || 'Unknown error'}`);
+        toast(`External diff failed: ${res.error || 'Unknown error'}`);
       }
     } catch (e: any) {
-      alert(`External diff failed: ${e.message}`);
+      toast(`External diff failed: ${e.message}`);
     }
   };
 
   const handleCreatePatch = async (hash: string) => {
     try {
       const res = await api.createPatch(repoPath, hash);
-      alert(`Patch created for commit ${hash.slice(0, 7)}!\n\n${(res.patch || '').slice(0, 500)}...`);
+      toast(`Patch created for commit ${hash.slice(0, 7)}!\n\n${(res.patch || '').slice(0, 500)}...`);
     } catch (e: any) {
-      alert(`Create patch failed: ${e.message}`);
+      toast(`Create patch failed: ${e.message}`);
     }
   };
 
@@ -786,10 +787,10 @@ export const App: React.FC = () => {
         await api.checkoutBranch(repoPath, branchName);
       }
       await api.cherryPick(repoPath, commitHash);
-      alert(`Cherry-picked commit ${commitHash.slice(0, 7)} onto ${branchName}!`);
+      toast(`Cherry-picked commit ${commitHash.slice(0, 7)} onto ${branchName}!`);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Cherry-pick failed: ${e.message}`);
+      toast(`Cherry-pick failed: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -835,10 +836,10 @@ export const App: React.FC = () => {
     setLoading(true);
     try {
       const res = await api.undoLastAction(repoPath);
-      alert(`Undo successful: ${res.message}`);
+      toast(`Undo successful: ${res.message}`);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Undo failed: ${e.message}`);
+      toast(`Undo failed: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -849,7 +850,7 @@ export const App: React.FC = () => {
       await api.stagePatch(repoPath, patch);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Stage patch failed: ${e.message}`);
+      toast(`Stage patch failed: ${e.message}`);
     }
   };
 
@@ -858,7 +859,7 @@ export const App: React.FC = () => {
       await api.unstagePatch(repoPath, patch);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Unstage patch failed: ${e.message}`);
+      toast(`Unstage patch failed: ${e.message}`);
     }
   };
 
@@ -867,7 +868,7 @@ export const App: React.FC = () => {
       await api.discardPatch(repoPath, patch);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Discard patch failed: ${e.message}`);
+      toast(`Discard patch failed: ${e.message}`);
     }
   };
 
@@ -882,7 +883,7 @@ export const App: React.FC = () => {
       await api.revert(repoPath, hash);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Revert failed: ${e.message}`);
+      toast(`Revert failed: ${e.message}`);
     }
   };
 
@@ -891,7 +892,7 @@ export const App: React.FC = () => {
       await api.reset(repoPath, hash, mode);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Reset failed: ${e.message}`);
+      toast(`Reset failed: ${e.message}`);
     }
   };
 
@@ -900,7 +901,7 @@ export const App: React.FC = () => {
       await api.cherryPick(repoPath, hash);
       await refreshRepo();
     } catch (e: any) {
-      alert(`Cherry-pick failed: ${e.message}`);
+      toast(`Cherry-pick failed: ${e.message}`);
     }
   };
 
@@ -982,7 +983,7 @@ export const App: React.FC = () => {
               handleSelectTab(res.path);
             }
           } catch (e: any) {
-            alert(`Browse error: ${e.message}`);
+            toast(`Browse error: ${e.message}`);
           }
         }}
         onRevealInExplorer={() => handleRevealInExplorer()}
@@ -1059,10 +1060,10 @@ export const App: React.FC = () => {
               onUpdateSubmodules={async () => {
                 try {
                   const res = await api.updateSubmodules(repoPath);
-                  alert(res.output || 'Submodules updated!');
+                  toast(res.output || 'Submodules updated!');
                   await refreshRepo();
                 } catch (e: any) {
-                  alert(`Submodules error: ${e.message}`);
+                  toast(`Submodules error: ${e.message}`);
                 }
               }}
             />
