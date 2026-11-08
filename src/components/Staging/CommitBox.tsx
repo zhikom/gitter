@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Check, ChevronDown, Archive, RotateCcw, MessageSquare, ArrowUp, RefreshCw } from 'lucide-react';
+import { Sparkles, Check, ChevronDown, Archive, RotateCcw, MessageSquare, ArrowUp, RefreshCw, Bot } from 'lucide-react';
 import { Commit } from '../../types/git';
 
 interface CommitBoxProps {
@@ -30,7 +30,18 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
   const [isAiGenerating, setIsAiGenerating] = useState(false);
   const [showDesc, setShowDesc] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
+  const [showAgentMenu, setShowAgentMenu] = useState(false);
   const [commitMode, setCommitMode] = useState<'commit' | 'push' | 'sync'>('commit');
+
+  const handleTagAgent = (agentName: string, email: string, harness: string) => {
+    const trailer = `Co-authored-by: ${agentName} <${email}>\nAgent-Harness: ${harness}`;
+    setShowDesc(true);
+    setDescription((prev) => {
+      if (prev.includes(trailer)) return prev;
+      return prev ? `${prev.trim()}\n\n${trailer}` : trailer;
+    });
+    setShowAgentMenu(false);
+  };
 
   // When amend is toggled ON, prefill with last commit message
   const handleToggleAmend = (checked: boolean) => {
@@ -205,15 +216,74 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
 
         {/* Amend checkbox & Commit button with dropdown options */}
         <div className="flex items-center justify-between pt-1 relative">
-          <label className="flex items-center space-x-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={amend}
-              onChange={(e) => handleToggleAmend(e.target.checked)}
-              className="rounded bg-[#14181f] border-[#2a3447] text-teal-500 focus:ring-0"
-            />
-            <span>Amend (replaces last commit)</span>
-          </label>
+          <div className="flex items-center space-x-3">
+            <label className="flex items-center space-x-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={amend}
+                onChange={(e) => handleToggleAmend(e.target.checked)}
+                className="rounded bg-[#14181f] border-[#2a3447] text-teal-500 focus:ring-0"
+              />
+              <span>Amend</span>
+            </label>
+
+            {/* Tag Agent Attribution Dropdown */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowAgentMenu(!showAgentMenu)}
+                title="Tag AI Agent Co-Author trailer in commit"
+                className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-[#14181f] hover:bg-[#202737] border border-[#2a3447] text-[10px] text-teal-300 font-medium transition"
+              >
+                <Bot className="w-2.5 h-2.5 text-teal-400" />
+                <span>Tag Agent</span>
+                <ChevronDown className="w-2 h-2 text-slate-400" />
+              </button>
+
+              {showAgentMenu && (
+                <div
+                  className="absolute bottom-full left-0 mb-1 w-44 bg-[#1b212c] border border-[#2a3447] rounded shadow-xl py-1 z-50 text-xs"
+                  onClick={() => setShowAgentMenu(false)}
+                >
+                  <div className="px-2.5 py-1 text-[9px] uppercase font-bold text-slate-500">
+                    Agent Co-Authorship
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleTagAgent('Claude Code', 'claude@anthropic.com', 'claude-code')}
+                    className="w-full text-left px-2.5 py-1 hover:bg-[#262f3f] text-purple-300 flex items-center space-x-1.5"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-purple-400" />
+                    <span>Claude Code</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTagAgent('Antigravity', 'antigravity@google.com', 'antigravity')}
+                    className="w-full text-left px-2.5 py-1 hover:bg-[#262f3f] text-emerald-300 flex items-center space-x-1.5"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                    <span>Antigravity</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTagAgent('Codex', 'codex@openai.com', 'codex')}
+                    className="w-full text-left px-2.5 py-1 hover:bg-[#262f3f] text-blue-300 flex items-center space-x-1.5"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-blue-400" />
+                    <span>OpenAI Codex</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTagAgent('Grok Build', 'grok@x.ai', 'grok')}
+                    className="w-full text-left px-2.5 py-1 hover:bg-[#262f3f] text-orange-300 flex items-center space-x-1.5"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-orange-400" />
+                    <span>Grok Build</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
 
           {/* Split button with primary action and options dropdown */}
           <div className="relative inline-flex rounded shadow-sm">

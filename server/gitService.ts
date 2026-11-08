@@ -24,6 +24,12 @@ import {
   Tag,
   Worktree,
 } from '../src/types/git';
+import {
+  AgentFleetState,
+  AgentHarness,
+  AgentInstance,
+  FileCollision,
+} from '../src/types/agentFleet';
 import { parseGitDiff } from '../src/utils/diffParser';
 
 const execAsync = promisify(exec);
@@ -1615,6 +1621,257 @@ export class GitService {
     }
 
     throw new Error(`Unknown Gitflow type: ${type}`);
+  }
+
+  // Multi-Agent Fleet Orchestrator & Collision Radar
+  private getAgentFleetFilePath(repoPath: string): string {
+    const dir = path.join(repoPath, '.git', 'gitter');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    return path.join(dir, 'agent-fleet.json');
+  }
+
+  async getAgentFleet(repoPath: string): Promise<AgentFleetState> {
+    const lockPath = path.join(repoPath, '.git', 'index.lock');
+    const indexLockDetected = fs.existsSync(lockPath);
+
+    const fleetPath = this.getAgentFleetFilePath(repoPath);
+    let storedAgents: AgentInstance[] = [];
+    if (fs.existsSync(fleetPath)) {
+      try {
+        const raw = await fs.promises.readFile(fleetPath, 'utf8');
+        storedAgents = JSON.parse(raw);
+      } catch {
+        storedAgents = [];
+      }
+    }
+
+    // Auto-discover worktrees & agent branches
+    const worktrees = await this.getWorktrees(repoPath).catch(() => []);
+    const branches = await this.getBranches(repoPath).catch(() => []);
+    const agentBranches = branches.filter((b) => b.name.startsWith('agent/'));
+
+    // Synchronize auto-discovered branches
+    for (const b of agentBranches) {
+      if (!storedAgents.some((a) => a.branchName === b.name)) {
+        const branchParts = b.name.replace('agent/', '').split('-');
+        const inferredHarness = (['claude-code', 'antigravity', 'codex', 'grok', 'cursor', 'aider'].includes(branchParts[0])
+          ? branchParts[0]
+          : 'custom') as AgentHarness;
+
+        const colorMap: Record<string, string> = {
+          'claude-code': '#a855f7',
+          'antigravity': '#10b981',
+          'codex': '#3b82f6',
+          'grok': '#f97316',
+          'cursor': '#06b6d4',
+          'aider': '#ec4899',
+          'custom': '#eab308',
+        };
+
+        storedAgents.push({
+          id: `auto-${b.name.replace(/[^a-zA-Z0-9]/g, '-')}`,
+          name: `${inferredHarness.toUpperCase()} (${b.name.replace('agent/', '')})`,
+          harness: inferredHarness,
+          status: 'running',
+          branchName: b.name,
+          taskDescription: `Autonomous task running on ${b.name}`,
+          claimedFiles: [],
+          modifiedFiles: [],
+          lastHeartbeat: Date.now(),
+          color: colorMap[inferredHarness] || '#a855f7',
+        });
+      }
+    }
+
+    // Update worktree paths and dynamically read modified files
+    for (const agent of storedAgents) {
+      const matchingWt = worktrees.find(
+        (wt) => wt.branch === agent.branchName || (agent.worktreePath && wt.path === agent.worktreePath)
+      );
+      if (matchingWt) {
+        agent.worktreePath = matchingWt.path;
+      }
+
+      // Query modified files for this agent
+      const inspectDir = agent.worktreePath && fs.existsSync(agent.worktreePath) ? agent.worktreePath : repoPath;
+      try {
+        // Changed files between base (main/master) and agent branch
+        const baseBranch = (await this.getRepoState(repoPath).catch(() => null))?.currentBranch || 'main';
+        const diffOut = await this.runGitRaw(`diff --name-only ${baseBranch}...${agent.branchName}`, inspectDir).catch(() => '');
+        const branchFiles = diffOut.split('\n').map((f) => f.trim()).filter(Boolean);
+
+        // Also check uncommitted working tree files in that worktree
+        const statusOut = await this.runGitRaw('status --porcelain', inspectDir).catch(() => '');
+        const uncommittedFiles = statusOut
+          .split('\n')
+          .map((l) => l.slice(3).trim())
+          .filter(Boolean);
+
+        agent.modifiedFiles = Array.from(new Set([...branchFiles, ...uncommittedFiles]));
+      } catch {
+        // keep existing if diff fails
+      }
+    }
+
+    // Save synced agents state
+    await fs.promises.writeFile(fleetPath, JSON.stringify(storedAgents, null, 2), 'utf8');
+
+    // Run Collision Radar Analysis
+    const fileContenders = new Map<string, Array<{ agentId: string; name: string; isMod: boolean; isClaim: boolean }>>();
+
+    for (const agent of storedAgents) {
+      if (agent.status === 'completed') continue;
+
+      for (const file of agent.modifiedFiles) {
+        if (!fileContenders.has(file)) fileContenders.set(file, []);
+        fileContenders.get(file)!.push({ agentId: agent.id, name: agent.name, isMod: true, isClaim: false });
+      }
+
+      for (const file of agent.claimedFiles) {
+        if (!fileContenders.has(file)) fileContenders.set(file, []);
+        const existing = fileContenders.get(file)!.find((c) => c.agentId === agent.id);
+        if (existing) {
+          existing.isClaim = true;
+        } else {
+          fileContenders.get(file)!.push({ agentId: agent.id, name: agent.name, isMod: false, isClaim: true });
+        }
+      }
+    }
+
+    const collisions: FileCollision[] = [];
+    for (const [filePath, contenders] of fileContenders.entries()) {
+      if (contenders.length > 1) {
+        const modCount = contenders.filter((c) => c.isMod).length;
+        const agentNames = contenders.map((c) => c.name);
+
+        if (modCount > 1) {
+          collisions.push({
+            filePath,
+            contendingAgents: agentNames,
+            collisionType: 'direct_overlap',
+            severity: 'high',
+            details: `Concurrent edits detected! ${agentNames.join(' and ')} are modifying '${filePath}' simultaneously. High risk of overwrite or merge conflict.`,
+            suggestedAction: `Isolate tasks into dedicated Git worktrees or partition file modifications into distinct commits before merging.`,
+          });
+        } else {
+          collisions.push({
+            filePath,
+            contendingAgents: agentNames,
+            collisionType: 'claim_contention',
+            severity: 'medium',
+            details: `Territory claim contention: '${filePath}' is claimed by one agent while touched by ${agentNames.join(' & ')}.`,
+            suggestedAction: `Review agent file assignments in the Fleet Orchestrator to ensure clean domain boundaries.`,
+          });
+        }
+      }
+    }
+
+    return {
+      agents: storedAgents,
+      collisions,
+      activeWorktrees: worktrees.map((w) => w.path),
+      indexLockDetected,
+    };
+  }
+
+  async registerAgent(repoPath: string, payload: Partial<AgentInstance>): Promise<AgentInstance> {
+    const fleetPath = this.getAgentFleetFilePath(repoPath);
+    const fleet = await this.getAgentFleet(repoPath);
+
+    const harness = payload.harness || 'custom';
+    const colorMap: Record<string, string> = {
+      'claude-code': '#a855f7',
+      'antigravity': '#10b981',
+      'codex': '#3b82f6',
+      'grok': '#f97316',
+      'cursor': '#06b6d4',
+      'aider': '#ec4899',
+      'custom': '#eab308',
+    };
+
+    const newAgent: AgentInstance = {
+      id: payload.id || `agent-${Date.now()}`,
+      name: payload.name || `${harness.toUpperCase()} Worker`,
+      harness,
+      status: payload.status || 'running',
+      branchName: payload.branchName || `agent/${harness}-${Date.now().toString(36)}`,
+      worktreePath: payload.worktreePath,
+      taskDescription: payload.taskDescription || 'Autonomous development task',
+      claimedFiles: payload.claimedFiles || [],
+      modifiedFiles: payload.modifiedFiles || [],
+      lastHeartbeat: Date.now(),
+      color: payload.color || colorMap[harness] || '#a855f7',
+    };
+
+    const updated = [...fleet.agents.filter((a) => a.id !== newAgent.id), newAgent];
+    await fs.promises.writeFile(fleetPath, JSON.stringify(updated, null, 2), 'utf8');
+    return newAgent;
+  }
+
+  async spawnAgentWorktree(
+    repoPath: string,
+    harness: AgentHarness,
+    taskName: string,
+    baseBranch = 'HEAD'
+  ): Promise<{ agent: AgentInstance; worktreePath: string }> {
+    const cleanTask = taskName.toLowerCase().replace(/[^a-z0-9_-]/g, '-').slice(0, 30);
+    const branchName = `agent/${harness}-${cleanTask}`;
+    const repoName = path.basename(repoPath);
+    const targetPath = path.resolve(repoPath, '..', `${repoName}-${harness}-${cleanTask}`);
+
+    // Create branch if not exists
+    await this.runGitRaw(`branch ${branchName} ${baseBranch}`, repoPath).catch(() => {});
+
+    // Create worktree
+    await this.runGitRaw(`worktree add "${targetPath}" "${branchName}"`, repoPath);
+
+    const agent = await this.registerAgent(repoPath, {
+      name: `${harness === 'claude-code' ? 'Claude Code' : harness === 'antigravity' ? 'Antigravity' : harness.toUpperCase()} (${cleanTask})`,
+      harness,
+      branchName,
+      worktreePath: targetPath.replace(/\\/g, '/'),
+      taskDescription: `Task: ${taskName}`,
+      status: 'running',
+    });
+
+    return { agent, worktreePath: targetPath.replace(/\\/g, '/') };
+  }
+
+  async claimAgentFiles(repoPath: string, agentId: string, files: string[]): Promise<AgentFleetState> {
+    const fleetPath = this.getAgentFleetFilePath(repoPath);
+    const fleet = await this.getAgentFleet(repoPath);
+
+    const target = fleet.agents.find((a) => a.id === agentId);
+    if (target) {
+      target.claimedFiles = Array.from(new Set(files));
+      await fs.promises.writeFile(fleetPath, JSON.stringify(fleet.agents, null, 2), 'utf8');
+    }
+
+    return this.getAgentFleet(repoPath);
+  }
+
+  async releaseAgent(repoPath: string, agentId: string, removeWorktree: boolean): Promise<void> {
+    const fleetPath = this.getAgentFleetFilePath(repoPath);
+    const fleet = await this.getAgentFleet(repoPath);
+
+    const agent = fleet.agents.find((a) => a.id === agentId);
+    if (agent && agent.worktreePath && removeWorktree) {
+      await this.runGitRaw(`worktree remove "${agent.worktreePath}" --force`, repoPath).catch(() => {});
+    }
+
+    const filtered = fleet.agents.filter((a) => a.id !== agentId);
+    await fs.promises.writeFile(fleetPath, JSON.stringify(filtered, null, 2), 'utf8');
+  }
+
+  async clearGitIndexLock(repoPath: string): Promise<boolean> {
+    const lockPath = path.join(repoPath, '.git', 'index.lock');
+    if (fs.existsSync(lockPath)) {
+      await fs.promises.unlink(lockPath);
+      return true;
+    }
+    return false;
   }
 }
 

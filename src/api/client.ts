@@ -20,6 +20,7 @@ import {
 } from '../types/git';
 import { VirtualBranch, VirtualBranchCommitPayload } from '../types/virtualBranch';
 import { Shelf } from '../types/shelf';
+import { AgentFleetState, AgentHarness, AgentInstance } from '../types/agentFleet';
 
 // Desktop/Electron global extensions
 declare global {
@@ -520,5 +521,44 @@ export const api = {
     fetchJson<{ success: boolean; message: string }>('/repo/gitflow/finish', {
       method: 'POST',
       body: JSON.stringify({ path, type, name }),
+    }),
+
+  // Multi-Agent Fleet Orchestrator & Collision Radar
+  getAgentFleet: (path: string): Promise<AgentFleetState> =>
+    fetchJson(`/agent-fleet?path=${encodeURIComponent(path)}`),
+
+  registerAgent: (path: string, agent: Partial<AgentInstance>): Promise<AgentInstance> =>
+    fetchJson('/agent-fleet/register', {
+      method: 'POST',
+      body: JSON.stringify({ path, agent }),
+    }),
+
+  spawnAgentWorktree: (
+    path: string,
+    harness: AgentHarness,
+    taskName: string,
+    baseBranch = 'HEAD'
+  ): Promise<{ agent: AgentInstance; worktreePath: string }> =>
+    fetchJson('/agent-fleet/spawn-worktree', {
+      method: 'POST',
+      body: JSON.stringify({ path, harness, taskName, baseBranch }),
+    }),
+
+  claimAgentFiles: (path: string, agentId: string, files: string[]): Promise<AgentFleetState> =>
+    fetchJson('/agent-fleet/claim', {
+      method: 'POST',
+      body: JSON.stringify({ path, agentId, files }),
+    }),
+
+  releaseAgent: (path: string, agentId: string, removeWorktree = false): Promise<{ success: boolean }> =>
+    fetchJson('/agent-fleet/release', {
+      method: 'POST',
+      body: JSON.stringify({ path, agentId, removeWorktree }),
+    }),
+
+  clearGitIndexLock: (path: string): Promise<{ success: boolean; cleared: boolean }> =>
+    fetchJson('/agent-fleet/clear-lock', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
     }),
 };

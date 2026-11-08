@@ -402,8 +402,18 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                 </div>
 
                 {/* Author */}
-                <div className="w-36 px-2 text-right truncate text-slate-400">
-                  {commit.author.name}
+                <div className="w-36 px-2 text-right truncate text-slate-400 flex items-center justify-end space-x-1.5">
+                  {(() => {
+                    const text = `${commit.author.name} ${commit.author.email} ${commit.summary} ${commit.body || ''}`.toLowerCase();
+                    if (text.includes('claude')) return <span className="px-1 py-0.2 rounded text-[9px] font-semibold border bg-purple-500/20 text-purple-300 border-purple-500/40">Claude</span>;
+                    if (text.includes('antigravity') || text.includes('gemini')) return <span className="px-1 py-0.2 rounded text-[9px] font-semibold border bg-emerald-500/20 text-emerald-300 border-emerald-500/40">AGY</span>;
+                    if (text.includes('codex') || text.includes('openai')) return <span className="px-1 py-0.2 rounded text-[9px] font-semibold border bg-blue-500/20 text-blue-300 border-blue-500/40">Codex</span>;
+                    if (text.includes('grok')) return <span className="px-1 py-0.2 rounded text-[9px] font-semibold border bg-orange-500/20 text-orange-300 border-orange-500/40">Grok</span>;
+                    if (text.includes('cursor')) return <span className="px-1 py-0.2 rounded text-[9px] font-semibold border bg-cyan-500/20 text-cyan-300 border-cyan-500/40">Cursor</span>;
+                    if (text.includes('bot') || text.includes('agent')) return <span className="px-1 py-0.2 rounded text-[9px] font-semibold border bg-teal-500/20 text-teal-300 border-teal-500/40">AI</span>;
+                    return null;
+                  })()}
+                  <span className="truncate">{commit.author.name}</span>
                 </div>
 
                 {/* Date */}

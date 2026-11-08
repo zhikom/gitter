@@ -1026,6 +1026,67 @@ app.post('/api/repo/gitflow/finish', async (req, res) => {
   }
 });
 
+// Multi-Agent Fleet Orchestrator & Collision Radar Endpoints
+app.get('/api/agent-fleet', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const fleet = await gitService.getAgentFleet(targetPath);
+    res.json(fleet);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agent-fleet/register', async (req, res) => {
+  try {
+    const { path: repoPath, agent } = req.body;
+    const result = await gitService.registerAgent(resolvePath(repoPath), agent);
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agent-fleet/spawn-worktree', async (req, res) => {
+  try {
+    const { path: repoPath, harness, taskName, baseBranch } = req.body;
+    const result = await gitService.spawnAgentWorktree(resolvePath(repoPath), harness, taskName, baseBranch);
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agent-fleet/claim', async (req, res) => {
+  try {
+    const { path: repoPath, agentId, files } = req.body;
+    const result = await gitService.claimAgentFiles(resolvePath(repoPath), agentId, files);
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agent-fleet/release', async (req, res) => {
+  try {
+    const { path: repoPath, agentId, removeWorktree } = req.body;
+    await gitService.releaseAgent(resolvePath(repoPath), agentId, removeWorktree);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agent-fleet/clear-lock', async (req, res) => {
+  try {
+    const { path: repoPath } = req.body;
+    const cleared = await gitService.clearGitIndexLock(resolvePath(repoPath));
+    res.json({ success: true, cleared });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Serve built frontend assets if dist folder exists
 const distCandidates = [
   path.resolve(__dirname, '../dist'),

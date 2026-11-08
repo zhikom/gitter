@@ -21,9 +21,12 @@ import {
   History,
   FolderSearch,
   Code2,
+  Bot,
+  AlertTriangle,
 } from 'lucide-react';
 import { RepositoryState } from '../types/git';
 import { UpdateInfo } from '../types/update';
+import { AgentFleetState } from '../types/agentFleet';
 
 interface HeaderToolbarProps {
   repoState: RepositoryState | null;
@@ -47,6 +50,8 @@ interface HeaderToolbarProps {
   onOpenSettings: () => void;
   onCheckUpdates?: () => void;
   availableUpdate?: UpdateInfo | null;
+  fleetState?: AgentFleetState | null;
+  onOpenAgentFleet?: () => void;
   onOpenRepo: () => void;
   onBrowseNative?: () => void;
   onRevealInExplorer?: () => void;
@@ -79,6 +84,8 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
   onOpenSettings,
   onCheckUpdates,
   availableUpdate,
+  fleetState,
+  onOpenAgentFleet,
   onOpenRepo,
   onBrowseNative,
   onRevealInExplorer,
@@ -426,6 +433,38 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
               Ctrl+P
             </kbd>
           </button>
+        )}
+
+        {/* Multi-Agent Fleet Orchestrator & Collision Radar Pill */}
+        {onOpenAgentFleet && (
+          fleetState && fleetState.collisions.length > 0 ? (
+            <button
+              onClick={onOpenAgentFleet}
+              title={`${fleetState.collisions.length} collision(s) detected across active agents! Click to resolve.`}
+              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-semibold animate-pulse shadow-md transition"
+            >
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+              <span>{fleetState.collisions.length} Collision{fleetState.collisions.length > 1 ? 's' : ''}!</span>
+            </button>
+          ) : fleetState && fleetState.agents.length > 0 ? (
+            <button
+              onClick={onOpenAgentFleet}
+              title={`Agent Fleet Active: ${fleetState.agents.length} agent(s) running with 0 collisions.`}
+              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-full bg-[#202735] hover:bg-[#2c374b] border border-teal-500/40 text-teal-300 text-xs font-semibold shadow-sm transition"
+            >
+              <Bot className="w-3.5 h-3.5 text-teal-400" />
+              <span>{fleetState.agents.length} Agent{fleetState.agents.length > 1 ? 's' : ''}</span>
+            </button>
+          ) : (
+            <button
+              onClick={onOpenAgentFleet}
+              title="Multi-Agent Fleet Orchestrator (Claude Code, Antigravity, Codex, Grok)"
+              className="flex items-center space-x-1 px-2.5 py-1.5 rounded bg-[#202735] hover:bg-[#2c374b] border border-[#2a3447] text-slate-300 hover:text-white text-xs font-medium transition"
+            >
+              <Bot className="w-3.5 h-3.5 text-slate-400" />
+              <span>Fleet</span>
+            </button>
+          )
         )}
 
         {/* AI Agent Dock Toggle */}

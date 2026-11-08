@@ -40,8 +40,10 @@ import { ShelveModal } from './components/Modals/ShelveModal';
 import { VirtualBranchPanel } from './components/VirtualBranches/VirtualBranchPanel';
 import { UpdateModal } from './components/Modals/UpdateModal';
 import { GitflowModal } from './components/Modals/GitflowModal';
+import { AgentFleetModal } from './components/Modals/AgentFleetModal';
 import { checkForAppUpdate } from './services/updateService';
 import { UpdateInfo } from './types/update';
+import { AgentFleetState } from './types/agentFleet';
 import { PullRequest, Submodule, Worktree } from './types/git';
 import { Shelf } from './types/shelf';
 
@@ -142,6 +144,10 @@ export const App: React.FC = () => {
   const [showUpdateModal, setShowUpdateModal] = useState<boolean>(false);
   const [showGitflowModal, setShowGitflowModal] = useState<boolean>(false);
 
+  // Multi-Agent Fleet Orchestrator & Collision Radar
+  const [agentFleetState, setAgentFleetState] = useState<AgentFleetState | null>(null);
+  const [showAgentFleetModal, setShowAgentFleetModal] = useState<boolean>(false);
+
   // JetBrains Shelves & Inspector
   const [showShelveModal, setShowShelveModal] = useState<boolean>(false);
   const [stashInspectorTarget, setStashInspectorTarget] = useState<
@@ -214,6 +220,7 @@ export const App: React.FC = () => {
         fetchedSubmodules,
         fetchedPrs,
         fetchedShelves,
+        fetchedFleet,
       ] = await Promise.all([
         api.getCommits(state.path, 300),
         api.getFileStatuses(state.path),
@@ -225,6 +232,7 @@ export const App: React.FC = () => {
         api.getSubmodules(state.path),
         api.getPullRequests(state.path).catch(() => []),
         api.getShelves(state.path).catch(() => []),
+        api.getAgentFleet(state.path).catch(() => null),
       ]);
 
       setCommits(fetchedCommits);
@@ -237,6 +245,7 @@ export const App: React.FC = () => {
       setWorktrees(fetchedWorktrees);
       setSubmodules(fetchedSubmodules);
       setPullRequests(fetchedPrs);
+      if (fetchedFleet) setAgentFleetState(fetchedFleet);
 
       // Auto-select WIP if changes exist, otherwise first commit
       if (!state.isClean) {
@@ -950,6 +959,8 @@ export const App: React.FC = () => {
         }}
         availableUpdate={availableUpdate}
         onCheckUpdates={handleCheckUpdates}
+        fleetState={agentFleetState}
+        onOpenAgentFleet={() => setShowAgentFleetModal(true)}
         loading={loading}
       />
 
@@ -1316,6 +1327,21 @@ export const App: React.FC = () => {
           repoPath={repoPath}
           onClose={() => setShowGitflowModal(false)}
           onRefresh={() => refreshRepo()}
+        />
+      )}
+
+      {showAgentFleetModal && agentFleetState && (
+        <AgentFleetModal
+          repoPath={repoPath}
+          fleetState={agentFleetState}
+          onClose={() => setShowAgentFleetModal(false)}
+          onRefresh={() => {
+            api.getAgentFleet(repoPath).then(setAgentFleetState).catch(() => {});
+          }}
+          onOpenWorktreeTab={(wtPath) => {
+            handleSelectTab(wtPath);
+            setShowAgentFleetModal(false);
+          }}
         />
       )}
 
