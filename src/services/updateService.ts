@@ -1,6 +1,7 @@
 import { ReleaseAsset, UpdateInfo } from '../types/update';
+import packageJson from '../../package.json';
 
-export const CURRENT_VERSION = '1.1.1';
+export const CURRENT_VERSION = packageJson.version;
 
 /**
  * Compare two semver strings (e.g. "1.0.1" and "1.0.0").
