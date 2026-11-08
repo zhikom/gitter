@@ -84,6 +84,19 @@ export const App: React.FC = () => {
     });
   }, []);
 
+  // Dynamic Window Resize Listener
+  const [windowWidth, setWindowWidth] = useState<number>(() => {
+    return typeof window !== 'undefined' ? window.innerWidth : 1200;
+  });
+
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowWidth(window.innerWidth);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Resizable panels & persistence
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     const saved = localStorage.getItem('gitter_sidebar_width');
@@ -95,7 +108,7 @@ export const App: React.FC = () => {
 
   const [rightPanelWidth, setRightPanelWidth] = useState<number>(() => {
     const saved = localStorage.getItem('gitter_right_panel_width');
-    return saved ? Math.max(380, Math.min(950, parseInt(saved, 10))) : 560;
+    return saved ? Math.max(300, Math.min(950, parseInt(saved, 10))) : 560;
   });
   const [isStagingOpen, setIsStagingOpen] = useState<boolean>(() => {
     return localStorage.getItem('gitter_staging_open') !== 'false';
@@ -108,6 +121,32 @@ export const App: React.FC = () => {
     const saved = localStorage.getItem('gitter_staging_list_width');
     return saved ? Math.max(180, Math.min(450, parseInt(saved, 10))) : 280;
   });
+
+  // Dynamic Panel Balancing: ensures central commit graph is never squished
+  const isCompactScreen = windowWidth < 1024;
+  const isAgentOverlay = windowWidth < 1350;
+
+  const effectiveSidebarWidth = !isSidebarOpen
+    ? 0
+    : isCompactScreen && isStagingOpen
+    ? Math.min(sidebarWidth, 200)
+    : Math.min(sidebarWidth, Math.max(160, Math.floor(windowWidth * 0.28)));
+
+  const minCenterGraphWidth = 260;
+  const maxAllowedRightPanel = Math.max(
+    300,
+    windowWidth -
+      effectiveSidebarWidth -
+      (isAgentOpen && !isAgentOverlay ? 320 : 0) -
+      minCenterGraphWidth
+  );
+  const effectiveRightPanelWidth = Math.min(rightPanelWidth, maxAllowedRightPanel);
+
+  // Staging layout: automatically stack vertically if right panel is narrow (< 520px)
+  const isStackedStaging = effectiveRightPanelWidth < 520;
+  const effectiveStagingListWidth = isStackedStaging
+    ? effectiveRightPanelWidth
+    : Math.min(stagingListWidth, Math.max(160, effectiveRightPanelWidth - 200));
   const [branchStartPoint, setBranchStartPoint] = useState<string>('HEAD');
   const [showBranchModal, setShowBranchModal] = useState<boolean>(false);
   const [showStashModal, setShowStashModal] = useState<boolean>(false);
@@ -970,7 +1009,7 @@ export const App: React.FC = () => {
         {isSidebarOpen && (
           <>
             <Sidebar
-              width={sidebarWidth}
+              width={effectiveSidebarWidth}
               branches={branches}
               remotes={remotes}
               tags={tags}
@@ -1034,9 +1073,9 @@ export const App: React.FC = () => {
               onMouseDown={(e) => {
                 e.preventDefault();
                 const startX = e.clientX;
-                const startWidth = sidebarWidth;
+                const startWidth = effectiveSidebarWidth;
                 const onMouseMove = (moveEvent: MouseEvent) => {
-                  const newWidth = Math.max(160, Math.min(500, startWidth + (moveEvent.clientX - startX)));
+                  const newWidth = Math.max(160, Math.min(480, startWidth + (moveEvent.clientX - startX)));
                   setSidebarWidth(newWidth);
                   localStorage.setItem('gitter_sidebar_width', newWidth.toString());
                 };
@@ -1052,7 +1091,7 @@ export const App: React.FC = () => {
         )}
 
         {/* Center: Interactive Commit Graph */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 min-w-[240px] flex flex-col overflow-hidden">
           <CommitGraph
             commits={commits}
             hasWip={hasWip}
@@ -1093,9 +1132,9 @@ export const App: React.FC = () => {
               onMouseDown={(e) => {
                 e.preventDefault();
                 const startX = e.clientX;
-                const startWidth = rightPanelWidth;
+                const startWidth = effectiveRightPanelWidth;
                 const onMouseMove = (moveEvent: MouseEvent) => {
-                  const newWidth = Math.max(380, Math.min(950, startWidth - (moveEvent.clientX - startX)));
+                  const newWidth = Math.max(300, Math.min(950, startWidth - (moveEvent.clientX - startX)));
                   setRightPanelWidth(newWidth);
                   localStorage.setItem('gitter_right_panel_width', newWidth.toString());
                 };
@@ -1109,7 +1148,7 @@ export const App: React.FC = () => {
             />
 
             <div
-              style={{ width: `${rightPanelWidth}px` }}
+              style={{ width: `${effectiveRightPanelWidth}px` }}
               className="flex flex-col bg-[#14181f] flex-shrink-0 overflow-hidden"
             >
               {isVirtualBranchesMode ? (
@@ -1130,44 +1169,50 @@ export const App: React.FC = () => {
                 />
               ) : (
                 <>
-                  <div className="flex-1 flex overflow-hidden">
+                  <div className={`flex-1 flex overflow-hidden ${isStackedStaging ? 'flex-col' : 'flex-row'}`}>
                     {/* Staging file list */}
-                    <StagingPanel
-                      width={stagingListWidth}
-                      statuses={statuses}
-                      selectedFile={selectedFile}
-                      onSelectFile={(f, staged) => {
-                        setSelectedFile(f);
-                        setIsSelectedFileStaged(staged);
-                      }}
-                      onStageFile={handleStageFile}
-                      onUnstageFile={handleUnstageFile}
-                      onStageAll={handleStageAll}
-                      onUnstageAll={handleUnstageAll}
-                      onDiscardFile={handleDiscardFile}
-                      onDiscardAll={handleDiscardAll}
-                      onStash={() => setShowStashModal(true)}
-                      onShelve={() => setShowShelveModal(true)}
-                      onOpenBlame={(file) => setBlameFilePath(file)}
-                      onOpenFileHistory={(file) => setFileHistoryTarget(file)}
-                      onRevealInExplorer={handleRevealInExplorer}
-                      onOpenInVsCode={(file) => handleOpenInVsCode(file)}
-                      onOpenExternalDiff={handleOpenExternalDiff}
-                      onToggleVirtualBranches={() => {
-                        setIsVirtualBranchesMode(true);
-                        localStorage.setItem('gitter_vb_mode', 'true');
-                      }}
-                    />
+                    <div
+                      style={isStackedStaging ? { height: '220px', width: '100%' } : { width: `${effectiveStagingListWidth}px` }}
+                      className="flex-shrink-0 flex flex-col overflow-hidden"
+                    >
+                      <StagingPanel
+                        width={effectiveStagingListWidth}
+                        statuses={statuses}
+                        selectedFile={selectedFile}
+                        onSelectFile={(f, staged) => {
+                          setSelectedFile(f);
+                          setIsSelectedFileStaged(staged);
+                        }}
+                        onStageFile={handleStageFile}
+                        onUnstageFile={handleUnstageFile}
+                        onStageAll={handleStageAll}
+                        onUnstageAll={handleUnstageAll}
+                        onDiscardFile={handleDiscardFile}
+                        onDiscardAll={handleDiscardAll}
+                        onStash={() => setShowStashModal(true)}
+                        onShelve={() => setShowShelveModal(true)}
+                        onOpenBlame={(file) => setBlameFilePath(file)}
+                        onOpenFileHistory={(file) => setFileHistoryTarget(file)}
+                        onRevealInExplorer={handleRevealInExplorer}
+                        onOpenInVsCode={(file) => handleOpenInVsCode(file)}
+                        onOpenExternalDiff={handleOpenExternalDiff}
+                        onToggleVirtualBranches={() => {
+                          setIsVirtualBranchesMode(true);
+                          localStorage.setItem('gitter_vb_mode', 'true');
+                        }}
+                      />
+                    </div>
 
                     {/* Splitter between file list and diff viewer */}
                     <div
-                      className="w-1 hover:w-1.5 cursor-col-resize bg-[#222a3a] hover:bg-teal-500 transition-colors z-10 select-none flex-shrink-0"
+                      className={`${isStackedStaging ? 'h-1 hover:h-1.5 cursor-row-resize' : 'w-1 hover:w-1.5 cursor-col-resize'} bg-[#222a3a] hover:bg-teal-500 transition-colors z-10 select-none flex-shrink-0`}
                       onMouseDown={(e) => {
                         e.preventDefault();
+                        if (isStackedStaging) return;
                         const startX = e.clientX;
-                        const startWidth = stagingListWidth;
+                        const startWidth = effectiveStagingListWidth;
                         const onMouseMove = (moveEvent: MouseEvent) => {
-                          const newWidth = Math.max(180, Math.min(450, startWidth + (moveEvent.clientX - startX)));
+                          const newWidth = Math.max(160, Math.min(effectiveRightPanelWidth - 200, startWidth + (moveEvent.clientX - startX)));
                           setStagingListWidth(newWidth);
                           localStorage.setItem('gitter_staging_list_width', newWidth.toString());
                         };
@@ -1181,34 +1226,36 @@ export const App: React.FC = () => {
                     />
 
                     {/* Diff Viewer */}
-                    <DiffViewer
-                      diffs={fileDiffs}
-                      filePath={selectedFile || ''}
-                      isStaged={isSelectedFileStaged}
-                      ignoreWhitespace={ignoreWhitespace}
-                      onToggleIgnoreWhitespace={() => {
-                        const next = !ignoreWhitespace;
-                        setIgnoreWhitespace(next);
-                        localStorage.setItem('gitter_diff_ws', next ? 'true' : 'false');
-                      }}
-                      onToggleStage={() => {
-                        if (!selectedFile) return;
-                        if (isSelectedFileStaged) {
-                          handleUnstageFile(selectedFile);
-                          setIsSelectedFileStaged(false);
-                        } else {
-                          handleStageFile(selectedFile);
-                          setIsSelectedFileStaged(true);
-                        }
-                      }}
-                      onExplainFile={handleExplainFile}
-                      onResolveConflict={handleOpenConflictModal}
-                      onOpenBlame={(file) => setBlameFilePath(file)}
-                      onOpenExternalDiff={handleOpenExternalDiff}
-                      onStagePatch={handleStagePatch}
-                      onUnstagePatch={handleUnstagePatch}
-                      onDiscardPatch={handleDiscardPatch}
-                    />
+                    <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
+                      <DiffViewer
+                        diffs={fileDiffs}
+                        filePath={selectedFile || ''}
+                        isStaged={isSelectedFileStaged}
+                        ignoreWhitespace={ignoreWhitespace}
+                        onToggleIgnoreWhitespace={() => {
+                          const next = !ignoreWhitespace;
+                          setIgnoreWhitespace(next);
+                          localStorage.setItem('gitter_diff_ws', next ? 'true' : 'false');
+                        }}
+                        onToggleStage={() => {
+                          if (!selectedFile) return;
+                          if (isSelectedFileStaged) {
+                            handleUnstageFile(selectedFile);
+                            setIsSelectedFileStaged(false);
+                          } else {
+                            handleStageFile(selectedFile);
+                            setIsSelectedFileStaged(true);
+                          }
+                        }}
+                        onExplainFile={handleExplainFile}
+                        onResolveConflict={handleOpenConflictModal}
+                        onOpenBlame={(file) => setBlameFilePath(file)}
+                        onOpenExternalDiff={handleOpenExternalDiff}
+                        onStagePatch={handleStagePatch}
+                        onUnstagePatch={handleUnstagePatch}
+                        onDiscardPatch={handleDiscardPatch}
+                      />
+                    </div>
                   </div>
 
                   {/* Commit Box at bottom of right panel */}
@@ -1227,16 +1274,39 @@ export const App: React.FC = () => {
           </>
         )}
 
-        {/* Far Right: AI Agent Dock */}
+        {/* Far Right: AI Agent Dock - docked on wide screens, slide-out overlay drawer on compact screens */}
         {isAgentOpen && (
-          <AgentSidebar
-            repoState={repoState}
-            onClose={() => {
-              setIsAgentOpen(false);
-              localStorage.setItem('gitter_agent_open', 'false');
-            }}
-            onRunGitCommand={handleRunAgentCommand}
-          />
+          isAgentOverlay ? (
+            <>
+              {/* Semi-transparent Backdrop for small screens */}
+              <div
+                className="fixed inset-0 bg-black/40 backdrop-blur-xs z-30 transition-opacity"
+                onClick={() => {
+                  setIsAgentOpen(false);
+                  localStorage.setItem('gitter_agent_open', 'false');
+                }}
+              />
+              <div className="fixed right-0 top-12 bottom-0 z-40 w-88 max-w-[90vw] shadow-2xl">
+                <AgentSidebar
+                  repoState={repoState}
+                  onClose={() => {
+                    setIsAgentOpen(false);
+                    localStorage.setItem('gitter_agent_open', 'false');
+                  }}
+                  onRunGitCommand={handleRunAgentCommand}
+                />
+              </div>
+            </>
+          ) : (
+            <AgentSidebar
+              repoState={repoState}
+              onClose={() => {
+                setIsAgentOpen(false);
+                localStorage.setItem('gitter_agent_open', 'false');
+              }}
+              onRunGitCommand={handleRunAgentCommand}
+            />
+          )
         )}
       </div>
 

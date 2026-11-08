@@ -196,10 +196,10 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
         <div style={{ width: graphWidth }} className="flex-shrink-0 px-2">
           Graph
         </div>
-        <div className="flex-1 px-3">Commit Message</div>
-        <div className="w-36 px-2 text-right">Author</div>
-        <div className="w-28 px-2 text-right">Date</div>
-        <div className="w-20 px-2 text-right font-mono">SHA</div>
+        <div className="min-w-0 flex-1 px-3">Commit Message</div>
+        <div className="w-24 sm:w-32 flex-shrink-0 px-2 text-right">Author</div>
+        <div className="hidden sm:block w-24 flex-shrink-0 px-2 text-right">Date</div>
+        <div className="hidden md:block w-16 lg:w-20 flex-shrink-0 px-2 text-right font-mono">SHA</div>
       </div>
 
       {/* Commit Rows Virtual/Scrollable Area */}
@@ -363,7 +363,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                 </div>
 
                 {/* Commit Summary & Ref Badges */}
-                <div className="flex-1 px-3 flex items-center space-x-2 truncate">
+                <div className="min-w-0 flex-1 px-3 flex items-center space-x-2 truncate">
                   {/* Ref badges (branches, tags, HEAD) */}
                   {commit.refs.map((ref) => {
                     const isHead = ref.includes('HEAD');
@@ -386,7 +386,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                         ) : (
                           <GitBranch className="w-2.5 h-2.5" />
                         )}
-                        <span className="truncate max-w-[100px]">{refName}</span>
+                        <span className="truncate max-w-[80px] sm:max-w-[120px]">{refName}</span>
                       </span>
                     );
                   })}
@@ -402,7 +402,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                 </div>
 
                 {/* Author */}
-                <div className="w-36 px-2 text-right truncate text-slate-400 flex items-center justify-end space-x-1.5">
+                <div className="w-24 sm:w-32 flex-shrink-0 px-2 text-right truncate text-slate-400 flex items-center justify-end space-x-1.5">
                   {(() => {
                     const text = `${commit.author.name} ${commit.author.email} ${commit.summary} ${commit.body || ''}`.toLowerCase();
                     if (text.includes('claude')) return <span className="px-1 py-0.2 rounded text-[9px] font-semibold border bg-purple-500/20 text-purple-300 border-purple-500/40">Claude</span>;
@@ -417,12 +417,12 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                 </div>
 
                 {/* Date */}
-                <div className="w-28 px-2 text-right truncate text-slate-500 text-[11px]">
+                <div className="hidden sm:block w-24 flex-shrink-0 px-2 text-right truncate text-slate-500 text-[11px]">
                   {commit.date.split(' ')[0] || commit.date}
                 </div>
 
                 {/* Short SHA */}
-                <div className="w-20 px-2 text-right font-mono text-[11px] text-slate-400">
+                <div className="hidden md:block w-16 lg:w-20 flex-shrink-0 px-2 text-right font-mono text-[11px] text-slate-400">
                   {commit.shortHash}
                 </div>
               </div>
