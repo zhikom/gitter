@@ -9,6 +9,7 @@ release/
 out/
 src-tauri/target/
 src-tauri/gen/
+*.vsix
 
 # Temp research & downloads
 temp_rea/
