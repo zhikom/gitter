@@ -370,4 +370,58 @@ export const api = {
 
   getAiConfig: () => fetchJson<any>('/ai/config'),
   saveAiConfig: (config: any) => fetchJson('/ai/config', { method: 'POST', body: JSON.stringify(config) }),
+
+  // Scan folder for Git repositories
+  scanRepositories: (folderPath: string) =>
+    fetchJson<Array<{
+      name: string;
+      path: string;
+      currentBranch: string;
+      isClean: boolean;
+      lastCommit?: string;
+      lastCommitDate?: string;
+    }>>(`/repo/scan?path=${encodeURIComponent(folderPath)}`),
+
+  // Native OS folder picker dialog
+  pickNativeFolder: () =>
+    fetchJson<{ path: string | null }>('/dialog/pick-folder', { method: 'POST' }),
+
+  // Per-Repository Configuration
+  getRepoConfig: (path: string) =>
+    fetchJson<any>(`/repo/config?path=${encodeURIComponent(path)}`),
+
+  saveRepoConfig: (path: string, config: any) =>
+    fetchJson<{ success: boolean }>('/repo/config', {
+      method: 'POST',
+      body: JSON.stringify({ path, config }),
+    }),
+
+  // Gitflow Integration
+  getGitflowStatus: (path: string) =>
+    fetchJson<{
+      initialized: boolean;
+      config: any;
+      currentBranch: string;
+      features: string[];
+      releases: string[];
+      hotfixes: string[];
+    }>(`/repo/gitflow?path=${encodeURIComponent(path)}`),
+
+  gitflowInit: (path: string, config: any) =>
+    fetchJson<{ success: boolean }>('/repo/gitflow/init', {
+      method: 'POST',
+      body: JSON.stringify({ path, config }),
+    }),
+
+  gitflowStart: (path: string, type: 'feature' | 'release' | 'hotfix', name: string) =>
+    fetchJson<{ success: boolean; branch: string }>('/repo/gitflow/start', {
+      method: 'POST',
+      body: JSON.stringify({ path, type, name }),
+    }),
+
+  gitflowFinish: (path: string, type: 'feature' | 'release' | 'hotfix', name: string) =>
+    fetchJson<{ success: boolean; message: string }>('/repo/gitflow/finish', {
+      method: 'POST',
+      body: JSON.stringify({ path, type, name }),
+    }),
 };

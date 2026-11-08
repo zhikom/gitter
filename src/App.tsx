@@ -38,6 +38,10 @@ import { StashInspectorModal } from './components/Modals/StashInspectorModal';
 import { FileHistoryModal } from './components/Modals/FileHistoryModal';
 import { ShelveModal } from './components/Modals/ShelveModal';
 import { VirtualBranchPanel } from './components/VirtualBranches/VirtualBranchPanel';
+import { UpdateModal } from './components/Modals/UpdateModal';
+import { GitflowModal } from './components/Modals/GitflowModal';
+import { checkForAppUpdate } from './services/updateService';
+import { UpdateInfo } from './types/update';
 import { PullRequest, Submodule, Worktree } from './types/git';
 import { Shelf } from './types/shelf';
 
@@ -125,6 +129,11 @@ export const App: React.FC = () => {
   // Reflog Modal
   const [showReflogModal, setShowReflogModal] = useState<boolean>(false);
 
+  // Auto-Update & Gitflow States
+  const [availableUpdate, setAvailableUpdate] = useState<UpdateInfo | null>(null);
+  const [showUpdateModal, setShowUpdateModal] = useState<boolean>(false);
+  const [showGitflowModal, setShowGitflowModal] = useState<boolean>(false);
+
   // JetBrains Shelves & Inspector
   const [showShelveModal, setShowShelveModal] = useState<boolean>(false);
   const [stashInspectorTarget, setStashInspectorTarget] = useState<
@@ -133,6 +142,30 @@ export const App: React.FC = () => {
     | null
   >(null);
   const [fileHistoryTarget, setFileHistoryTarget] = useState<string | null>(null);
+
+  // Auto-check for updates on startup
+  useEffect(() => {
+    const autoCheck = localStorage.getItem('gitter_auto_check_updates') !== 'false';
+    if (autoCheck) {
+      checkForAppUpdate()
+        .then((info) => {
+          if (info && info.hasUpdate) {
+            setAvailableUpdate(info);
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
+
+  const handleCheckUpdates = async () => {
+    try {
+      const info = await checkForAppUpdate();
+      setAvailableUpdate(info);
+      setShowUpdateModal(true);
+    } catch (e: any) {
+      alert(`Update check failed: ${e.message}`);
+    }
+  };
 
   // Initialize repository
   const refreshRepo = useCallback(async (path?: string) => {
@@ -830,6 +863,8 @@ export const App: React.FC = () => {
             await refreshRepo(p);
           }
         }}
+        availableUpdate={availableUpdate}
+        onCheckUpdates={handleCheckUpdates}
         loading={loading}
       />
 
@@ -885,6 +920,7 @@ export const App: React.FC = () => {
               }}
               onOpenWorktrees={() => setShowWorktreesModal(true)}
               onSwitchWorktree={(path) => refreshRepo(path)}
+              onOpenGitflow={() => setShowGitflowModal(true)}
               onUpdateSubmodules={async () => {
                 try {
                   const res = await api.updateSubmodules(repoPath);
@@ -1173,7 +1209,26 @@ export const App: React.FC = () => {
       )}
 
       {showSettingsModal && (
-        <SettingsModal repoPath={repoPath} onClose={() => setShowSettingsModal(false)} />
+        <SettingsModal
+          repoPath={repoPath}
+          onClose={() => setShowSettingsModal(false)}
+          onCheckUpdates={handleCheckUpdates}
+        />
+      )}
+
+      {showUpdateModal && (
+        <UpdateModal
+          updateInfo={availableUpdate}
+          onClose={() => setShowUpdateModal(false)}
+        />
+      )}
+
+      {showGitflowModal && (
+        <GitflowModal
+          repoPath={repoPath}
+          onClose={() => setShowGitflowModal(false)}
+          onRefresh={() => refreshRepo()}
+        />
       )}
 
       {showPrModal && (

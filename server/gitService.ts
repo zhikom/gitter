@@ -1235,6 +1235,306 @@ export class GitService {
     const rawDiff = await this.runGitRaw(`show ${hash} -- "${filePath}"`, repoPath);
     return parseGitDiff(rawDiff);
   }
+
+  // Scan folder for Git repositories (depth 1 and 2)
+  async scanRepositories(folderPath: string): Promise<Array<{
+    name: string;
+    path: string;
+    currentBranch: string;
+    isClean: boolean;
+    lastCommit?: string;
+    lastCommitDate?: string;
+  }>> {
+    const resolved = path.resolve(folderPath);
+    const repos: Array<{
+      name: string;
+      path: string;
+      currentBranch: string;
+      isClean: boolean;
+      lastCommit?: string;
+      lastCommitDate?: string;
+    }> = [];
+
+    const checkAndAddRepo = async (dirPath: string, name: string) => {
+      try {
+        const gitDir = path.join(dirPath, '.git');
+        const stat = await fs.promises.stat(gitDir).catch(() => null);
+        if (stat) {
+          let currentBranch = 'unknown';
+          let isClean = true;
+          let lastCommit = '';
+          let lastCommitDate = '';
+
+          try {
+            currentBranch = (await this.runGitRaw('rev-parse --abbrev-ref HEAD', dirPath)).trim();
+            const statusOut = await this.runGitRaw('status --porcelain', dirPath);
+            isClean = statusOut.trim().length === 0;
+            const logOut = await this.runGitRaw('log -1 --format="%s (%cr)"', dirPath);
+            lastCommit = logOut.trim();
+          } catch {}
+
+          repos.push({
+            name,
+            path: dirPath.replace(/\\/g, '/'),
+            currentBranch,
+            isClean,
+            lastCommit,
+            lastCommitDate,
+          });
+          return true;
+        }
+      } catch {}
+      return false;
+    };
+
+    try {
+      const entries = await fs.promises.readdir(resolved, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const subPath = path.join(resolved, entry.name);
+        const isRepo = await checkAndAddRepo(subPath, entry.name);
+        if (!isRepo && !entry.name.startsWith('.')) {
+          // Check 1 level deeper
+          try {
+            const nested = await fs.promises.readdir(subPath, { withFileTypes: true });
+            for (const n of nested) {
+              if (n.isDirectory() && !n.name.startsWith('.')) {
+                await checkAndAddRepo(path.join(subPath, n.name), `${entry.name}/${n.name}`);
+              }
+            }
+          } catch {}
+        }
+      }
+    } catch (e: any) {
+      throw new Error(`Failed to scan folder: ${e.message}`);
+    }
+
+    return repos;
+  }
+
+  // Native folder picker per OS
+  async pickNativeFolder(): Promise<string | null> {
+    const isWindows = process.platform === 'win32';
+    const isMac = process.platform === 'darwin';
+
+    if (isWindows) {
+      try {
+        const psCommand = `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Select Git Repository Folder'; $d.ShowNewFolderButton = $true; if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::WriteLine($d.SelectedPath) }"`;
+        const { stdout } = await execAsync(psCommand);
+        return stdout.trim().replace(/\\/g, '/') || null;
+      } catch {
+        return null;
+      }
+    } else if (isMac) {
+      try {
+        const { stdout } = await execAsync(`osascript -e 'POSIX path of (choose folder with prompt "Select Git Repository Folder")'`);
+        return stdout.trim() || null;
+      } catch {
+        return null;
+      }
+    } else {
+      // Linux
+      try {
+        const { stdout } = await execAsync(`zenity --file-selection --directory --title="Select Git Repository Folder"`);
+        return stdout.trim() || null;
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  // Per-repository configuration (.git/gitter/config.json)
+  async getRepoConfig(repoPath: string): Promise<any> {
+    const configPath = path.join(repoPath, '.git', 'gitter', 'config.json');
+    try {
+      const content = await fs.promises.readFile(configPath, 'utf8');
+      return JSON.parse(content);
+    } catch {
+      // Default per-repo settings
+      return {
+        defaultTargetBranch: 'main',
+        userName: '',
+        userEmail: '',
+        gitflow: {
+          initialized: false,
+          masterBranch: 'main',
+          developBranch: 'develop',
+          featurePrefix: 'feature/',
+          releasePrefix: 'release/',
+          hotfixPrefix: 'hotfix/',
+          bugfixPrefix: 'bugfix/',
+          supportPrefix: 'support/',
+        },
+        hiddenSections: [],
+      };
+    }
+  }
+
+  async saveRepoConfig(repoPath: string, config: any): Promise<void> {
+    const dir = path.join(repoPath, '.git', 'gitter');
+    await fs.promises.mkdir(dir, { recursive: true });
+    const configPath = path.join(dir, 'config.json');
+    await fs.promises.writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    // If userName or userEmail are supplied, update local git config
+    if (config.userName) {
+      await this.runGitRaw(`config user.name "${config.userName}"`, repoPath).catch(() => {});
+    }
+    if (config.userEmail) {
+      await this.runGitRaw(`config user.email "${config.userEmail}"`, repoPath).catch(() => {});
+    }
+  }
+
+  // Gitflow Integration
+  async getGitflowStatus(repoPath: string): Promise<{
+    initialized: boolean;
+    config: any;
+    currentBranch: string;
+    features: string[];
+    releases: string[];
+    hotfixes: string[];
+  }> {
+    const repoConfig = await this.getRepoConfig(repoPath);
+    const gfConfig = repoConfig.gitflow || {
+      initialized: false,
+      masterBranch: 'main',
+      developBranch: 'develop',
+      featurePrefix: 'feature/',
+      releasePrefix: 'release/',
+      hotfixPrefix: 'hotfix/',
+    };
+
+    const branches = await this.getBranches(repoPath);
+    const branchNames = branches.map((b) => b.name);
+    const currentBranch = (await this.runGitRaw('rev-parse --abbrev-ref HEAD', repoPath)).trim();
+
+    const hasMaster = branchNames.includes(gfConfig.masterBranch);
+    const hasDevelop = branchNames.includes(gfConfig.developBranch);
+    const isInitialized = gfConfig.initialized || (hasMaster && hasDevelop);
+
+    const featurePrefix = gfConfig.featurePrefix || 'feature/';
+    const releasePrefix = gfConfig.releasePrefix || 'release/';
+    const hotfixPrefix = gfConfig.hotfixPrefix || 'hotfix/';
+
+    const features = branchNames.filter((b) => b.startsWith(featurePrefix)).map((b) => b.replace(featurePrefix, ''));
+    const releases = branchNames.filter((b) => b.startsWith(releasePrefix)).map((b) => b.replace(releasePrefix, ''));
+    const hotfixes = branchNames.filter((b) => b.startsWith(hotfixPrefix)).map((b) => b.replace(hotfixPrefix, ''));
+
+    return {
+      initialized: isInitialized,
+      config: gfConfig,
+      currentBranch,
+      features,
+      releases,
+      hotfixes,
+    };
+  }
+
+  async gitflowInit(repoPath: string, config: any): Promise<void> {
+    const branches = await this.getBranches(repoPath);
+    const branchNames = branches.map((b) => b.name);
+
+    const masterBranch = config.masterBranch || 'main';
+    const developBranch = config.developBranch || 'develop';
+
+    // Ensure develop branch exists
+    if (!branchNames.includes(developBranch)) {
+      if (branchNames.includes(masterBranch)) {
+        await this.runGitRaw(`branch ${developBranch} ${masterBranch}`, repoPath);
+      } else {
+        await this.runGitRaw(`branch ${developBranch} HEAD`, repoPath);
+      }
+    }
+
+    const repoConfig = await this.getRepoConfig(repoPath);
+    repoConfig.gitflow = {
+      initialized: true,
+      masterBranch,
+      developBranch,
+      featurePrefix: config.featurePrefix || 'feature/',
+      releasePrefix: config.releasePrefix || 'release/',
+      hotfixPrefix: config.hotfixPrefix || 'hotfix/',
+      bugfixPrefix: config.bugfixPrefix || 'bugfix/',
+      supportPrefix: config.supportPrefix || 'support/',
+    };
+
+    await this.saveRepoConfig(repoPath, repoConfig);
+  }
+
+  async gitflowStart(repoPath: string, type: 'feature' | 'release' | 'hotfix', name: string): Promise<string> {
+    const gfStatus = await this.getGitflowStatus(repoPath);
+    const gfConfig = gfStatus.config;
+    const cleanName = name.trim().replace(/\s+/g, '-');
+
+    if (type === 'feature') {
+      const fullBranch = `${gfConfig.featurePrefix || 'feature/'}${cleanName}`;
+      await this.runGitRaw(`checkout -b ${fullBranch} ${gfConfig.developBranch || 'develop'}`, repoPath);
+      return fullBranch;
+    } else if (type === 'release') {
+      const fullBranch = `${gfConfig.releasePrefix || 'release/'}${cleanName}`;
+      await this.runGitRaw(`checkout -b ${fullBranch} ${gfConfig.developBranch || 'develop'}`, repoPath);
+      return fullBranch;
+    } else if (type === 'hotfix') {
+      const fullBranch = `${gfConfig.hotfixPrefix || 'hotfix/'}${cleanName}`;
+      await this.runGitRaw(`checkout -b ${fullBranch} ${gfConfig.masterBranch || 'main'}`, repoPath);
+      return fullBranch;
+    }
+
+    throw new Error(`Unknown Gitflow type: ${type}`);
+  }
+
+  async gitflowFinish(repoPath: string, type: 'feature' | 'release' | 'hotfix', name: string): Promise<{ success: boolean; message: string }> {
+    const gfStatus = await this.getGitflowStatus(repoPath);
+    const gfConfig = gfStatus.config;
+    const cleanName = name.trim();
+
+    if (type === 'feature') {
+      const fullBranch = `${gfConfig.featurePrefix || 'feature/'}${cleanName}`;
+      const develop = gfConfig.developBranch || 'develop';
+      // Checkout develop and merge feature with --no-ff
+      await this.runGitRaw(`checkout ${develop}`, repoPath);
+      await this.runGitRaw(`merge --no-ff ${fullBranch} -m "Merge feature '${cleanName}' into ${develop}"`, repoPath);
+      // Delete feature branch
+      await this.runGitRaw(`branch -d ${fullBranch}`, repoPath).catch(() => {});
+      return { success: true, message: `Finished feature '${cleanName}': merged into '${develop}' and deleted branch.` };
+    } else if (type === 'release') {
+      const fullBranch = `${gfConfig.releasePrefix || 'release/'}${cleanName}`;
+      const master = gfConfig.masterBranch || 'main';
+      const develop = gfConfig.developBranch || 'develop';
+
+      // 1. Merge into master and tag
+      await this.runGitRaw(`checkout ${master}`, repoPath);
+      await this.runGitRaw(`merge --no-ff ${fullBranch} -m "Release ${cleanName}"`, repoPath);
+      await this.runGitRaw(`tag -a v${cleanName.replace(/^v/, '')} -m "Release ${cleanName}"`, repoPath).catch(() => {});
+
+      // 2. Merge into develop
+      await this.runGitRaw(`checkout ${develop}`, repoPath);
+      await this.runGitRaw(`merge --no-ff ${fullBranch} -m "Merge release '${cleanName}' into ${develop}"`, repoPath);
+
+      // 3. Delete release branch
+      await this.runGitRaw(`branch -d ${fullBranch}`, repoPath).catch(() => {});
+      return { success: true, message: `Finished release '${cleanName}': merged into '${master}' (tagged) and '${develop}'.` };
+    } else if (type === 'hotfix') {
+      const fullBranch = `${gfConfig.hotfixPrefix || 'hotfix/'}${cleanName}`;
+      const master = gfConfig.masterBranch || 'main';
+      const develop = gfConfig.developBranch || 'develop';
+
+      // 1. Merge into master and tag
+      await this.runGitRaw(`checkout ${master}`, repoPath);
+      await this.runGitRaw(`merge --no-ff ${fullBranch} -m "Hotfix ${cleanName}"`, repoPath);
+      await this.runGitRaw(`tag -a v${cleanName.replace(/^v/, '')} -m "Hotfix ${cleanName}"`, repoPath).catch(() => {});
+
+      // 2. Merge into develop
+      await this.runGitRaw(`checkout ${develop}`, repoPath);
+      await this.runGitRaw(`merge --no-ff ${fullBranch} -m "Merge hotfix '${cleanName}' into ${develop}"`, repoPath);
+
+      // 3. Delete hotfix branch
+      await this.runGitRaw(`branch -d ${fullBranch}`, repoPath).catch(() => {});
+      return { success: true, message: `Finished hotfix '${cleanName}': merged into '${master}' (tagged) and '${develop}'.` };
+    }
+
+    throw new Error(`Unknown Gitflow type: ${type}`);
+  }
 }
 
 export const gitService = new GitService();

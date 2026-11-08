@@ -21,6 +21,7 @@ import {
   History,
 } from 'lucide-react';
 import { RepositoryState } from '../types/git';
+import { UpdateInfo } from '../types/update';
 
 interface HeaderToolbarProps {
   repoState: RepositoryState | null;
@@ -42,6 +43,8 @@ interface HeaderToolbarProps {
   isStagingOpen?: boolean;
   isAgentOpen: boolean;
   onOpenSettings: () => void;
+  onCheckUpdates?: () => void;
+  availableUpdate?: UpdateInfo | null;
   onOpenRepo: () => void;
   onCloneRepo: () => void;
   onInitRepo: () => void;
@@ -68,6 +71,8 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
   isStagingOpen = true,
   isAgentOpen,
   onOpenSettings,
+  onCheckUpdates,
+  availableUpdate,
   onOpenRepo,
   onCloneRepo,
   onInitRepo,
@@ -151,6 +156,20 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
                 <PlusCircle className="w-3.5 h-3.5 text-purple-400" />
                 <span>Init New Repository...</span>
               </button>
+
+              {onCheckUpdates && (
+                <>
+                  <div className="border-t border-[#2a3447] my-1" />
+                  <button
+                    onClick={onCheckUpdates}
+                    className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-teal-300"
+                  >
+                    <DownloadCloud className="w-3.5 h-3.5 text-teal-400" />
+                    <span>Check for Updates...</span>
+                  </button>
+                </>
+              )}
+
               {repoState && (
                 <div className="border-t border-[#2a3447] mt-1 pt-1 px-3 py-1 text-[11px] text-slate-400 truncate">
                   Path: {repoState.path}
@@ -391,6 +410,18 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
         </button>
+
+        {/* Available Update Notification Badge */}
+        {availableUpdate && availableUpdate.hasUpdate && onCheckUpdates && (
+          <button
+            onClick={onCheckUpdates}
+            title={`Gitter v${availableUpdate.latestVersion} is available! Click to view changelog and download.`}
+            className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-teal-500/20 to-emerald-500/20 text-teal-300 border border-teal-500/40 text-xs font-semibold hover:border-teal-400 hover:bg-teal-500/30 transition shadow-sm animate-pulse"
+          >
+            <DownloadCloud className="w-3.5 h-3.5 text-teal-400" />
+            <span>Update: v{availableUpdate.latestVersion}</span>
+          </button>
+        )}
 
         {/* Settings button */}
         <button

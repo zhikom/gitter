@@ -919,6 +919,108 @@ app.post('/api/ai/pr-description', async (req, res) => {
   }
 });
 
+// App Auto-Update & GitHub Releases Proxy
+app.get('/api/app/check-update', async (req, res) => {
+  try {
+    const response = await fetch('https://api.github.com/repos/zhikom/gitter/releases/latest', {
+      headers: {
+        'User-Agent': 'Gitter-App',
+        Accept: 'application/vnd.github.v3+json',
+      },
+    });
+    if (!response.ok) {
+      return res.status(response.status).json({ error: `GitHub API error: ${response.statusText}` });
+    }
+    const data = await response.json();
+    res.json(data);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Scan folder for Git repositories
+app.get('/api/repo/scan', async (req, res) => {
+  try {
+    const targetFolder = resolvePath(req.query.path as string);
+    const repos = await gitService.scanRepositories(targetFolder);
+    res.json(repos);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Native OS folder picker dialog
+app.post('/api/dialog/pick-folder', async (req, res) => {
+  try {
+    const selectedPath = await gitService.pickNativeFolder();
+    res.json({ path: selectedPath });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Per-Repository Configuration
+app.get('/api/repo/config', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const config = await gitService.getRepoConfig(targetPath);
+    res.json(config);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/config', async (req, res) => {
+  try {
+    const { path: repoPath, config } = req.body;
+    await gitService.saveRepoConfig(resolvePath(repoPath), config);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Gitflow Integration Endpoints
+app.get('/api/repo/gitflow', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const status = await gitService.getGitflowStatus(targetPath);
+    res.json(status);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/gitflow/init', async (req, res) => {
+  try {
+    const { path: repoPath, config } = req.body;
+    await gitService.gitflowInit(resolvePath(repoPath), config);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/gitflow/start', async (req, res) => {
+  try {
+    const { path: repoPath, type, name } = req.body;
+    const branch = await gitService.gitflowStart(resolvePath(repoPath), type, name);
+    res.json({ success: true, branch });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repo/gitflow/finish', async (req, res) => {
+  try {
+    const { path: repoPath, type, name } = req.body;
+    const result = await gitService.gitflowFinish(resolvePath(repoPath), type, name);
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Gitter backend server running on http://localhost:${PORT}`);
 });

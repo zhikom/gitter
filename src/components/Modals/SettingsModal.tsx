@@ -15,15 +15,22 @@ import {
   Check,
   RotateCcw,
   Copy,
+  DownloadCloud,
+  RefreshCw,
+  FolderGit2,
+  Workflow,
 } from 'lucide-react';
 import { api } from '../../api/client';
+import { CURRENT_VERSION } from '../../services/updateService';
 
 interface SettingsModalProps {
   repoPath?: string;
   onClose: () => void;
+  onCheckUpdates?: () => void;
 }
 
 type TabType =
+  | 'repo'
   | 'general'
   | 'git'
   | 'signing'
@@ -34,8 +41,23 @@ type TabType =
   | 'integrations'
   | 'shortcuts';
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ repoPath = '', onClose }) => {
-  const [activeTab, setActiveTab] = useState<TabType>('general');
+export const SettingsModal: React.FC<SettingsModalProps> = ({
+  repoPath = '',
+  onClose,
+  onCheckUpdates,
+}) => {
+  const [activeTab, setActiveTab] = useState<TabType>(() => (repoPath ? 'repo' : 'general'));
+
+  // Repo-Specific Settings (GitKraken style: .git/gitter/config.json)
+  const [overrideIdentity, setOverrideIdentity] = useState(false);
+  const [repoAuthorName, setRepoAuthorName] = useState('');
+  const [repoAuthorEmail, setRepoAuthorEmail] = useState('');
+  const [repoDefaultBranch, setRepoDefaultBranch] = useState('');
+  const [gitflowDevelopBranch, setGitflowDevelopBranch] = useState('develop');
+  const [gitflowMasterBranch, setGitflowMasterBranch] = useState('main');
+  const [gitflowFeaturePrefix, setGitflowFeaturePrefix] = useState('feature/');
+  const [gitflowReleasePrefix, setGitflowReleasePrefix] = useState('release/');
+  const [gitflowHotfixPrefix, setGitflowHotfixPrefix] = useState('hotfix/');
 
   // General Config
   const [defaultBranch, setDefaultBranch] = useState(
@@ -49,6 +71,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repoPath = '', onC
   );
   const [confirmDeleteBranch, setConfirmDeleteBranch] = useState(
     () => localStorage.getItem('gitter_confirm_delete_branch') !== 'false'
+  );
+  const [autoCheckUpdates, setAutoCheckUpdates] = useState(
+    () => localStorage.getItem('gitter_auto_check_updates') !== 'false'
   );
 
   // Git Identity
@@ -118,7 +143,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repoPath = '', onC
       }
     });
 
-    // Load Git config if repoPath present
+    // Load Git config & Repo config if repoPath present
     if (repoPath) {
       api.getGitConfig(repoPath).then((cfg) => {
         if (cfg.userName) setUserName(cfg.userName);
@@ -126,6 +151,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repoPath = '', onC
         if (cfg.gpgSign) setGpgSign(cfg.gpgSign);
         if (cfg.signingKey) setSigningKey(cfg.signingKey);
         if (cfg.gpgFormat) setGpgFormat(cfg.gpgFormat);
+      });
+
+      api.getRepoConfig(repoPath).then((cfg) => {
+        if (cfg) {
+          if (cfg.authorName || cfg.authorEmail) {
+            setOverrideIdentity(true);
+            setRepoAuthorName(cfg.authorName || '');
+            setRepoAuthorEmail(cfg.authorEmail || '');
+          }
+          if (cfg.defaultBranch) setRepoDefaultBranch(cfg.defaultBranch);
+          if (cfg.gitflow) {
+            if (cfg.gitflow.masterBranch) setGitflowMasterBranch(cfg.gitflow.masterBranch);
+            if (cfg.gitflow.developBranch) setGitflowDevelopBranch(cfg.gitflow.developBranch);
+            if (cfg.gitflow.featurePrefix) setGitflowFeaturePrefix(cfg.gitflow.featurePrefix);
+            if (cfg.gitflow.releasePrefix) setGitflowReleasePrefix(cfg.gitflow.releasePrefix);
+            if (cfg.gitflow.hotfixPrefix) setGitflowHotfixPrefix(cfg.gitflow.hotfixPrefix);
+          }
+        }
       });
     }
   }, [repoPath]);
@@ -156,13 +199,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repoPath = '', onC
         baseUrl: baseUrl.trim(),
       });
 
-      // Save Git Config if repo present
+      // Save Git Config & Per-Repo Config if repo present
       if (repoPath) {
         if (userName) await api.setGitConfig(repoPath, 'user.name', userName.trim());
         if (userEmail) await api.setGitConfig(repoPath, 'user.email', userEmail.trim());
         await api.setGitConfig(repoPath, 'commit.gpgsign', gpgSign ? 'true' : 'false');
         if (signingKey) await api.setGitConfig(repoPath, 'user.signingkey', signingKey.trim());
         if (gpgFormat) await api.setGitConfig(repoPath, 'gpg.format', gpgFormat);
+
+        // Per-Repo Config (.git/gitter/config.json)
+        await api.saveRepoConfig(repoPath, {
+          authorName: overrideIdentity ? repoAuthorName.trim() : undefined,
+          authorEmail: overrideIdentity ? repoAuthorEmail.trim() : undefined,
+          defaultBranch: repoDefaultBranch.trim() || undefined,
+          gitflow: {
+            masterBranch: gitflowMasterBranch.trim() || 'main',
+            developBranch: gitflowDevelopBranch.trim() || 'develop',
+            featurePrefix: gitflowFeaturePrefix.trim() || 'feature/',
+            releasePrefix: gitflowReleasePrefix.trim() || 'release/',
+            hotfixPrefix: gitflowHotfixPrefix.trim() || 'hotfix/',
+          },
+        });
       }
 
       setSaved(true);
@@ -178,6 +235,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repoPath = '', onC
   };
 
   const navItems: { id: TabType; label: string; icon: React.ReactNode }[] = [
+    ...(repoPath
+      ? [{ id: 'repo' as TabType, label: 'Repository', icon: <FolderGit2 className="w-4 h-4 text-emerald-400" /> }]
+      : []),
     { id: 'general', label: 'General', icon: <Sliders className="w-4 h-4" /> },
     { id: 'git', label: 'Git Identity', icon: <User className="w-4 h-4" /> },
     { id: 'signing', label: 'Commit Signing', icon: <Shield className="w-4 h-4" /> },
@@ -247,6 +307,128 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repoPath = '', onC
 
           {/* Tab Body */}
           <div className="flex-1 overflow-y-auto p-6 space-y-5 text-xs text-slate-300">
+            {/* REPOSITORY-SPECIFIC SETTINGS (GitKraken Style) */}
+            {activeTab === 'repo' && (
+              <div className="space-y-5 max-w-xl">
+                <div className="p-3 bg-[#14181f] border border-[#2a3447] rounded-lg">
+                  <div className="text-slate-400 font-semibold mb-1 flex items-center space-x-2">
+                    <FolderGit2 className="w-4 h-4 text-emerald-400" />
+                    <span>Current Repository</span>
+                  </div>
+                  <div className="font-mono text-emerald-400 text-[11px] truncate">{repoPath}</div>
+                  <div className="text-[10px] text-slate-500 mt-1">
+                    Custom configuration is saved directly to <span className="font-mono text-slate-400">.git/gitter/config.json</span>
+                  </div>
+                </div>
+
+                <div className="space-y-3 pt-2">
+                  <label className="flex items-center space-x-2 cursor-pointer font-semibold text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={overrideIdentity}
+                      onChange={(e) => setOverrideIdentity(e.target.checked)}
+                      className="rounded bg-[#14181f] border-[#2a3447] text-emerald-500"
+                    />
+                    <span>Override Author Identity for this repository</span>
+                  </label>
+
+                  {overrideIdentity && (
+                    <div className="pl-6 space-y-3 border-l-2 border-emerald-500/30">
+                      <div>
+                        <label className="block text-slate-400 font-semibold mb-1">Local Author Name</label>
+                        <input
+                          type="text"
+                          value={repoAuthorName}
+                          onChange={(e) => setRepoAuthorName(e.target.value)}
+                          placeholder="e.g. Jane Doe"
+                          className="w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 font-semibold mb-1">Local Author Email</label>
+                        <input
+                          type="email"
+                          value={repoAuthorEmail}
+                          onChange={(e) => setRepoAuthorEmail(e.target.value)}
+                          placeholder="e.g. jane@company.com"
+                          className="w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-3 border-t border-[#2a3447] space-y-3">
+                  <div className="font-semibold text-slate-200 flex items-center space-x-2">
+                    <Workflow className="w-4 h-4 text-indigo-400" />
+                    <span>Gitflow Configuration</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-400 font-semibold mb-1">Production / Main Branch</label>
+                      <input
+                        type="text"
+                        value={gitflowMasterBranch}
+                        onChange={(e) => setGitflowMasterBranch(e.target.value)}
+                        className="w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 font-semibold mb-1">Development Branch</label>
+                      <input
+                        type="text"
+                        value={gitflowDevelopBranch}
+                        onChange={(e) => setGitflowDevelopBranch(e.target.value)}
+                        className="w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-slate-400 font-semibold mb-1">Feature Prefix</label>
+                      <input
+                        type="text"
+                        value={gitflowFeaturePrefix}
+                        onChange={(e) => setGitflowFeaturePrefix(e.target.value)}
+                        className="w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 font-semibold mb-1">Release Prefix</label>
+                      <input
+                        type="text"
+                        value={gitflowReleasePrefix}
+                        onChange={(e) => setGitflowReleasePrefix(e.target.value)}
+                        className="w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 font-semibold mb-1">Hotfix Prefix</label>
+                      <input
+                        type="text"
+                        value={gitflowHotfixPrefix}
+                        onChange={(e) => setGitflowHotfixPrefix(e.target.value)}
+                        className="w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-[#2a3447]">
+                  <label className="block text-slate-400 font-semibold mb-1">Default Branch Override</label>
+                  <input
+                    type="text"
+                    value={repoDefaultBranch}
+                    onChange={(e) => setRepoDefaultBranch(e.target.value)}
+                    placeholder="Leave empty to use global default"
+                    className="w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 font-mono"
+                  />
+                </div>
+              </div>
+            )}
+
             {/* GENERAL TAB */}
             {activeTab === 'general' && (
               <div className="space-y-4 max-w-xl">
@@ -301,6 +483,44 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repoPath = '', onC
                       className="rounded bg-[#14181f] border-[#2a3447] text-teal-500"
                     />
                     <span>Ask for confirmation before deleting a branch</span>
+                  </label>
+                </div>
+
+                {/* SOFTWARE UPDATES SECTION */}
+                <div className="pt-4 border-t border-[#2a3447] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-semibold text-slate-200 flex items-center space-x-2">
+                        <DownloadCloud className="w-4 h-4 text-teal-400" />
+                        <span>Software Updates</span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">
+                        Current version: <span className="font-mono text-slate-300">v{CURRENT_VERSION}</span>
+                      </div>
+                    </div>
+                    {onCheckUpdates && (
+                      <button
+                        type="button"
+                        onClick={onCheckUpdates}
+                        className="px-3 py-1.5 rounded bg-teal-600/20 hover:bg-teal-600/30 border border-teal-500/40 text-teal-300 font-semibold text-xs transition flex items-center space-x-1.5"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Check for Updates...</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoCheckUpdates}
+                      onChange={(e) => {
+                        setAutoCheckUpdates(e.target.checked);
+                        localStorage.setItem('gitter_auto_check_updates', e.target.checked ? 'true' : 'false');
+                      }}
+                      className="rounded bg-[#14181f] border-[#2a3447] text-teal-500"
+                    />
+                    <span>Automatically check for new releases on startup</span>
                   </label>
                 </div>
               </div>

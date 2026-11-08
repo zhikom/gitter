@@ -22,9 +22,24 @@ import {
   DownloadCloud,
   Inbox,
   Bookmark,
+  SlidersHorizontal,
+  Workflow,
 } from 'lucide-react';
 import { Branch, PullRequest, Remote, Stash, Submodule, Tag, Worktree } from '../types/git';
 import { Shelf } from '../types/shelf';
+
+export interface SidebarSectionConfig {
+  localBranches: boolean;
+  remoteBranches: boolean;
+  gitflow: boolean;
+  pullRequests: boolean;
+  tags: boolean;
+  stashes: boolean;
+  shelves: boolean;
+  remotes: boolean;
+  worktrees: boolean;
+  submodules: boolean;
+}
 
 interface SidebarProps {
   branches: Branch[];
@@ -59,6 +74,7 @@ interface SidebarProps {
   onSwitchWorktree?: (path: string) => void;
   onUpdateSubmodules?: () => void;
   onCherryPickToBranch?: (commitHash: string, branchName: string) => void;
+  onOpenGitflow?: () => void;
   width?: number;
 }
 
@@ -102,10 +118,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSwitchWorktree,
   onUpdateSubmodules,
   onCherryPickToBranch,
+  onOpenGitflow,
   width = 256,
 }) => {
   const [expandLocal, setExpandLocal] = useState(true);
   const [expandRemote, setExpandRemote] = useState(true);
+  const [expandGitflow, setExpandGitflow] = useState(true);
   const [expandPrs, setExpandPrs] = useState(true);
   const [expandTags, setExpandTags] = useState(false);
   const [expandStashes, setExpandStashes] = useState(false);
@@ -113,6 +131,66 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [expandRemotes, setExpandRemotes] = useState(false);
   const [expandWorktrees, setExpandWorktrees] = useState(false);
   const [expandSubmodules, setExpandSubmodules] = useState(false);
+
+  // Section Visibility / Decluttering
+  const [showSectionCustomizer, setShowSectionCustomizer] = useState(false);
+  const [sectionConfig, setSectionConfig] = useState<SidebarSectionConfig>(() => {
+    try {
+      const saved = localStorage.getItem('gitter_sidebar_sections');
+      if (saved) {
+        return {
+          localBranches: true,
+          remoteBranches: true,
+          gitflow: true,
+          pullRequests: true,
+          tags: true,
+          stashes: true,
+          shelves: true,
+          remotes: false,
+          worktrees: true,
+          submodules: true,
+          ...JSON.parse(saved),
+        };
+      }
+    } catch {}
+    return {
+      localBranches: true,
+      remoteBranches: true,
+      gitflow: true,
+      pullRequests: pullRequests.length > 0,
+      tags: true,
+      stashes: true,
+      shelves: shelves.length > 0,
+      remotes: false,
+      worktrees: worktrees.length > 1,
+      submodules: submodules.length > 0,
+    };
+  });
+
+  const toggleSection = (key: keyof SidebarSectionConfig) => {
+    setSectionConfig((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      localStorage.setItem('gitter_sidebar_sections', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const resetSmartDefaults = () => {
+    const defaults: SidebarSectionConfig = {
+      localBranches: true,
+      remoteBranches: true,
+      gitflow: true,
+      pullRequests: pullRequests.length > 0,
+      tags: true,
+      stashes: true,
+      shelves: shelves.length > 0,
+      remotes: false,
+      worktrees: worktrees.length > 1,
+      submodules: submodules.length > 0,
+    };
+    setSectionConfig(defaults);
+    localStorage.setItem('gitter_sidebar_sections', JSON.stringify(defaults));
+  };
 
   // Drag and drop state
   const [draggedBranch, setDraggedBranch] = useState<string | null>(null);
@@ -165,10 +243,174 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <aside
       style={{ width: `${width}px` }}
       className="bg-[#181d26] border-r border-[#2a3447] flex flex-col h-full text-slate-300 select-none overflow-y-auto relative flex-shrink-0"
-      onClick={() => setContextMenu(null)}
+      onClick={() => {
+        setContextMenu(null);
+        setShowSectionCustomizer(false);
+      }}
     >
+      {/* SIDEBAR HEADER / SECTION CUSTOMIZER */}
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-[#222a3a] bg-[#141820]/80 text-slate-400 select-none flex-shrink-0">
+        <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400">
+          Navigator
+        </span>
+        <div className="relative">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowSectionCustomizer(!showSectionCustomizer);
+            }}
+            title="Configure Visible Sections (Declutter Sidebar)"
+            className={`p-1 rounded hover:bg-[#202735] transition ${
+              showSectionCustomizer ? 'text-teal-400 bg-[#202735]' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+          </button>
+
+          {showSectionCustomizer && (
+            <div
+              className="absolute right-0 top-full mt-1.5 w-56 bg-[#1b212c] border border-[#2a3447] rounded-lg shadow-2xl p-2.5 z-50 text-xs text-slate-200 space-y-2 select-none"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-[#2a3447] pb-1.5 font-semibold text-[11px] text-slate-300">
+                <span>Sidebar Sections</span>
+                <button
+                  onClick={resetSmartDefaults}
+                  className="text-[10px] text-teal-400 hover:underline font-normal"
+                >
+                  Smart Defaults
+                </button>
+              </div>
+
+              <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                <label className="flex items-center justify-between cursor-pointer hover:bg-[#222a38] px-1.5 py-1 rounded">
+                  <span className="flex items-center space-x-2">
+                    <GitBranch className="w-3.5 h-3.5 text-teal-400" />
+                    <span>Local Branches</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={sectionConfig.localBranches}
+                    onChange={() => toggleSection('localBranches')}
+                    className="rounded text-teal-500 bg-[#14181f] border-[#2a3447]"
+                  />
+                </label>
+                <label className="flex items-center justify-between cursor-pointer hover:bg-[#222a38] px-1.5 py-1 rounded">
+                  <span className="flex items-center space-x-2">
+                    <Globe className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Remote Branches</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={sectionConfig.remoteBranches}
+                    onChange={() => toggleSection('remoteBranches')}
+                    className="rounded text-blue-500 bg-[#14181f] border-[#2a3447]"
+                  />
+                </label>
+                <label className="flex items-center justify-between cursor-pointer hover:bg-[#222a38] px-1.5 py-1 rounded">
+                  <span className="flex items-center space-x-2">
+                    <Workflow className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Gitflow</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={sectionConfig.gitflow}
+                    onChange={() => toggleSection('gitflow')}
+                    className="rounded text-indigo-500 bg-[#14181f] border-[#2a3447]"
+                  />
+                </label>
+                <label className="flex items-center justify-between cursor-pointer hover:bg-[#222a38] px-1.5 py-1 rounded">
+                  <span className="flex items-center space-x-2">
+                    <GitPullRequest className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Pull Requests</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={sectionConfig.pullRequests}
+                    onChange={() => toggleSection('pullRequests')}
+                    className="rounded text-purple-500 bg-[#14181f] border-[#2a3447]"
+                  />
+                </label>
+                <label className="flex items-center justify-between cursor-pointer hover:bg-[#222a38] px-1.5 py-1 rounded">
+                  <span className="flex items-center space-x-2">
+                    <TagIcon className="w-3.5 h-3.5 text-yellow-400" />
+                    <span>Tags</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={sectionConfig.tags}
+                    onChange={() => toggleSection('tags')}
+                    className="rounded text-yellow-500 bg-[#14181f] border-[#2a3447]"
+                  />
+                </label>
+                <label className="flex items-center justify-between cursor-pointer hover:bg-[#222a38] px-1.5 py-1 rounded">
+                  <span className="flex items-center space-x-2">
+                    <Archive className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Stashes</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={sectionConfig.stashes}
+                    onChange={() => toggleSection('stashes')}
+                    className="rounded text-amber-500 bg-[#14181f] border-[#2a3447]"
+                  />
+                </label>
+                <label className="flex items-center justify-between cursor-pointer hover:bg-[#222a38] px-1.5 py-1 rounded">
+                  <span className="flex items-center space-x-2">
+                    <Bookmark className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Shelves</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={sectionConfig.shelves}
+                    onChange={() => toggleSection('shelves')}
+                    className="rounded text-purple-500 bg-[#14181f] border-[#2a3447]"
+                  />
+                </label>
+                <label className="flex items-center justify-between cursor-pointer hover:bg-[#222a38] px-1.5 py-1 rounded">
+                  <span className="flex items-center space-x-2">
+                    <Globe className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Remotes</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={sectionConfig.remotes}
+                    onChange={() => toggleSection('remotes')}
+                    className="rounded text-cyan-500 bg-[#14181f] border-[#2a3447]"
+                  />
+                </label>
+                <label className="flex items-center justify-between cursor-pointer hover:bg-[#222a38] px-1.5 py-1 rounded">
+                  <span className="flex items-center space-x-2">
+                    <Layers className="w-3.5 h-3.5 text-teal-400" />
+                    <span>Worktrees</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={sectionConfig.worktrees}
+                    onChange={() => toggleSection('worktrees')}
+                    className="rounded text-teal-500 bg-[#14181f] border-[#2a3447]"
+                  />
+                </label>
+                <label className="flex items-center justify-between cursor-pointer hover:bg-[#222a38] px-1.5 py-1 rounded">
+                  <span className="flex items-center space-x-2">
+                    <Box className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Submodules</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={sectionConfig.submodules}
+                    onChange={() => toggleSection('submodules')}
+                    className="rounded text-indigo-500 bg-[#14181f] border-[#2a3447]"
+                  />
+                </label>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
       {/* LOCAL BRANCHES */}
-      <div className="border-b border-[#222a3a]">
+      {sectionConfig.localBranches && (
+        <div className="border-b border-[#222a3a]">
         <div
           onClick={() => setExpandLocal(!expandLocal)}
           className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-[#202735] text-xs font-bold text-slate-400 uppercase tracking-wider"
@@ -304,50 +546,99 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* REMOTE BRANCHES */}
-      <div className="border-b border-[#222a3a]">
-        <div
-          onClick={() => setExpandRemote(!expandRemote)}
-          className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-[#202735] text-xs font-bold text-slate-400 uppercase tracking-wider"
-        >
-          <div className="flex items-center space-x-1.5">
-            {expandRemote ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-            <Globe className="w-3.5 h-3.5 text-blue-400" />
-            <span>Remote Branches</span>
-            <span className="text-[10px] text-slate-500 font-normal">({remoteBranches.length})</span>
+      {sectionConfig.remoteBranches && (
+        <div className="border-b border-[#222a3a]">
+          <div
+            onClick={() => setExpandRemote(!expandRemote)}
+            className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-[#202735] text-xs font-bold text-slate-400 uppercase tracking-wider"
+          >
+            <div className="flex items-center space-x-1.5">
+              {expandRemote ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              <Globe className="w-3.5 h-3.5 text-blue-400" />
+              <span>Remote Branches</span>
+              <span className="text-[10px] text-slate-500 font-normal">({remoteBranches.length})</span>
+            </div>
           </div>
-        </div>
 
-        {expandRemote && (
-          <div className="pb-1">
-            {remoteBranches.map((branch) => (
-              <div
-                key={branch.name}
-                draggable={true}
-                onDragStart={(e) => {
-                  e.dataTransfer.setData('text/plain', branch.name);
-                  e.dataTransfer.setData('application/x-gitter-branch', branch.name);
-                }}
-                onDoubleClick={() => onCheckoutBranch(branch.name)}
-                onContextMenu={(e) => handleBranchContextMenu(e, branch)}
-                title={`Double click to checkout ${branch.name}`}
-                className="group flex items-center justify-between px-3 py-1.5 text-xs cursor-pointer hover:bg-[#202735] text-slate-400 hover:text-slate-200 transition"
-              >
-                <div className="flex items-center space-x-2 truncate">
-                  <div className="w-3.5 h-3.5 flex items-center justify-center">
-                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500/60" />
+          {expandRemote && (
+            <div className="pb-1">
+              {remoteBranches.map((branch) => (
+                <div
+                  key={branch.name}
+                  draggable={true}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('text/plain', branch.name);
+                    e.dataTransfer.setData('application/x-gitter-branch', branch.name);
+                  }}
+                  onDoubleClick={() => onCheckoutBranch(branch.name)}
+                  onContextMenu={(e) => handleBranchContextMenu(e, branch)}
+                  title={`Double click to checkout ${branch.name}`}
+                  className="group flex items-center justify-between px-3 py-1.5 text-xs cursor-pointer hover:bg-[#202735] text-slate-400 hover:text-slate-200 transition"
+                >
+                  <div className="flex items-center space-x-2 truncate">
+                    <div className="w-3.5 h-3.5 flex items-center justify-center">
+                      <div className="w-1.5 h-1.5 rounded-full bg-blue-500/60" />
+                    </div>
+                    <span className="truncate">{branch.name}</span>
                   </div>
-                  <span className="truncate">{branch.name}</span>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* GITFLOW INTEGRATION */}
+      {sectionConfig.gitflow && (
+        <div className="border-b border-[#222a3a]">
+          <div
+            onClick={() => setExpandGitflow(!expandGitflow)}
+            className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-[#202735] text-xs font-bold text-slate-400 uppercase tracking-wider"
+          >
+            <div className="flex items-center space-x-1.5">
+              {expandGitflow ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              <Workflow className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Gitflow</span>
+            </div>
+            {onOpenGitflow && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenGitflow();
+                }}
+                title="Gitflow Actions (Feature, Release, Hotfix)"
+                className="px-1.5 py-0.5 hover:bg-indigo-500/20 text-indigo-400 hover:text-indigo-300 rounded text-[10px] font-semibold border border-indigo-500/30"
+              >
+                + Gitflow
+              </button>
+            )}
           </div>
-        )}
-      </div>
+
+          {expandGitflow && (
+            <div className="pb-1 text-xs">
+              <button
+                onClick={onOpenGitflow}
+                className="w-full text-left px-4 py-1.5 hover:bg-[#202735] text-slate-300 flex items-center justify-between group transition"
+              >
+                <div className="flex items-center space-x-2">
+                  <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
+                  <span className="text-slate-300">Features / Releases / Hotfixes</span>
+                </div>
+                <span className="text-[10px] text-indigo-400 opacity-0 group-hover:opacity-100 transition">
+                  Manage →
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* PULL REQUESTS (GITHUB) */}
-      <div className="border-b border-[#222a3a]">
+      {sectionConfig.pullRequests && (
+        <div className="border-b border-[#222a3a]">
         <div
           onClick={() => setExpandPrs(!expandPrs)}
           className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-[#202735] text-xs font-bold text-slate-400 uppercase tracking-wider"
@@ -396,9 +687,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* TAGS */}
-      <div className="border-b border-[#222a3a]">
+      {sectionConfig.tags && (
+        <div className="border-b border-[#222a3a]">
         <div
           onClick={() => setExpandTags(!expandTags)}
           className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-[#202735] text-xs font-bold text-slate-400 uppercase tracking-wider"
@@ -455,9 +748,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* STASHES */}
-      <div className="border-b border-[#222a3a]">
+      {sectionConfig.stashes && (
+        <div className="border-b border-[#222a3a]">
         <div
           onClick={() => setExpandStashes(!expandStashes)}
           className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-[#202735] text-xs font-bold text-slate-400 uppercase tracking-wider"
@@ -515,9 +810,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* SHELVES (JetBrains Source Control) */}
-      <div className="border-b border-[#222a3a]">
+      {sectionConfig.shelves && (
+        <div className="border-b border-[#222a3a]">
         <div
           onClick={() => setExpandShelves(!expandShelves)}
           className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-[#202735] text-xs font-bold text-slate-400 uppercase tracking-wider"
@@ -590,9 +887,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* REMOTES */}
-      <div className="border-b border-[#222a3a]">
+      {sectionConfig.remotes && (
+        <div className="border-b border-[#222a3a]">
         <div
           onClick={() => setExpandRemotes(!expandRemotes)}
           className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-[#202735] text-xs font-bold text-slate-400 uppercase tracking-wider"
@@ -623,9 +922,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* WORKTREES */}
-      <div className="border-b border-[#222a3a]">
+      {sectionConfig.worktrees && (
+        <div className="border-b border-[#222a3a]">
         <div
           onClick={() => setExpandWorktrees(!expandWorktrees)}
           className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-[#202735] text-xs font-bold text-slate-400 uppercase tracking-wider"
@@ -673,51 +974,54 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* SUBMODULES */}
-      <div className="border-b border-[#222a3a]">
-        <div
-          onClick={() => setExpandSubmodules(!expandSubmodules)}
-          className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-[#202735] text-xs font-bold text-slate-400 uppercase tracking-wider"
-        >
-          <div className="flex items-center space-x-1.5">
-            {expandSubmodules ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-            <Box className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Submodules</span>
-            <span className="text-[10px] text-slate-500 font-normal">({submodules.length})</span>
-          </div>
-          {onUpdateSubmodules && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onUpdateSubmodules();
-              }}
-              title="Update Submodules"
-              className="p-0.5 hover:text-indigo-300 text-slate-400 rounded"
-            >
-              <RefreshCw className="w-3 h-3" />
-            </button>
-          )}
-        </div>
-
-        {expandSubmodules && (
-          <div className="pb-1">
-            {submodules.length === 0 ? (
-              <div className="px-5 py-1 text-xs text-slate-600 italic">No submodules</div>
-            ) : (
-              submodules.map((sub) => (
-                <div
-                  key={sub.path}
-                  className="px-4 py-1.5 text-xs text-slate-300 flex items-center justify-between"
-                >
-                  <span className="font-mono truncate">{sub.name}</span>
-                  <span className="text-[10px] text-slate-500 font-mono">{sub.commitHash.slice(0, 7)}</span>
-                </div>
-              ))
+      {sectionConfig.submodules && (
+        <div className="border-b border-[#222a3a]">
+          <div
+            onClick={() => setExpandSubmodules(!expandSubmodules)}
+            className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-[#202735] text-xs font-bold text-slate-400 uppercase tracking-wider"
+          >
+            <div className="flex items-center space-x-1.5">
+              {expandSubmodules ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              <Box className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Submodules</span>
+              <span className="text-[10px] text-slate-500 font-normal">({submodules.length})</span>
+            </div>
+            {onUpdateSubmodules && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUpdateSubmodules();
+                }}
+                title="Update Submodules"
+                className="p-0.5 hover:text-indigo-300 text-slate-400 rounded"
+              >
+                <RefreshCw className="w-3 h-3" />
+              </button>
             )}
           </div>
-        )}
-      </div>
+
+          {expandSubmodules && (
+            <div className="pb-1">
+              {submodules.length === 0 ? (
+                <div className="px-5 py-1 text-xs text-slate-600 italic">No submodules</div>
+              ) : (
+                submodules.map((sub) => (
+                  <div
+                    key={sub.path}
+                    className="px-4 py-1.5 text-xs text-slate-300 flex items-center justify-between"
+                  >
+                    <span className="font-mono truncate">{sub.name}</span>
+                    <span className="text-[10px] text-slate-500 font-mono">{sub.commitHash.slice(0, 7)}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* CONTEXT MENU */}
       {contextMenu && (
