@@ -24,10 +24,15 @@ import {
   Bot,
   AlertTriangle,
   MoreHorizontal,
+  Inbox,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { RepositoryState } from '../types/git';
 import { UpdateInfo } from '../types/update';
 import { AgentFleetState } from '../types/agentFleet';
+import { AgentAttentionItem, AgentReviewState } from '../types/agentReview';
+import { AttentionBell } from './Agent/AttentionBell';
 
 interface HeaderToolbarProps {
   repoState: RepositoryState | null;
@@ -53,6 +58,14 @@ interface HeaderToolbarProps {
   availableUpdate?: UpdateInfo | null;
   fleetState?: AgentFleetState | null;
   onOpenAgentFleet?: () => void;
+  review?: AgentReviewState | null;
+  acknowledgedAttention?: Set<string>;
+  onAcknowledgeAttention?: (id: string) => void;
+  onAcknowledgeAllAttention?: () => void;
+  onSelectAttention?: (item: AgentAttentionItem) => void;
+  onOpenReviewInbox?: () => void;
+  onToggleAgentRail?: () => void;
+  isAgentRailOpen?: boolean;
   onOpenRepo: () => void;
   onBrowseNative?: () => void;
   onRevealInExplorer?: () => void;
@@ -87,6 +100,14 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
   availableUpdate,
   fleetState,
   onOpenAgentFleet,
+  review,
+  acknowledgedAttention,
+  onAcknowledgeAttention,
+  onAcknowledgeAllAttention,
+  onSelectAttention,
+  onOpenReviewInbox,
+  onToggleAgentRail,
+  isAgentRailOpen = true,
   onOpenRepo,
   onBrowseNative,
   onRevealInExplorer,
@@ -100,6 +121,8 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
   const [showPullMenu, setShowPullMenu] = useState(false);
   const [showPushMenu, setShowPushMenu] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const needsReview =
+    review?.items.filter((item) => item.status === 'needs-review').length ?? 0;
 
   return (
     <header className="h-12 bg-[#1b212c] border-b border-[#2a3447] flex items-center justify-between px-3 select-none z-30">
@@ -503,6 +526,55 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
               </button>
             )}
           </div>
+        )}
+
+        {/* Agent Rail Toggle */}
+        {onToggleAgentRail && (
+          <button
+            onClick={onToggleAgentRail}
+            title={`${isAgentRailOpen ? 'Hide' : 'Show'} persistent agent rail`}
+            className={`p-1.5 rounded transition ${
+              isAgentRailOpen ? 'text-teal-400 bg-[#202735]' : 'text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            {isAgentRailOpen ? (
+              <PanelLeftClose className="w-4 h-4" />
+            ) : (
+              <PanelLeftOpen className="w-4 h-4" />
+            )}
+          </button>
+        )}
+
+        {/* Review Inbox */}
+        {onOpenReviewInbox && (
+          <button
+            onClick={onOpenReviewInbox}
+            title={`Agent Review Inbox${needsReview > 0 ? ` · ${needsReview} ready` : ''} (Ctrl+Shift+K)`}
+            className={`relative flex items-center space-x-1 px-2 py-1.5 rounded text-xs font-medium transition ${
+              needsReview > 0
+                ? 'bg-amber-500/15 text-amber-200 border border-amber-500/40 hover:bg-amber-500/25'
+                : 'bg-[#202735] hover:bg-[#2d384c] border border-[#2a3447] text-slate-300'
+            }`}
+          >
+            <Inbox className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">Review</span>
+            {needsReview > 0 && (
+              <span className="min-w-[15px] h-[15px] px-1 rounded-full bg-amber-400 text-slate-950 text-[9px] font-bold flex items-center justify-center">
+                {needsReview > 9 ? '9+' : needsReview}
+              </span>
+            )}
+          </button>
+        )}
+
+        {/* Attention routing */}
+        {onSelectAttention && (
+          <AttentionBell
+            attention={review?.attention ?? []}
+            acknowledged={acknowledgedAttention ?? new Set()}
+            onAcknowledge={onAcknowledgeAttention ?? (() => {})}
+            onAcknowledgeAll={onAcknowledgeAllAttention ?? (() => {})}
+            onSelect={onSelectAttention}
+          />
         )}
 
         {/* Quick Launch / Command Palette Button */}

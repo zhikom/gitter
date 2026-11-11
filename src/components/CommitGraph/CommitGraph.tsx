@@ -15,6 +15,8 @@ import {
   GitMerge,
   ExternalLink,
   FileCode,
+  Bot,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface CommitGraphProps {
@@ -32,6 +34,8 @@ interface CommitGraphProps {
   onOpenInVsCode?: (hash: string) => void;
   onCreatePatch?: (hash: string) => void;
   onCompareCommits?: (commitA: Commit, commitB: Commit) => void;
+  agentBranchNames?: string[];
+  hasAgentCollisions?: boolean;
 }
 
 export type GraphDensity = 'compact' | 'normal' | 'comfortable';
@@ -59,7 +63,10 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
   onOpenInVsCode,
   onCreatePatch,
   onCompareCommits,
+  agentBranchNames = [],
+  hasAgentCollisions = false,
 }) => {
+  const agentBranchSet = new Set(agentBranchNames);
   const [searchQuery, setSearchQuery] = useState('');
   const [density, setDensity] = useState<GraphDensity>(() => {
     const saved = localStorage.getItem('gitter_graph_density');
@@ -188,6 +195,15 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
           <div className="text-xs text-slate-400">
             Showing <span className="font-semibold text-slate-200">{filteredNodes.length}</span> commits
           </div>
+          {hasAgentCollisions && (
+            <span
+              title="Agent file collisions detected. Open the review inbox to resolve them."
+              className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-semibold"
+            >
+              <AlertTriangle className="w-3 h-3" />
+              <span>Collisions</span>
+            </span>
+          )}
         </div>
       </div>
 
@@ -214,6 +230,10 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             const commit = node.commit;
             const isSelected = selectedHash === commit.hash;
             const isWip = commit.isWip;
+            const isAgentCommit = commit.refs.some((ref) => {
+              const name = ref.replace('HEAD -> ', '').replace('tag: ', '');
+              return agentBranchSet.has(name);
+            });
 
             const nodeX = GRAPH_PADDING_X + node.lane * laneWidth + laneWidth / 2;
             const nodeY = rowHeight / 2;
@@ -390,6 +410,16 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                       </span>
                     );
                   })}
+
+                  {isAgentCommit && (
+                    <span
+                      title="Commit produced by an agent branch"
+                      className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0 border bg-purple-500/20 text-purple-300 border-purple-500/40"
+                    >
+                      <Bot className="w-2.5 h-2.5" />
+                      <span>Agent</span>
+                    </span>
+                  )}
 
                   {/* Summary Text */}
                   <span

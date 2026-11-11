@@ -34,6 +34,7 @@ interface AgentFleetModalProps {
   onClose: () => void;
   onRefresh: () => void;
   onOpenWorktreeTab?: (worktreePath: string) => void;
+  onOpenReview?: (agentId: string) => void;
 }
 
 type FleetTab = 'fleet' | 'activity' | 'spawn' | 'matrix';
@@ -75,6 +76,7 @@ export const AgentFleetModal: React.FC<AgentFleetModalProps> = ({
   onClose,
   onRefresh,
   onOpenWorktreeTab,
+  onOpenReview,
 }) => {
   const [activeTab, setActiveTab] = useState<FleetTab>('fleet');
   const [loading, setLoading] = useState(false);
@@ -469,6 +471,16 @@ export const AgentFleetModal: React.FC<AgentFleetModalProps> = ({
 
                         <div className="mt-4 pt-3 border-t border-white/[0.06] flex items-center justify-between gap-2">
                           <div className="flex items-center gap-1">
+                            {onOpenReview && (
+                              <button
+                                onClick={() => onOpenReview(agent.id)}
+                                title="Open this agent in the review inbox"
+                                className="px-2.5 py-1 rounded-md bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 text-xs font-semibold transition-colors flex items-center gap-1.5"
+                              >
+                                <ShieldCheck className="w-3 h-3" />
+                                Review
+                              </button>
+                            )}
                             {agent.worktreePath && onOpenWorktreeTab && (
                               <button
                                 onClick={() => onOpenWorktreeTab(agent.worktreePath!)}

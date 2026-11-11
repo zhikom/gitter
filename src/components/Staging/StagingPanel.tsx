@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { FileStatus, GitFileState } from '../../types/git';
+import { AgentInstance, FileCollision } from '../../types/agentFleet';
 import {
   Plus,
   Minus,
@@ -16,6 +17,7 @@ import {
   Archive,
   History,
   Bookmark,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface StagingPanelProps {
@@ -36,6 +38,8 @@ interface StagingPanelProps {
   onOpenInVsCode?: (file: string) => void;
   onOpenExternalDiff?: (file: string, staged: boolean) => void;
   onToggleVirtualBranches?: () => void;
+  collisions?: FileCollision[];
+  agents?: AgentInstance[];
   width?: number;
 }
 
@@ -63,6 +67,8 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
   onOpenInVsCode,
   onOpenExternalDiff,
   onToggleVirtualBranches,
+  collisions = [],
+  agents = [],
   width = 280,
 }) => {
   const stagedFiles = statuses.filter((s) => s.staged);
@@ -102,6 +108,38 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
     });
   };
 
+  const agentsForFile = (filePath: string) =>
+    agents.filter((agent) => agent.modifiedFiles.includes(filePath));
+
+  const collisionForFile = (filePath: string) =>
+    collisions.find((collision) => collision.filePath === filePath);
+
+  const renderAgentIndicators = (filePath: string) => {
+    const owners = agentsForFile(filePath);
+    const collision = collisionForFile(filePath);
+    if (owners.length === 0 && !collision) return null;
+    return (
+      <span className="flex items-center gap-0.5 flex-shrink-0">
+        {owners.slice(0, 3).map((agent) => (
+          <span
+            key={agent.id}
+            title={`${agent.name} touched this file`}
+            className="w-1.5 h-1.5 rounded-full"
+            style={{ backgroundColor: agent.color }}
+          />
+        ))}
+        {owners.length > 3 && (
+          <span className="text-[8px] text-slate-500">+{owners.length - 3}</span>
+        )}
+        {collision && (
+          <span title={`Collision: ${collision.contendingAgents.join(' ↔ ')}\n${collision.suggestedAction}`}>
+            <AlertTriangle className="w-3 h-3 text-amber-400" />
+          </span>
+        )}
+      </span>
+    );
+  };
+
   return (
     <div
       style={{ width: `${width}px` }}
@@ -128,6 +166,15 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
           <span className="text-xs text-slate-500">
             {statuses.length}
           </span>
+          {collisions.length > 0 && (
+            <span
+              title={`${collisions.length} file collision(s) between agents`}
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-semibold"
+            >
+              <AlertTriangle className="w-3 h-3" />
+              {collisions.length}
+            </span>
+          )}
         </div>
       </div>
 
@@ -200,6 +247,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
                     <div className="flex items-center space-x-2 truncate">
                       {getStatusBadge(file.status)}
                       <span className="truncate font-mono text-[11px]">{file.path}</span>
+                      {renderAgentIndicators(file.path)}
                     </div>
 
                     <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition">
@@ -316,6 +364,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
                     <div className="flex items-center space-x-2 truncate">
                       {getStatusBadge(file.status)}
                       <span className="truncate font-mono text-[11px]">{file.path}</span>
+                      {renderAgentIndicators(file.path)}
                     </div>
 
                     <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition">

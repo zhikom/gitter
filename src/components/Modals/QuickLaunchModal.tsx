@@ -18,8 +18,11 @@ import {
   Sparkles,
   Undo2,
   History,
+  Bot,
+  Inbox,
 } from 'lucide-react';
 import { Branch, Commit, Tag } from '../../types/git';
+import { AgentReviewItem } from '../../types/agentReview';
 
 interface QuickLaunchModalProps {
   branches: Branch[];
@@ -42,11 +45,16 @@ interface QuickLaunchModalProps {
   onToggleSidebar: () => void;
   onToggleStaging: () => void;
   onToggleAgent: () => void;
+  agents?: AgentReviewItem[];
+  onOpenReviewInbox?: () => void;
+  onOpenAgentFleet?: () => void;
+  onOpenAgent?: (agentId: string) => void;
+  onAskAgent?: (prompt: string) => void;
 }
 
 interface ActionItem {
   id: string;
-  category: 'Commands' | 'Branches' | 'Commits' | 'Tags';
+  category: 'Commands' | 'Branches' | 'Commits' | 'Tags' | 'Agents';
   title: string;
   subtitle?: string;
   icon: React.ReactNode;
@@ -74,6 +82,11 @@ export const QuickLaunchModal: React.FC<QuickLaunchModalProps> = ({
   onToggleSidebar,
   onToggleStaging,
   onToggleAgent,
+  agents = [],
+  onOpenReviewInbox,
+  onOpenAgentFleet,
+  onOpenAgent,
+  onAskAgent,
 }) => {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -242,6 +255,68 @@ export const QuickLaunchModal: React.FC<QuickLaunchModalProps> = ({
     },
   ];
 
+  // Agent workflow commands and per-agent review
+  const agentCommands: ActionItem[] = [
+    ...(onOpenReviewInbox
+      ? [
+          {
+            id: 'agent-review-inbox',
+            category: 'Agents' as const,
+            title: 'Agent: Open Review Inbox',
+            subtitle: 'Approve, request changes, or merge agent work (Ctrl+Shift+K)',
+            icon: <Inbox className="w-4 h-4 text-amber-400" />,
+            run: () => {
+              onOpenReviewInbox();
+              onClose();
+            },
+          },
+        ]
+      : []),
+    ...(onOpenAgentFleet
+      ? [
+          {
+            id: 'agent-fleet',
+            category: 'Agents' as const,
+            title: 'Agent: Open Fleet Orchestrator',
+            subtitle: 'Spawn agents, inspect worktrees, and resolve collisions',
+            icon: <Bot className="w-4 h-4 text-purple-400" />,
+            run: () => {
+              onOpenAgentFleet();
+              onClose();
+            },
+          },
+        ]
+      : []),
+    ...(onAskAgent
+      ? [
+          {
+            id: 'agent-ask',
+            category: 'Agents' as const,
+            title: 'Agent: Ask about current changes',
+            subtitle: 'Open the chat dock with repository context',
+            icon: <Sparkles className="w-4 h-4 text-teal-300" />,
+            run: () => {
+              onAskAgent('Explain the current working tree changes and what I should verify before committing.');
+              onClose();
+            },
+          },
+        ]
+      : []),
+    ...agents.map((agent) => ({
+      id: `agent-${agent.agentId}`,
+      category: 'Agents' as const,
+      title: `Agent: Review ${agent.agentName}`,
+      subtitle: `${agent.status.replace('-', ' ')} · ${agent.files.length} file${
+        agent.files.length === 1 ? '' : 's'
+      } · ${agent.branchName}`,
+      icon: <Bot className="w-4 h-4" style={{ color: agent.color }} />,
+      run: () => {
+        onOpenAgent?.(agent.agentId);
+        onClose();
+      },
+    })),
+  ];
+
   // Dynamic branch items
   const branchItems: ActionItem[] = branches.map((b) => ({
     id: `branch-${b.name}`,
@@ -281,7 +356,7 @@ export const QuickLaunchModal: React.FC<QuickLaunchModalProps> = ({
     },
   }));
 
-  const allItems = [...defaultCommands, ...branchItems, ...tagItems, ...commitItems];
+  const allItems = [...defaultCommands, ...agentCommands, ...branchItems, ...tagItems, ...commitItems];
 
   const filteredItems = allItems.filter((item) => {
     if (!query.trim()) return true;
@@ -396,6 +471,8 @@ export const QuickLaunchModal: React.FC<QuickLaunchModalProps> = ({
                         ? 'bg-teal-500/20 text-teal-300'
                         : item.category === 'Tags'
                         ? 'bg-yellow-500/20 text-yellow-300'
+                        : item.category === 'Agents'
+                        ? 'bg-purple-500/20 text-purple-300'
                         : 'bg-slate-700/50 text-slate-400'
                     }`}
                   >

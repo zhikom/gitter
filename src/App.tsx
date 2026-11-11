@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { api } from './api/client';
 import {
   Branch,
@@ -41,9 +42,15 @@ import { VirtualBranchPanel } from './components/VirtualBranches/VirtualBranchPa
 import { UpdateModal } from './components/Modals/UpdateModal';
 import { GitflowModal } from './components/Modals/GitflowModal';
 import { AgentFleetModal } from './components/Modals/AgentFleetModal';
+import { AgentRail } from './components/Agent/AgentRail';
+import { AgentReviewInbox } from './components/Agent/AgentReviewInbox';
+import { AgentRunDrawer } from './components/Agent/AgentRunDrawer';
+import { AgentLens } from './components/Agent/AgentLens';
+import { CollisionBar } from './components/Agent/CollisionBar';
 import { checkForAppUpdate } from './services/updateService';
 import { UpdateInfo } from './types/update';
-import { AgentFleetState } from './types/agentFleet';
+import { AgentAttentionItem, AgentReviewItem } from './types/agentReview';
+import { useAgentLive } from './hooks/useAgentLive';
 import { PullRequest, Submodule, Worktree } from './types/git';
 import { Shelf } from './types/shelf';
 
@@ -184,9 +191,74 @@ export const App: React.FC = () => {
   const [showUpdateModal, setShowUpdateModal] = useState<boolean>(false);
   const [showGitflowModal, setShowGitflowModal] = useState<boolean>(false);
 
-  // Multi-Agent Fleet Orchestrator & Collision Radar
-  const [agentFleetState, setAgentFleetState] = useState<AgentFleetState | null>(null);
+  // Multi-Agent Fleet Orchestrator & Collision Radar (live SSE + polling fallback)
+  const agentLive = useAgentLive(repoPath);
+  const agentFleetState = agentLive.fleet;
+  const agentReview = agentLive.review;
+  const applyAgentFleet = agentLive.applyFleet;
+  const applyAgentReview = agentLive.applyReview;
+  const refreshAgentLive = agentLive.refresh;
   const [showAgentFleetModal, setShowAgentFleetModal] = useState<boolean>(false);
+  const [showReviewInbox, setShowReviewInbox] = useState<boolean>(false);
+  const [showAgentRunDrawer, setShowAgentRunDrawer] = useState<boolean>(false);
+  const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
+  const [agentLensId, setAgentLensId] = useState<string | null>(null);
+  const [acknowledgedAttention, setAcknowledgedAttention] = useState<Set<string>>(new Set());
+  const [agentPromptSeed, setAgentPromptSeed] = useState<string>('');
+  const [isAgentRailOpen, setIsAgentRailOpen] = useState<boolean>(() => {
+    return localStorage.getItem('gitter_agent_rail_open') !== 'false';
+  });
+
+  const toggleAgentRail = useCallback(() => {
+    setIsAgentRailOpen((prev) => {
+      const next = !prev;
+      localStorage.setItem('gitter_agent_rail_open', next ? 'true' : 'false');
+      return next;
+    });
+  }, []);
+
+  // Clear acknowledged attention when switching repositories.
+  useEffect(() => {
+    setAcknowledgedAttention(new Set());
+    setActiveAgentId(null);
+    setAgentLensId(null);
+    setShowAgentRunDrawer(false);
+  }, [repoPath]);
+
+  const acknowledgeAttention = useCallback((id: string) => {
+    setAcknowledgedAttention((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  const acknowledgeAllAttention = useCallback(() => {
+    setAcknowledgedAttention((prev) => {
+      const next = new Set(prev);
+      (agentReview?.attention ?? []).forEach((item) => next.add(item.id));
+      return next;
+    });
+  }, [agentReview]);
+
+  // Optimistic review-state patch; the server snapshot reconciles shortly after.
+  const patchAgentReviewItem = useCallback(
+    (agentId: string, patch: Partial<AgentReviewItem>) => {
+      applyAgentReview((prev) =>
+        prev
+          ? {
+              ...prev,
+              items: prev.items.map((item) =>
+                item.agentId === agentId
+                  ? { ...item, ...patch, updatedAt: Date.now() }
+                  : item
+              ),
+            }
+          : prev
+      );
+    },
+    [applyAgentReview]
+  );
 
   // JetBrains Shelves & Inspector
   const [showShelveModal, setShowShelveModal] = useState<boolean>(false);
@@ -285,7 +357,7 @@ export const App: React.FC = () => {
       setWorktrees(fetchedWorktrees);
       setSubmodules(fetchedSubmodules);
       setPullRequests(fetchedPrs);
-      if (fetchedFleet) setAgentFleetState(fetchedFleet);
+      if (fetchedFleet) applyAgentFleet(fetchedFleet);
 
       // Auto-select WIP if changes exist, otherwise first commit
       if (!state.isClean) {
@@ -301,7 +373,7 @@ export const App: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [repoPath, selectedFile, selectedCommit]);
+  }, [repoPath, selectedFile, selectedCommit, applyAgentFleet]);
 
   useEffect(() => {
     refreshRepo();
@@ -905,13 +977,145 @@ export const App: React.FC = () => {
     }
   };
 
-  // Agent runner
-  const handleRunAgentCommand = async (command: string) => {
-    // Run git command through client
+  // Agent runner & review actions
+  const handleRunAgentCommand = async (command: string): Promise<string> => {
+    const res = await api.runAgentCommand(repoPath, command);
     await refreshRepo();
+    return res.output;
   };
 
+  const agentItemFor = (agentId: string | null) =>
+    agentId ? agentReview?.items.find((item) => item.agentId === agentId) ?? null : null;
+
+  const handleOpenAgentRun = (agentId: string) => {
+    setActiveAgentId(agentId);
+    setShowAgentRunDrawer(true);
+  };
+
+  const handleOpenLens = (agentId: string) => {
+    setAgentLensId(agentId);
+    setShowReviewInbox(false);
+  };
+
+  const handleSelectAttention = (item: AgentAttentionItem) => {
+    if (item.agentId) {
+      handleOpenAgentRun(item.agentId);
+    } else {
+      setShowReviewInbox(true);
+    }
+  };
+
+  const handleAskAgent = (prompt: string) => {
+    setAgentPromptSeed(prompt);
+    setShowAgentRunDrawer(false);
+    setIsAgentOpen(true);
+    localStorage.setItem('gitter_agent_open', 'true');
+  };
+
+  const handleApproveAgent = async (agentId: string, mode: 'commit' | 'merge') => {
+    patchAgentReviewItem(agentId, { status: mode === 'merge' ? 'merged' : 'approved' });
+    try {
+      const res = await api.approveAgentChanges(repoPath, agentId, '', mode);
+      applyAgentReview(res.review);
+      toast.success(res.message);
+      await refreshRepo();
+    } catch (e: any) {
+      void refreshAgentLive();
+      toast.error(`Approve failed: ${e.message}`);
+    }
+  };
+
+  const handleRequestAgentChanges = async (agentId: string, feedback: string) => {
+    patchAgentReviewItem(agentId, { status: 'changes-requested', feedback });
+    try {
+      const review = await api.requestAgentChanges(repoPath, agentId, feedback);
+      applyAgentReview(review);
+      toast.success('Review feedback saved for the agent.');
+    } catch (e: any) {
+      void refreshAgentLive();
+      toast.error(`Request changes failed: ${e.message}`);
+    }
+  };
+
+  const handleDiscardAgent = async (agentId: string) => {
+    patchAgentReviewItem(agentId, { status: 'queued', feedback: 'Discarding agent changes…' });
+    try {
+      const review = await api.discardAgentChanges(repoPath, agentId);
+      applyAgentReview(review);
+      toast.success('Agent changes discarded.');
+      await refreshRepo();
+    } catch (e: any) {
+      void refreshAgentLive();
+      toast.error(`Discard failed: ${e.message}`);
+    }
+  };
+
+  const handleCheckpointAgent = async (agentId: string) => {
+    try {
+      const review = await api.checkpointAgent(repoPath, agentId);
+      applyAgentReview(review);
+      toast.success('Checkpoint created for the agent worktree.');
+    } catch (e: any) {
+      toast.error(`Checkpoint failed: ${e.message}`);
+    }
+  };
+
+  const handleRollbackAgent = async (agentId: string) => {
+    patchAgentReviewItem(agentId, { status: 'queued', feedback: 'Rolling back to checkpoint…' });
+    try {
+      const review = await api.rollbackAgent(repoPath, agentId);
+      applyAgentReview(review);
+      toast.success('Agent rolled back to its checkpoint.');
+      await refreshRepo();
+    } catch (e: any) {
+      void refreshAgentLive();
+      toast.error(`Rollback failed: ${e.message}`);
+    }
+  };
+
+  const handleRejectAgentHunk = async (agentId: string, patch: string) => {
+    try {
+      await api.rejectAgentHunk(repoPath, agentId, patch);
+      await refreshAgentLive();
+      toast.success('Hunk rejected from the agent worktree.');
+    } catch (e: any) {
+      toast.error(`Reject hunk failed: ${e.message}`);
+    }
+  };
+
+  const activeAgentItem = agentItemFor(activeAgentId);
+  const lensAgentItem = agentItemFor(agentLensId);
+
+  // Agent workflow shortcuts
+  useEffect(() => {
+    const handleAgentKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || !e.shiftKey) return;
+      const key = e.key.toLowerCase();
+      if (key === 'k') {
+        e.preventDefault();
+        setShowReviewInbox((prev) => !prev);
+      } else if (key === 'f') {
+        e.preventDefault();
+        setShowAgentFleetModal((prev) => !prev);
+      } else if (key === 'l') {
+        e.preventDefault();
+        const target =
+          agentReview?.items.find((item) => item.status === 'needs-review') ??
+          agentReview?.items[0];
+        if (target) setAgentLensId(target.agentId);
+      }
+    };
+    window.addEventListener('keydown', handleAgentKeyDown);
+    return () => window.removeEventListener('keydown', handleAgentKeyDown);
+  }, [agentReview]);
+
   const hasWip = Boolean(repoState && !repoState.isClean);
+
+  const provenanceItem = selectedFile
+    ? (agentReview?.items ?? []).find((item) =>
+        item.files.some((file) => file.path === selectedFile)
+      ) ?? null
+    : null;
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#14181f] text-slate-200">
@@ -1001,11 +1205,33 @@ export const App: React.FC = () => {
         onCheckUpdates={handleCheckUpdates}
         fleetState={agentFleetState}
         onOpenAgentFleet={() => setShowAgentFleetModal(true)}
+        review={agentReview}
+        acknowledgedAttention={acknowledgedAttention}
+        onAcknowledgeAttention={acknowledgeAttention}
+        onAcknowledgeAllAttention={acknowledgeAllAttention}
+        onSelectAttention={handleSelectAttention}
+        onOpenReviewInbox={() => setShowReviewInbox(true)}
+        onToggleAgentRail={toggleAgentRail}
+        isAgentRailOpen={isAgentRailOpen}
         loading={loading}
       />
 
       {/* Main Workspace Body */}
       <div className="flex-1 flex overflow-hidden relative">
+        {/* Persistent Agent Rail */}
+        {isAgentRailOpen && (
+          <AgentRail
+            fleet={agentFleetState}
+            review={agentReview}
+            connected={agentLive.connected}
+            selectedAgentId={activeAgentId}
+            onOpenInbox={() => setShowReviewInbox(true)}
+            onOpenFleet={() => setShowAgentFleetModal(true)}
+            onSpawn={() => setShowAgentFleetModal(true)}
+            onSelectAgent={handleOpenAgentRun}
+          />
+        )}
+
         {/* Left Sidebar */}
         {isSidebarOpen && (
           <>
@@ -1093,10 +1319,16 @@ export const App: React.FC = () => {
 
         {/* Center: Interactive Commit Graph */}
         <div className="flex-1 min-w-[240px] flex flex-col overflow-hidden">
+          <CollisionBar
+            collisions={agentFleetState?.collisions ?? []}
+            onOpenInbox={() => setShowReviewInbox(true)}
+          />
           <CommitGraph
             commits={commits}
             hasWip={hasWip}
             selectedHash={selectedCommit ? selectedCommit.hash : hasWip ? 'wip' : null}
+            agentBranchNames={(agentReview?.items ?? []).map((item) => item.branchName)}
+            hasAgentCollisions={(agentFleetState?.collisions.length ?? 0) > 0}
             onSelectCommit={(commit) => {
               if (commit.isWip) {
                 setSelectedCommit(null);
@@ -1180,6 +1412,8 @@ export const App: React.FC = () => {
                         width={effectiveStagingListWidth}
                         statuses={statuses}
                         selectedFile={selectedFile}
+                        collisions={agentFleetState?.collisions ?? []}
+                        agents={agentFleetState?.agents ?? []}
                         onSelectFile={(f, staged) => {
                           setSelectedFile(f);
                           setIsSelectedFileStaged(staged);
@@ -1232,6 +1466,40 @@ export const App: React.FC = () => {
                         diffs={fileDiffs}
                         filePath={selectedFile || ''}
                         isStaged={isSelectedFileStaged}
+                        provenance={
+                          provenanceItem ? (
+                            <div className="flex items-center gap-2 px-3 py-1.5 bg-white/[0.02] border-b border-white/[0.06] text-[10px]">
+                              <span
+                                className="w-4 h-4 rounded flex items-center justify-center text-[7px] font-bold ring-1 ring-inset ring-white/10 flex-shrink-0"
+                                style={{
+                                  backgroundColor: `${provenanceItem.color}22`,
+                                  color: provenanceItem.color,
+                                }}
+                              >
+                                A
+                              </span>
+                              <span className="text-slate-300">
+                                <span className="font-semibold">{provenanceItem.agentName}</span>{' '}
+                                also changed this file on{' '}
+                                <span className="font-mono text-slate-400">
+                                  {provenanceItem.branchName}
+                                </span>
+                              </span>
+                              {provenanceItem.collisions.includes(selectedFile || '') && (
+                                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-200">
+                                  <AlertTriangle className="w-2.5 h-2.5" />
+                                  collision
+                                </span>
+                              )}
+                              <button
+                                onClick={() => handleOpenLens(provenanceItem.agentId)}
+                                className="ml-auto px-1.5 py-0.5 rounded bg-white/[0.05] hover:bg-white/[0.1] text-[9px] font-semibold text-teal-300 transition-colors"
+                              >
+                                Open lens
+                              </button>
+                            </div>
+                          ) : undefined
+                        }
                         ignoreWhitespace={ignoreWhitespace}
                         onToggleIgnoreWhitespace={() => {
                           const next = !ignoreWhitespace;
@@ -1287,9 +1555,14 @@ export const App: React.FC = () => {
                   localStorage.setItem('gitter_agent_open', 'false');
                 }}
               />
-              <div className="fixed right-0 top-12 bottom-0 z-40 w-88 max-w-[90vw] shadow-2xl">
+              <div className="fixed right-0 top-12 bottom-0 z-40 w-[22rem] max-w-[90vw] shadow-2xl">
                 <AgentSidebar
                   repoState={repoState}
+                  repoPath={repoPath}
+                  promptSeed={agentPromptSeed}
+                  onPromptSeedConsumed={() => setAgentPromptSeed('')}
+                  review={agentReview}
+                  onOpenReview={handleOpenAgentRun}
                   onClose={() => {
                     setIsAgentOpen(false);
                     localStorage.setItem('gitter_agent_open', 'false');
@@ -1301,6 +1574,11 @@ export const App: React.FC = () => {
           ) : (
             <AgentSidebar
               repoState={repoState}
+              repoPath={repoPath}
+              promptSeed={agentPromptSeed}
+              onPromptSeedConsumed={() => setAgentPromptSeed('')}
+              review={agentReview}
+              onOpenReview={handleOpenAgentRun}
               onClose={() => {
                 setIsAgentOpen(false);
                 localStorage.setItem('gitter_agent_open', 'false');
@@ -1407,12 +1685,76 @@ export const App: React.FC = () => {
           fleetState={agentFleetState}
           onClose={() => setShowAgentFleetModal(false)}
           onRefresh={() => {
-            api.getAgentFleet(repoPath).then(setAgentFleetState).catch(() => {});
+            void refreshAgentLive();
+          }}
+          onOpenReview={(agentId) => {
+            setShowAgentFleetModal(false);
+            handleOpenAgentRun(agentId);
           }}
           onOpenWorktreeTab={(wtPath) => {
             handleSelectTab(wtPath);
             setShowAgentFleetModal(false);
           }}
+        />
+      )}
+
+      {showReviewInbox && (
+        <AgentReviewInbox
+          review={agentReview}
+          fleet={agentFleetState}
+          acknowledged={acknowledgedAttention}
+          onClose={() => setShowReviewInbox(false)}
+          onRefresh={() => {
+            void refreshAgentLive();
+          }}
+          onOpenAgent={handleOpenAgentRun}
+          onOpenLens={handleOpenLens}
+          onOpenFleet={() => {
+            setShowReviewInbox(false);
+            setShowAgentFleetModal(true);
+          }}
+          onAcknowledge={acknowledgeAttention}
+          onAcknowledgeAll={acknowledgeAllAttention}
+          onApprove={handleApproveAgent}
+          onRequestChanges={handleRequestAgentChanges}
+          onDiscard={handleDiscardAgent}
+          onCheckpoint={handleCheckpointAgent}
+          onRollback={handleRollbackAgent}
+        />
+      )}
+
+      {showAgentRunDrawer && (
+        <AgentRunDrawer
+          repoPath={repoPath}
+          item={activeAgentItem}
+          onClose={() => setShowAgentRunDrawer(false)}
+          onRefresh={() => {
+            void refreshAgentLive();
+          }}
+          onOpenLens={handleOpenLens}
+          onOpenWorktreeTab={(wtPath) => {
+            handleSelectTab(wtPath);
+            setShowAgentRunDrawer(false);
+          }}
+          onApprove={handleApproveAgent}
+          onRequestChanges={handleRequestAgentChanges}
+          onDiscard={handleDiscardAgent}
+          onCheckpoint={handleCheckpointAgent}
+          onRollback={handleRollbackAgent}
+          onAskWhy={handleAskAgent}
+        />
+      )}
+
+      {agentLensId && (
+        <AgentLens
+          repoPath={repoPath}
+          item={lensAgentItem}
+          onClose={() => setAgentLensId(null)}
+          onRefresh={() => {
+            void refreshAgentLive();
+          }}
+          onOpenRun={handleOpenAgentRun}
+          onRejectHunk={handleRejectAgentHunk}
         />
       )}
 
@@ -1547,6 +1889,11 @@ export const App: React.FC = () => {
             });
           }}
           onToggleAgent={handleToggleAgent}
+          agents={agentReview?.items ?? []}
+          onOpenReviewInbox={() => setShowReviewInbox(true)}
+          onOpenAgentFleet={() => setShowAgentFleetModal(true)}
+          onOpenAgent={handleOpenAgentRun}
+          onAskAgent={handleAskAgent}
         />
       )}
 

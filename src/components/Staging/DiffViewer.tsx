@@ -37,6 +37,7 @@ interface DiffViewerProps {
   onStagePatch?: (patch: string) => Promise<void>;
   onUnstagePatch?: (patch: string) => Promise<void>;
   onDiscardPatch?: (patch: string) => Promise<void>;
+  provenance?: React.ReactNode;
 }
 
 export const DiffViewer: React.FC<DiffViewerProps> = ({
@@ -53,6 +54,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   onStagePatch,
   onUnstagePatch,
   onDiscardPatch,
+  provenance,
 }) => {
   const [viewMode, setViewMode] = useState<'unified' | 'split'>('unified');
   const [wordWrap, setWordWrap] = useState<boolean>(true);
@@ -384,6 +386,8 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           </button>
         </div>
       </div>
+
+      {provenance}
 
       {/* Diff Content Area */}
       <div

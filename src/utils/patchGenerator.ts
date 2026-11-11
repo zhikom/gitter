@@ -32,10 +32,16 @@ export function generateHunkPatch(
     `diff --git ${oldPath} ${newPath}`,
     `--- ${oldPath}`,
     `+++ ${newPath}`,
-    `@@ -${oldStart},${oldLines} +${newStart},${newLines} @@`,
   ].join('\n');
 
-  return `${patchHeader}\n${body}`;
+  // Prefer the raw hunk text: it preserves "\ No newline at end of file"
+  // markers and function context that a reconstructed body would lose.
+  const rawHunk = (hunk.rawHunk || '').trimEnd();
+  if (rawHunk.startsWith('@@')) {
+    return `${patchHeader}\n${rawHunk}\n`;
+  }
+
+  return `${patchHeader}\n@@ -${oldStart},${oldLines} +${newStart},${newLines} @@\n${body}`;
 }
 
 /**

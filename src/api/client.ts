@@ -21,6 +21,11 @@ import {
 import { VirtualBranch, VirtualBranchCommitPayload } from '../types/virtualBranch';
 import { Shelf } from '../types/shelf';
 import { AgentActivityState, AgentFleetState, AgentHarness, AgentInstance } from '../types/agentFleet';
+import {
+  AgentDiffResponse,
+  AgentReviewSnapshot,
+  AgentReviewState,
+} from '../types/agentReview';
 
 // Desktop/Electron global extensions
 declare global {
@@ -62,6 +67,19 @@ function getCandidateBases(): string[] {
 
   // Return unique candidates preserving priority order
   return Array.from(new Set(candidates));
+}
+
+export function getApiBases(): string[] {
+  return getCandidateBases();
+}
+
+function getAgentEventUrls(path: string): string[] {
+  const query = `agent-events?path=${encodeURIComponent(path)}`;
+  const bases = getCandidateBases();
+  if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
+    bases.unshift('/api');
+  }
+  return Array.from(new Set(bases.map((base) => `${base.replace(/\/$/, '')}/${query}`)));
 }
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
@@ -574,6 +592,123 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ path }),
     }),
+
+  runAgentCommand: (path: string, command: string): Promise<{ success: boolean; output: string }> =>
+    fetchJson('/agent-fleet/run-command', {
+      method: 'POST',
+      body: JSON.stringify({ path, command }),
+    }),
+
+  // Agent Review Inbox, checkpoints, and the review last mile
+  getAgentReview: (path: string): Promise<AgentReviewState> =>
+    fetchJson(`/agent-review?path=${encodeURIComponent(path)}`),
+
+  getAgentReviewDiff: (path: string, agentId: string, file?: string): Promise<AgentDiffResponse> =>
+    fetchJson(
+      `/agent-review/diff?path=${encodeURIComponent(path)}&agentId=${encodeURIComponent(agentId)}${
+        file ? `&file=${encodeURIComponent(file)}` : ''
+      }`
+    ),
+
+  checkpointAgent: (path: string, agentId: string, label?: string): Promise<AgentReviewState> =>
+    fetchJson('/agent-review/checkpoint', {
+      method: 'POST',
+      body: JSON.stringify({ path, agentId, label }),
+    }),
+
+  rollbackAgent: (path: string, agentId: string, checkpointId?: string): Promise<AgentReviewState> =>
+    fetchJson('/agent-review/rollback', {
+      method: 'POST',
+      body: JSON.stringify({ path, agentId, checkpointId }),
+    }),
+
+  approveAgentChanges: (
+    path: string,
+    agentId: string,
+    message: string,
+    mode: 'commit' | 'merge' = 'commit'
+  ): Promise<{
+    review: AgentReviewState;
+    committed: boolean;
+    merged: boolean;
+    commitHash?: string;
+    message: string;
+  }> =>
+    fetchJson('/agent-review/approve', {
+      method: 'POST',
+      body: JSON.stringify({ path, agentId, message, mode }),
+    }),
+
+  requestAgentChanges: (path: string, agentId: string, feedback: string): Promise<AgentReviewState> =>
+    fetchJson('/agent-review/request-changes', {
+      method: 'POST',
+      body: JSON.stringify({ path, agentId, feedback }),
+    }),
+
+  discardAgentChanges: (path: string, agentId: string): Promise<AgentReviewState> =>
+    fetchJson('/agent-review/discard', {
+      method: 'POST',
+      body: JSON.stringify({ path, agentId }),
+    }),
+
+  rejectAgentHunk: (path: string, agentId: string, patch: string): Promise<AgentDiffResponse> =>
+    fetchJson('/agent-review/hunk', {
+      method: 'POST',
+      body: JSON.stringify({ path, agentId, patch, action: 'reject' }),
+    }),
+
+  // Live fleet + review state over Server-Sent Events, with URL failover.
+  subscribeAgentEvents: (
+    path: string,
+    onSnapshot: (snapshot: AgentReviewSnapshot) => void,
+    onConnectionChange?: (connected: boolean) => void
+  ): (() => void) => {
+    const urls = getAgentEventUrls(path);
+    let source: EventSource | null = null;
+    let index = 0;
+    let closed = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+
+    const schedule = () => {
+      if (!closed) retry = setTimeout(connect, 1500);
+    };
+
+    const connect = () => {
+      if (closed) return;
+      const url = urls[index % urls.length];
+      try {
+        source = new EventSource(url);
+      } catch {
+        index += 1;
+        schedule();
+        return;
+      }
+      source.onopen = () => onConnectionChange?.(true);
+      source.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data?.type === 'state' && data.fleet && data.review) {
+            onSnapshot({ fleet: data.fleet, review: data.review });
+          }
+        } catch {
+          // Ignore malformed events and wait for the next snapshot.
+        }
+      };
+      source.onerror = () => {
+        onConnectionChange?.(false);
+        source?.close();
+        index += 1;
+        schedule();
+      };
+    };
+
+    connect();
+    return () => {
+      closed = true;
+      if (retry) clearTimeout(retry);
+      source?.close();
+    };
+  },
 
   // Zero-Friction In-Place Software Updater
   inPlaceUpdate: (targetVersion: string, downloadUrl?: string, assetName?: string) =>

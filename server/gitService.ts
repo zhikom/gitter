@@ -33,11 +33,29 @@ import {
   AgentHarness,
   AgentInstance,
 } from '../src/types/agentFleet';
+import {
+  AgentAttentionItem,
+  AgentCheckpoint,
+  AgentDiffResponse,
+  AgentReviewItem,
+  AgentReviewSnapshot,
+  AgentReviewState,
+  AgentReviewStatus,
+} from '../src/types/agentReview';
 import { parseGitDiff } from '../src/utils/diffParser';
 import { AGENT_BRANCH_PREFIX, HARNESS_REGISTRY, detectCollisions, harnessColor, harnessFromBranch } from '../src/utils/agentFleet';
 
 const execAsync = promisify(exec);
 
+
+interface AgentReviewStoreEntry {
+  status?: AgentReviewStatus;
+  feedback?: string;
+  updatedAt: number;
+  checkpoint?: AgentCheckpoint;
+}
+
+type AgentReviewStore = Record<string, AgentReviewStoreEntry>;
 
 // "added\tdeleted\tpath" from `git diff --numstat`; binary files report "-" and count as 0.
 function parseNumstatLine(line: string): AgentFileChange | null {
@@ -50,6 +68,33 @@ function parseNumstatLine(line: string): AgentFileChange | null {
     deletions: Number(dels) || 0,
     status: 'M',
   };
+}
+
+// Split a command line into arguments, honouring single and double quotes.
+function tokenizeCommand(input: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | null = null;
+  let hasToken = false;
+  for (const ch of input) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else current += ch;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      hasToken = true;
+    } else if (/\s/.test(ch)) {
+      if (hasToken) tokens.push(current);
+      current = '';
+      hasToken = false;
+    } else {
+      current += ch;
+      hasToken = true;
+    }
+  }
+  if (quote) throw new Error('Unterminated quote in command.');
+  if (hasToken) tokens.push(current);
+  return tokens;
 }
 
 export class GitService {
@@ -1035,7 +1080,7 @@ export class GitService {
 
   // Virtual Branches (GitButler Innovation)
   private getVirtualBranchesFilePath(repoPath: string): string {
-    const dir = path.join(repoPath, '.git', 'gitter');
+    const dir = path.join(this.resolveGitDir(repoPath), 'gitter');
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
@@ -1151,7 +1196,7 @@ export class GitService {
 
   // Shelve & Unshelve (JetBrains Source Control)
   private getShelvesDir(repoPath: string): string {
-    const dir = path.join(repoPath, '.git', 'gitter', 'shelves');
+    const dir = path.join(this.resolveGitDir(repoPath), 'gitter', 'shelves');
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
@@ -1450,7 +1495,7 @@ export class GitService {
 
   // Per-repository configuration (.git/gitter/config.json)
   async getRepoConfig(repoPath: string): Promise<any> {
-    const configPath = path.join(repoPath, '.git', 'gitter', 'config.json');
+    const configPath = path.join(this.resolveGitDir(repoPath), 'gitter', 'config.json');
     try {
       const content = await fs.promises.readFile(configPath, 'utf8');
       return JSON.parse(content);
@@ -1476,7 +1521,7 @@ export class GitService {
   }
 
   async saveRepoConfig(repoPath: string, config: any): Promise<void> {
-    const dir = path.join(repoPath, '.git', 'gitter');
+    const dir = path.join(this.resolveGitDir(repoPath), 'gitter');
     await fs.promises.mkdir(dir, { recursive: true });
     const configPath = path.join(dir, 'config.json');
     await fs.promises.writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
@@ -1642,8 +1687,29 @@ export class GitService {
   }
 
   // Multi-Agent Fleet Orchestrator & Collision Radar
+  // Resolve the real Git metadata directory. In a linked worktree `.git` is a file
+  // containing `gitdir: <path>`, so writing under `<repo>/.git/...` would fail.
+  private resolveGitDir(repoPath: string): string {
+    const dotGit = path.join(repoPath, '.git');
+    try {
+      const stat = fs.statSync(dotGit);
+      if (stat.isDirectory()) return dotGit;
+      if (stat.isFile()) {
+        const content = fs.readFileSync(dotGit, 'utf8');
+        const match = content.match(/^gitdir:\s*(.+)$/m);
+        if (match) {
+          const raw = match[1].trim();
+          return path.isAbsolute(raw) ? raw : path.resolve(repoPath, raw);
+        }
+      }
+    } catch {
+      // Fall back to the conventional location below.
+    }
+    return dotGit;
+  }
+
   private getAgentFleetFilePath(repoPath: string): string {
-    const dir = path.join(repoPath, '.git', 'gitter');
+    const dir = path.join(this.resolveGitDir(repoPath), 'gitter');
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
@@ -1651,7 +1717,7 @@ export class GitService {
   }
 
   async getAgentFleet(repoPath: string): Promise<AgentFleetState> {
-    const indexLockDetected = fs.existsSync(path.join(repoPath, '.git', 'index.lock'));
+    const indexLockDetected = fs.existsSync(path.join(this.resolveGitDir(repoPath), 'index.lock'));
     const worktrees = await this.getWorktrees(repoPath).catch(() => []);
     const agents = await this.discoverAgents(repoPath, worktrees);
     await this.refreshAgentFiles(repoPath, agents);
@@ -1791,7 +1857,23 @@ export class GitService {
       );
       if (wt) agent.worktreePath = wt.path;
     }
-    return stored;
+
+    // Collapse duplicate agents that track the same branch. Prefer the explicitly
+    // registered agent over one that branch discovery invented.
+    const deduped: AgentInstance[] = [];
+    for (const agent of stored) {
+      const key = agent.branchName || agent.id;
+      const existingIndex = deduped.findIndex((a) => (a.branchName || a.id) === key);
+      if (existingIndex === -1) {
+        deduped.push(agent);
+        continue;
+      }
+      const existing = deduped[existingIndex];
+      if (existing.id.startsWith('auto-') && !agent.id.startsWith('auto-')) {
+        deduped[existingIndex] = agent;
+      }
+    }
+    return deduped;
   }
 
   private async refreshAgentFiles(repoPath: string, agents: AgentInstance[]): Promise<void> {
@@ -1826,7 +1908,9 @@ export class GitService {
 
   async registerAgent(repoPath: string, payload: Partial<AgentInstance>): Promise<AgentInstance> {
     const fleetPath = this.getAgentFleetFilePath(repoPath);
-    const fleet = await this.getAgentFleet(repoPath);
+    // Read the stored agents directly. Calling getAgentFleet here would run branch
+    // discovery, which sees the branch we just created and invents a phantom agent.
+    const stored = await this.loadStoredAgents(repoPath);
 
     const harness = payload.harness || 'custom';
 
@@ -1844,7 +1928,7 @@ export class GitService {
       color: payload.color || harnessColor(harness),
     };
 
-    const updated = [...fleet.agents.filter((a) => a.id !== newAgent.id), newAgent];
+    const updated = [...stored.filter((a) => a.id !== newAgent.id && a.branchName !== newAgent.branchName), newAgent];
     await fs.promises.writeFile(fleetPath, JSON.stringify(updated, null, 2), 'utf8');
     return newAgent;
   }
@@ -1905,12 +1989,522 @@ export class GitService {
   }
 
   async clearGitIndexLock(repoPath: string): Promise<boolean> {
-    const lockPath = path.join(repoPath, '.git', 'index.lock');
+    const lockPath = path.join(this.resolveGitDir(repoPath), 'index.lock');
     if (fs.existsSync(lockPath)) {
       await fs.promises.unlink(lockPath);
       return true;
     }
     return false;
+  }
+
+  // Agent Review Inbox, checkpoints, and the review last mile
+  private getAgentReviewFilePath(repoPath: string): string {
+    const dir = path.join(this.resolveGitDir(repoPath), 'gitter');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    return path.join(dir, 'agent-review.json');
+  }
+
+  private async loadReviewStore(repoPath: string): Promise<AgentReviewStore> {
+    const file = this.getAgentReviewFilePath(repoPath);
+    if (!fs.existsSync(file)) return {};
+    try {
+      return JSON.parse(await fs.promises.readFile(file, 'utf8')) as AgentReviewStore;
+    } catch {
+      return {};
+    }
+  }
+
+  private async saveReviewStore(repoPath: string, store: AgentReviewStore): Promise<void> {
+    await fs.promises.writeFile(this.getAgentReviewFilePath(repoPath), JSON.stringify(store, null, 2), 'utf8');
+  }
+
+  private resolveAgentOrThrow(fleet: AgentFleetState, agentId: string): AgentInstance {
+    const agent = fleet.agents.find((a) => a.id === agentId);
+    if (!agent) throw new Error(`Agent '${agentId}' was not found in this repository.`);
+    return agent;
+  }
+
+  private deriveReviewStatus(
+    agent: AgentInstance,
+    files: AgentFileChange[],
+    commitsAhead: number
+  ): AgentReviewStatus {
+    if (agent.status === 'stalled') return 'failed';
+    if (files.length > 0 || commitsAhead > 0) {
+      if (agent.status === 'running' && Date.now() - agent.lastHeartbeat < 10 * 60 * 1000) {
+        return 'running';
+      }
+      return 'needs-review';
+    }
+    return agent.status === 'running' ? 'running' : 'queued';
+  }
+
+  private async buildReviewState(repoPath: string, fleet: AgentFleetState): Promise<AgentReviewState> {
+    const store = await this.loadReviewStore(repoPath);
+    const baseBranch = await this.getBaseBranch(repoPath);
+
+    const collisionFilesByAgent = new Map<string, string[]>();
+    for (const collision of fleet.collisions) {
+      for (const name of collision.contendingAgents) {
+        const list = collisionFilesByAgent.get(name) ?? [];
+        if (!list.includes(collision.filePath)) list.push(collision.filePath);
+        collisionFilesByAgent.set(name, list);
+      }
+    }
+
+    const items: AgentReviewItem[] = [];
+    for (const agent of fleet.agents) {
+      const branchStat = await this.runGitRaw(
+        `diff --numstat ${baseBranch}...${agent.branchName}`,
+        repoPath
+      ).catch(() => '');
+      const live =
+        agent.worktreePath && fs.existsSync(agent.worktreePath)
+          ? await this.getLiveChanges(agent.worktreePath)
+          : [];
+
+      const byPath = new Map<string, AgentFileChange>();
+      for (const line of branchStat.split('\n').filter(Boolean)) {
+        const parsed = parseNumstatLine(line);
+        if (parsed) byPath.set(parsed.path, parsed);
+      }
+      for (const file of live) {
+        const existing = byPath.get(file.path);
+        byPath.set(
+          file.path,
+          existing
+            ? {
+                ...existing,
+                additions: existing.additions + file.additions,
+                deletions: existing.deletions + file.deletions,
+                status: file.status,
+              }
+            : file
+        );
+      }
+      const files = Array.from(byPath.values());
+      const commitsAhead =
+        Number(
+          (
+            await this.runGitRaw(`rev-list --count ${baseBranch}..${agent.branchName}`, repoPath).catch(
+              () => '0'
+            )
+          ).trim()
+        ) || 0;
+
+      const stored = store[agent.id];
+      // 'queued' (after rollback/discard) and 'changes-requested' are waiting on the
+      // agent; once it reports a newer heartbeat, derive the status from its work again.
+      const superseded =
+        (stored?.status === 'queued' || stored?.status === 'changes-requested') &&
+        agent.lastHeartbeat > stored.updatedAt;
+      const status =
+        stored?.status && !superseded ? stored.status : this.deriveReviewStatus(agent, files, commitsAhead);
+
+      items.push({
+        id: agent.id,
+        agentId: agent.id,
+        agentName: agent.name,
+        harness: agent.harness,
+        color: agent.color,
+        branchName: agent.branchName,
+        worktreePath: agent.worktreePath,
+        taskDescription: agent.taskDescription,
+        status,
+        agentStatus: agent.status,
+        files,
+        additions: files.reduce((n, f) => n + f.additions, 0),
+        deletions: files.reduce((n, f) => n + f.deletions, 0),
+        commitsAhead,
+        collisions: collisionFilesByAgent.get(agent.name) ?? [],
+        checkpoint: stored?.checkpoint,
+        feedback: stored?.feedback,
+        createdAt: stored?.checkpoint?.createdAt ?? agent.lastHeartbeat,
+        updatedAt: stored?.updatedAt ?? agent.lastHeartbeat,
+        lastHeartbeat: agent.lastHeartbeat,
+      });
+    }
+
+    const priority: Record<AgentReviewStatus, number> = {
+      'needs-review': 0,
+      failed: 1,
+      'changes-requested': 2,
+      running: 3,
+      approved: 4,
+      merged: 5,
+      queued: 6,
+    };
+    items.sort((a, b) => priority[a.status] - priority[b.status] || b.updatedAt - a.updatedAt);
+
+    const attention: AgentAttentionItem[] = [];
+    for (const item of items) {
+      if (item.status === 'needs-review') {
+        attention.push({
+          id: `review:${item.id}`,
+          kind: 'review',
+          severity: 'high',
+          title: `${item.agentName} is ready for review`,
+          detail: `${item.files.length} file${item.files.length === 1 ? '' : 's'} · +${item.additions} / −${item.deletions}`,
+          agentId: item.id,
+          createdAt: item.updatedAt,
+        });
+      }
+      if (item.status === 'failed') {
+        attention.push({
+          id: `failed:${item.id}`,
+          kind: 'error',
+          severity: 'high',
+          title: `${item.agentName} looks stalled`,
+          detail: item.feedback || 'The agent stopped reporting progress. Check its worktree or restart the run.',
+          agentId: item.id,
+          createdAt: item.updatedAt,
+        });
+      }
+      if (item.status === 'changes-requested') {
+        attention.push({
+          id: `changes:${item.id}`,
+          kind: 'review',
+          severity: 'medium',
+          title: `Changes requested from ${item.agentName}`,
+          detail: item.feedback || 'Waiting for the agent to address review feedback.',
+          agentId: item.id,
+          createdAt: item.updatedAt,
+        });
+      }
+    }
+    for (const collision of fleet.collisions) {
+      attention.push({
+        id: `collision:${collision.filePath}`,
+        kind: 'collision',
+        severity: collision.severity,
+        title: `Collision on ${collision.filePath}`,
+        detail: collision.suggestedAction,
+        createdAt: Date.now(),
+      });
+    }
+    if (fleet.indexLockDetected) {
+      attention.push({
+        id: 'index-lock',
+        kind: 'index-lock',
+        severity: 'high',
+        title: 'Stale .git/index.lock detected',
+        detail: 'A stalled agent or process is holding the Git index lock.',
+        createdAt: Date.now(),
+      });
+    }
+
+    return { generatedAt: Date.now(), baseBranch, items, attention };
+  }
+
+  async getAgentReviewSnapshot(repoPath: string): Promise<AgentReviewSnapshot> {
+    const fleet = await this.getAgentFleet(repoPath);
+    const review = await this.buildReviewState(repoPath, fleet);
+    return { fleet, review };
+  }
+
+  async getAgentReview(repoPath: string): Promise<AgentReviewState> {
+    return (await this.getAgentReviewSnapshot(repoPath)).review;
+  }
+
+  async getAgentReviewDiff(repoPath: string, agentId: string, file?: string): Promise<AgentDiffResponse> {
+    const snapshot = await this.getAgentReviewSnapshot(repoPath);
+    const agent = this.resolveAgentOrThrow(snapshot.fleet, agentId);
+    const baseBranch = snapshot.review.baseBranch;
+    const hasWorktree = Boolean(agent.worktreePath && fs.existsSync(agent.worktreePath));
+    const dir = hasWorktree ? agent.worktreePath! : repoPath;
+    const range = hasWorktree ? baseBranch : `${baseBranch}...${agent.branchName}`;
+    const pathArg = file ? ` -- "${file.replace(/"/g, '\\"')}"` : '';
+
+    // `git diff` skips untracked files, which hides new files an agent created.
+    // Mark them intent-to-add for the duration of the diff, then restore the index.
+    let intentAdded: string[] = [];
+    if (hasWorktree) {
+      const untracked = (await this.runGitRaw('ls-files --others --exclude-standard', dir).catch(() => ''))
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+      intentAdded = file ? untracked.filter((f) => f === file) : untracked;
+      if (intentAdded.length > 0) {
+        const args = intentAdded.map((f) => `"${f.replace(/"/g, '\\"')}"`).join(' ');
+        await this.runGitRaw(`add -N -- ${args}`, dir).catch(() => {
+          intentAdded = [];
+        });
+      }
+    }
+
+    try {
+      const [rawDiff, numstat] = await Promise.all([
+        this.runGitRaw(`diff ${range}${pathArg}`, dir).catch(() => ''),
+        this.runGitRaw(`diff --numstat ${range}${pathArg}`, dir).catch(() => ''),
+      ]);
+
+      const files = numstat
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => parseNumstatLine(line))
+        .filter((f): f is AgentFileChange => f !== null)
+        .map((f) => ({ path: f.path, status: f.status, additions: f.additions, deletions: f.deletions }));
+
+      return { agentId, baseBranch, files, rawDiff };
+    } finally {
+      if (intentAdded.length > 0) {
+        const args = intentAdded.map((f) => `"${f.replace(/"/g, '\\"')}"`).join(' ');
+        await this.runGitRaw(`reset -q -- ${args}`, dir).catch(() => {});
+      }
+    }
+  }
+
+  async checkpointAgent(repoPath: string, agentId: string, label?: string): Promise<AgentReviewState> {
+    const snapshot = await this.getAgentReviewSnapshot(repoPath);
+    const agent = this.resolveAgentOrThrow(snapshot.fleet, agentId);
+    if (!agent.worktreePath || !fs.existsSync(agent.worktreePath)) {
+      throw new Error('Checkpoints require a dedicated agent worktree.');
+    }
+    const dir = agent.worktreePath;
+    const head = (await this.runGitRaw('rev-parse HEAD', dir)).trim();
+    const dirty = (await this.runGitRaw('status --porcelain', dir)).trim();
+    const worktreeHead = dirty
+      ? (await this.runGitRaw('stash create', dir).catch(() => '')).trim() || undefined
+      : undefined;
+
+    const checkpoint: AgentCheckpoint = {
+      id: `cp-${Date.now().toString(36)}`,
+      agentId,
+      createdAt: Date.now(),
+      head,
+      worktreeHead,
+      baseBranch: snapshot.review.baseBranch,
+      label: label?.trim() || 'Pre-run checkpoint',
+    };
+
+    await this.runGitRaw(
+      `update-ref refs/gitter/checkpoints/${agentId.replace(/[^a-zA-Z0-9_-]/g, '-')}/${checkpoint.id} ${head}`,
+      repoPath
+    ).catch(() => {});
+
+    const store = await this.loadReviewStore(repoPath);
+    store[agentId] = { ...store[agentId], checkpoint, updatedAt: Date.now() };
+    await this.saveReviewStore(repoPath, store);
+    return this.getAgentReview(repoPath);
+  }
+
+  async rollbackAgent(repoPath: string, agentId: string, checkpointId?: string): Promise<AgentReviewState> {
+    const snapshot = await this.getAgentReviewSnapshot(repoPath);
+    const agent = this.resolveAgentOrThrow(snapshot.fleet, agentId);
+    if (!agent.worktreePath || !fs.existsSync(agent.worktreePath)) {
+      throw new Error('Rollback requires a dedicated agent worktree.');
+    }
+    const store = await this.loadReviewStore(repoPath);
+    const stored = store[agentId];
+    const checkpoint = checkpointId
+      ? stored?.checkpoint?.id === checkpointId
+        ? stored.checkpoint
+        : undefined
+      : stored?.checkpoint;
+    if (!checkpoint) {
+      throw new Error('No checkpoint exists for this agent yet. Create one before running the agent.');
+    }
+
+    const dir = agent.worktreePath;
+    await this.runGitRaw(`reset --hard ${checkpoint.head}`, dir);
+    if (checkpoint.worktreeHead) {
+      await this.runGitRaw(`stash apply ${checkpoint.worktreeHead}`, dir).catch(() => {});
+    }
+    store[agentId] = {
+      ...stored,
+      status: 'queued',
+      feedback: `Rolled back to checkpoint ${checkpoint.id}.`,
+      updatedAt: Date.now(),
+    };
+    await this.saveReviewStore(repoPath, store);
+    return this.getAgentReview(repoPath);
+  }
+
+  async approveAgentChanges(
+    repoPath: string,
+    agentId: string,
+    message: string,
+    mode: 'commit' | 'merge' = 'commit'
+  ): Promise<{
+    review: AgentReviewState;
+    committed: boolean;
+    merged: boolean;
+    commitHash?: string;
+    message: string;
+  }> {
+    const snapshot = await this.getAgentReviewSnapshot(repoPath);
+    const agent = this.resolveAgentOrThrow(snapshot.fleet, agentId);
+    if (!agent.worktreePath || !fs.existsSync(agent.worktreePath)) {
+      throw new Error('Approving agent work requires a dedicated agent worktree.');
+    }
+    const dir = agent.worktreePath;
+    const commitMessage =
+      message.trim() ||
+      `chore(agent): accept ${agent.name} changes\n\nAgent-Harness: ${agent.harness}\nAgent-Branch: ${agent.branchName}`;
+
+    let committed = false;
+    let commitHash: string | undefined;
+    const dirty = (await this.runGitRaw('status --porcelain', dir)).trim();
+    if (dirty) {
+      await this.runGitRaw('add -A', dir);
+      await this.runGitRaw(`commit -m ${JSON.stringify(commitMessage)}`, dir);
+      committed = true;
+      commitHash = (await this.runGitRaw('rev-parse HEAD', dir)).trim();
+    }
+
+    let merged = false;
+    let note = committed ? 'Committed agent changes on its branch.' : 'No uncommitted changes to commit.';
+    if (mode === 'merge') {
+      const mainDirty = (await this.runGitRaw('status --porcelain', repoPath)).trim();
+      if (mainDirty) {
+        note += ' Merge skipped because the main working tree has uncommitted changes.';
+      } else {
+        const currentBranch = (await this.runGitRaw('rev-parse --abbrev-ref HEAD', repoPath)).trim();
+        await this.runGitRaw(
+          `merge --no-ff ${agent.branchName} -m ${JSON.stringify(
+            `Merge ${agent.branchName} into ${currentBranch}`
+          )}`,
+          repoPath
+        );
+        merged = true;
+        note += ` Merged into ${currentBranch}.`;
+      }
+    }
+
+    const store = await this.loadReviewStore(repoPath);
+    store[agentId] = {
+      ...store[agentId],
+      status: merged ? 'merged' : 'approved',
+      feedback: note,
+      updatedAt: Date.now(),
+    };
+    await this.saveReviewStore(repoPath, store);
+
+    return {
+      review: await this.getAgentReview(repoPath),
+      committed,
+      merged,
+      commitHash,
+      message: note,
+    };
+  }
+
+  async requestAgentChanges(repoPath: string, agentId: string, feedback: string): Promise<AgentReviewState> {
+    const trimmed = feedback.trim();
+    if (!trimmed) throw new Error('Describe the changes you want the agent to make.');
+    const store = await this.loadReviewStore(repoPath);
+    store[agentId] = {
+      ...store[agentId],
+      status: 'changes-requested',
+      feedback: trimmed,
+      updatedAt: Date.now(),
+    };
+    await this.saveReviewStore(repoPath, store);
+
+    try {
+      const dir = path.join(this.resolveGitDir(repoPath), 'gitter', 'agent-feedback');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      await fs.promises.writeFile(
+        path.join(dir, `${agentId.replace(/[^a-zA-Z0-9_-]/g, '-')}-${Date.now()}.md`),
+        `# Review feedback\n\n${trimmed}\n`,
+        'utf8'
+      );
+    } catch {
+      // Feedback is already persisted in the review store.
+    }
+    return this.getAgentReview(repoPath);
+  }
+
+  async discardAgentChanges(repoPath: string, agentId: string): Promise<AgentReviewState> {
+    const snapshot = await this.getAgentReviewSnapshot(repoPath);
+    const agent = this.resolveAgentOrThrow(snapshot.fleet, agentId);
+    if (!agent.worktreePath || !fs.existsSync(agent.worktreePath)) {
+      throw new Error('Discarding agent work requires a dedicated agent worktree.');
+    }
+    const store = await this.loadReviewStore(repoPath);
+    const checkpoint = store[agentId]?.checkpoint;
+    if (checkpoint) {
+      return this.rollbackAgent(repoPath, agentId, checkpoint.id);
+    }
+
+    const dir = agent.worktreePath;
+    await this.runGitRaw(`reset --hard ${snapshot.review.baseBranch}`, dir);
+    await this.runGitRaw('clean -fd', dir).catch(() => {});
+    store[agentId] = {
+      ...store[agentId],
+      status: 'queued',
+      feedback: 'Discarded all agent changes.',
+      updatedAt: Date.now(),
+    };
+    await this.saveReviewStore(repoPath, store);
+    return this.getAgentReview(repoPath);
+  }
+
+  async rejectAgentHunk(repoPath: string, agentId: string, patch: string): Promise<AgentDiffResponse> {
+    const snapshot = await this.getAgentReviewSnapshot(repoPath);
+    const agent = this.resolveAgentOrThrow(snapshot.fleet, agentId);
+    if (!agent.worktreePath || !fs.existsSync(agent.worktreePath)) {
+      throw new Error('Hunk review requires a dedicated agent worktree.');
+    }
+    await this.runGitWithStdin(['apply', '-R', '--whitespace=nowarn', '-'], patch, agent.worktreePath);
+    return this.getAgentReviewDiff(repoPath, agentId);
+  }
+
+  async runAgentCommand(
+    repoPath: string,
+    command: string
+  ): Promise<{ success: boolean; output: string }> {
+    const cmd = command.trim();
+    if (!cmd) throw new Error('No command provided.');
+    if ([...cmd].some((ch) => ch.charCodeAt(0) < 0x20)) throw new Error('Agent commands must be a single line.');
+    const tokens = tokenizeCommand(cmd);
+    if (tokens[0] !== 'git' || tokens.length < 2) {
+      throw new Error('Only git commands can be executed from the agent dock.');
+    }
+    const args = tokens.slice(1);
+    // Global options before the subcommand (-c, -C, --exec-path, ...) can redirect
+    // git to run arbitrary programs, so the subcommand must come first.
+    const sub = args[0];
+    const allowed = new Set([
+      'status', 'log', 'diff', 'show', 'branch', 'fetch', 'pull', 'push', 'add', 'commit',
+      'checkout', 'switch', 'restore', 'stash', 'merge', 'rebase', 'cherry-pick', 'revert',
+      'tag', 'remote', 'worktree', 'blame', 'shortlog', 'describe', 'rev-parse', 'ls-files',
+    ]);
+    if (!allowed.has(sub)) {
+      throw new Error(`'git ${sub}' is not available from the agent dock. Use the dedicated Git actions in the UI instead.`);
+    }
+    const blockedFlag = (arg: string) =>
+      // Flags that force history rewrites or hand git an external program to run.
+      /^--(force|force-with-lease|force-if-includes|mirror|exec|extcmd|tool|output|upload-pack|receive-pack|exec-path|config-env)(=|$)/.test(arg) ||
+      (['push', 'rebase', 'checkout', 'switch'].includes(sub) && /^-[a-zA-Z]*[fx][a-zA-Z]*$/.test(arg)) ||
+      (sub === 'push' && arg.startsWith('+')) ||
+      (sub === 'branch' && /^-[a-zA-Z]*D/.test(arg)) ||
+      arg === '-c' ||
+      arg.startsWith('-c=');
+    if (args.slice(1).some(blockedFlag)) {
+      throw new Error('That destructive command is blocked. Use the dedicated Git actions in the UI instead.');
+    }
+    if (sub === 'worktree' && args[1] && args[1] !== 'list') {
+      throw new Error('Only `git worktree list` is available from the agent dock.');
+    }
+
+    const output = await new Promise<string>((resolve, reject) => {
+      // No shell: arguments go straight to git, so metacharacters are inert.
+      const child = spawn('git', args, { cwd: repoPath, windowsHide: true, shell: false });
+      let out = '';
+      const timer = setTimeout(() => child.kill(), 30_000);
+      child.stdout.on('data', (d) => { if (out.length < 10 * 1024 * 1024) out += d.toString(); });
+      child.stderr.on('data', (d) => { if (out.length < 10 * 1024 * 1024) out += d.toString(); });
+      child.on('error', (err) => { clearTimeout(timer); reject(err); });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        if (code === 0) resolve(out.trim());
+        else reject(new Error(out.trim() || `git exited with code ${code}`));
+      });
+    });
+    return { success: true, output: output || 'Command completed with no output.' };
   }
 
   // Zero-Friction In-Place Software Updater

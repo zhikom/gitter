@@ -1108,6 +1108,125 @@ app.post('/api/agent-fleet/clear-lock', async (req, res) => {
   }
 });
 
+// Agent Review Inbox, checkpoints, hunk review, and the live event stream
+app.get('/api/agent-review', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    res.json(await gitService.getAgentReview(targetPath));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/agent-review/diff', async (req, res) => {
+  try {
+    const targetPath = resolvePath(req.query.path as string);
+    const agentId = req.query.agentId as string;
+    const file = (req.query.file as string) || undefined;
+    res.json(await gitService.getAgentReviewDiff(targetPath, agentId, file));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agent-review/checkpoint', async (req, res) => {
+  try {
+    const { path: repoPath, agentId, label } = req.body;
+    res.json(await gitService.checkpointAgent(resolvePath(repoPath), agentId, label));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agent-review/rollback', async (req, res) => {
+  try {
+    const { path: repoPath, agentId, checkpointId } = req.body;
+    res.json(await gitService.rollbackAgent(resolvePath(repoPath), agentId, checkpointId));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agent-review/approve', async (req, res) => {
+  try {
+    const { path: repoPath, agentId, message, mode } = req.body;
+    res.json(await gitService.approveAgentChanges(resolvePath(repoPath), agentId, message || '', mode === 'merge' ? 'merge' : 'commit'));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agent-review/request-changes', async (req, res) => {
+  try {
+    const { path: repoPath, agentId, feedback } = req.body;
+    res.json(await gitService.requestAgentChanges(resolvePath(repoPath), agentId, feedback || ''));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agent-review/discard', async (req, res) => {
+  try {
+    const { path: repoPath, agentId } = req.body;
+    res.json(await gitService.discardAgentChanges(resolvePath(repoPath), agentId));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agent-review/hunk', async (req, res) => {
+  try {
+    const { path: repoPath, agentId, patch, action } = req.body;
+    if (action !== 'reject') {
+      return res.json(await gitService.getAgentReviewDiff(resolvePath(repoPath), agentId));
+    }
+    res.json(await gitService.rejectAgentHunk(resolvePath(repoPath), agentId, patch || ''));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/agent-fleet/run-command', async (req, res) => {
+  try {
+    const { path: repoPath, command } = req.body;
+    res.json(await gitService.runAgentCommand(resolvePath(repoPath), command || ''));
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Server-Sent Events: pushes fleet + review state whenever it changes.
+app.get('/api/agent-events', async (req, res) => {
+  const targetPath = resolvePath(req.query.path as string);
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+
+  let lastPayload = '';
+  let ticks = 0;
+
+  const send = async () => {
+    try {
+      const snapshot = await gitService.getAgentReviewSnapshot(targetPath);
+      const payload = JSON.stringify({ type: 'state', ...snapshot });
+      if (payload !== lastPayload) {
+        lastPayload = payload;
+        res.write(`data: ${payload}\n\n`);
+      } else if (++ticks % 6 === 0) {
+        res.write(': keep-alive\n\n');
+      }
+    } catch (e: any) {
+      res.write(`event: error\ndata: ${JSON.stringify({ error: e.message })}\n\n`);
+    }
+  };
+
+  await send();
+  const timer = setInterval(send, 2500);
+  req.on('close', () => clearInterval(timer));
+});
+
 // In-Place Software Updater Endpoint
 app.post('/api/app/in-place-update', async (req, res) => {
   try {
