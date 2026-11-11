@@ -131,9 +131,8 @@ export const LaunchpadModal: React.FC<LaunchpadModalProps> = ({
 
   const handleNativePick = async () => {
     try {
-      const res = await api.pickNativeFolder();
-      if (res && res.path) {
-        const repoPath = res.path;
+      const repoPath = await api.pickFolder('Open repository');
+      if (repoPath) {
         const name = repoPath.split(/[\/\\]/).filter(Boolean).pop() || 'repo';
         setRepos((prev) => [
           {
@@ -171,14 +170,14 @@ export const LaunchpadModal: React.FC<LaunchpadModalProps> = ({
   const handleBrowseScanFolder = async () => {
     setBrowsingFolder(true);
     try {
-      const res = await api.pickNativeFolder();
-      if (res && res.path) {
-        setScanFolder(res.path);
-        localStorage.setItem('gitter_scan_parent_folder', res.path);
+      const folder = await api.pickFolder('Choose a folder to scan for repositories');
+      if (folder) {
+        setScanFolder(folder);
+        localStorage.setItem('gitter_scan_parent_folder', folder);
         setScanning(true);
         setScanError(null);
         try {
-          const results = await api.scanRepositories(res.path);
+          const results = await api.scanRepositories(folder);
           setScannedRepos(results);
         } catch (e: any) {
           setScanError(e.message || 'Failed to scan folder for repositories');

@@ -1138,10 +1138,8 @@ export const App: React.FC = () => {
         onOpenRepo={() => setShowOpenModal(true)}
         onBrowseNative={async () => {
           try {
-            const res = await api.pickNativeFolder();
-            if (res && res.path) {
-              handleSelectTab(res.path);
-            }
+            const repoPath = await api.pickFolder('Open repository');
+            if (repoPath) handleSelectTab(repoPath);
           } catch (e: any) {
             toast(`Browse error: ${e.message}`);
           }

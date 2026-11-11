@@ -20,10 +20,10 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
   const handleBrowseNative = async () => {
     setBrowsing(true);
     try {
-      const res = await api.pickNativeFolder();
-      if (res && res.path) {
-        setRepoPath(res.path);
-        onOpen(res.path);
+      const picked = await api.pickFolder('Open repository');
+      if (picked) {
+        setRepoPath(picked);
+        onOpen(picked);
         onClose();
       }
     } catch (e: any) {

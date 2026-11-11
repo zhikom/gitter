@@ -4,7 +4,6 @@ node_modules/
 
 # Build artifacts
 dist/
-dist-electron/
 release/
 out/
 src-tauri/target/
@@ -21,3 +20,6 @@ gk_package.json
 *.log
 .env
 .env.local
+
+# Desktop sidecar (built by scripts/build-sidecar.mjs)
+src-tauri/binaries/

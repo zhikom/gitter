@@ -1,3 +1,4 @@
+import { api } from '../api/client';
 import { ReleaseAsset, UpdateInfo } from '../types/update';
 import packageJson from '../../package.json';
 
@@ -25,22 +26,20 @@ export function compareSemver(v1: string, v2: string): number {
   return 0;
 }
 
-export function detectUserPlatform(): 'windows' | 'macos' | 'linux' {
+export function detectUserPlatform(): 'windows' | 'macos' {
   if (typeof navigator !== 'undefined') {
     const ua = navigator.userAgent.toLowerCase();
     if (ua.includes('win')) return 'windows';
     if (ua.includes('mac')) return 'macos';
-    if (ua.includes('linux')) return 'linux';
   }
   return 'windows';
 }
 
-function categorizeAsset(name: string): 'windows' | 'macos' | 'linux' | 'vscode' | 'other' {
+function categorizeAsset(name: string): 'windows' | 'macos' | 'vscode' | 'other' {
   const lower = name.toLowerCase();
   if (lower.endsWith('.vsix')) return 'vscode';
   if (lower.endsWith('.exe') || lower.endsWith('.msi')) return 'windows';
   if (lower.endsWith('.dmg') || lower.includes('macos') || lower.includes('universal.app')) return 'macos';
-  if (lower.endsWith('.appimage') || lower.endsWith('.deb') || lower.endsWith('.rpm')) return 'linux';
   return 'other';
 }
 
@@ -66,10 +65,7 @@ export async function checkForAppUpdate(): Promise<UpdateInfo> {
   // 2. Fallback to local server proxy if direct request was blocked
   if (!releaseData) {
     try {
-      const res = await fetch('http://localhost:3001/api/app/check-update');
-      if (res.ok) {
-        releaseData = await res.json();
-      }
+      releaseData = await api.getLatestRelease();
     } catch (e) {
       console.warn('Backend proxy update check failed:', e);
     }
@@ -100,10 +96,6 @@ export async function checkForAppUpdate(): Promise<UpdateInfo> {
       assets.find((a) => a.name.endsWith('.msi'));
   } else if (platform === 'macos') {
     recommendedAsset = assets.find((a) => a.name.endsWith('.dmg'));
-  } else if (platform === 'linux') {
-    recommendedAsset =
-      assets.find((a) => a.name.endsWith('.AppImage')) ||
-      assets.find((a) => a.name.endsWith('.deb'));
   }
 
   return {

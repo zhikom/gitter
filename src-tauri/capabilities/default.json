@@ -1,9 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default permissions for Gitter",
-  "windows": ["*"],
-  "permissions": [
-    "core:default"
-  ]
+  "description": "Permissions for Gitter's main window",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:allow-open"]
 }

@@ -12,7 +12,6 @@ import {
   FileBox,
   Monitor,
   Apple,
-  Terminal,
   Zap,
 } from 'lucide-react';
 import { checkForAppUpdate, CURRENT_VERSION } from '../../services/updateService';
@@ -44,24 +43,15 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
   const [updateComplete, setUpdateComplete] = useState<boolean>(false);
 
   const handleInPlaceUpdate = async () => {
-    if (!updateInfo) return;
+    const asset = updateInfo?.recommendedAsset;
+    if (!asset) return;
     setUpdating(true);
     setError(null);
-    setUpdateStatus('Initiating in-place update...');
+    setUpdateStatus(`Downloading ${asset.name}...`);
     try {
-      setUpdateStatus('Checking environment & applying update...');
-      const res = await api.inPlaceUpdate(
-        updateInfo.latestVersion,
-        updateInfo.recommendedAsset?.browser_download_url,
-        updateInfo.recommendedAsset?.name
-      );
-      setUpdateStatus(res.message || 'Update completed successfully!');
+      await api.installUpdate(asset.browser_download_url);
+      setUpdateStatus('Installer started. Gitter restarts when it finishes.');
       setUpdateComplete(true);
-      if (res.method === 'git-rebuild') {
-        setTimeout(() => {
-          window.location.reload();
-        }, 1500);
-      }
     } catch (err: any) {
       setError(`In-place update failed: ${err.message}`);
     } finally {
@@ -114,8 +104,6 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
         return <Monitor className="w-3.5 h-3.5 text-blue-400" />;
       case 'macos':
         return <Apple className="w-3.5 h-3.5 text-slate-200" />;
-      case 'linux':
-        return <Terminal className="w-3.5 h-3.5 text-amber-400" />;
       case 'vscode':
         return <FileBox className="w-3.5 h-3.5 text-teal-400" />;
       default:

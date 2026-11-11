@@ -3,10 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { promisify } from 'util';
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 import {
   BlameLine,
   Branch,
@@ -492,73 +489,12 @@ export class GitService {
     await this.runGitRaw(`branch -m "${oldName}" "${newName}"`, repoPath);
   }
 
-  async revealInExplorer(repoPath: string, filePath?: string): Promise<void> {
-    const target = filePath ? path.join(repoPath, filePath) : repoPath;
-    if (process.platform === 'win32') {
-      execAsync(`explorer /select,"${target.replace(/\//g, '\\')}"`).catch(() => {
-        execAsync(`explorer "${target.replace(/\//g, '\\')}"`).catch(() => {});
-      });
-    } else if (process.platform === 'darwin') {
-      execAsync(`open -R "${target}"`).catch(() => {});
-    } else {
-      execAsync(`xdg-open "${path.dirname(target)}"`).catch(() => {});
-    }
-  }
-
-  async openInVsCode(repoPath: string, filePath?: string): Promise<void> {
-    const target = filePath ? path.join(repoPath, filePath) : repoPath;
-    try {
-      await execAsync(`code "${target}"`);
-    } catch {
-      try {
-        await execAsync(`cursor "${target}"`);
-      } catch {
-        await execAsync(`windsurf "${target}"`).catch(() => {});
-      }
-    }
-  }
-
-  async openInTerminal(repoPath: string): Promise<void> {
-    if (process.platform === 'win32') {
-      execAsync(`start powershell -NoExit -Command "Set-Location -LiteralPath '${repoPath.replace(/'/g, "''")}'"`).catch(() => {});
-    } else if (process.platform === 'darwin') {
-      execAsync(`open -a Terminal "${repoPath}"`).catch(() => {});
-    } else {
-      execAsync(`x-terminal-emulator --working-directory="${repoPath}"`).catch(() => {});
-    }
-  }
-
-  async openExternalDiff(repoPath: string, filePath: string, staged: boolean = false, customDiffCmd?: string): Promise<void> {
-    const fullPath = path.join(repoPath, filePath);
-    const tempDir = os.tmpdir();
-    const baseName = path.basename(filePath);
-    const tempFile = path.join(tempDir, `gitter-diff-${staged ? 'HEAD' : 'INDEX'}-${Date.now()}-${baseName}`);
-
-    try {
-      const gitRef = staged ? `HEAD:${filePath}` : `:${filePath}`;
-      const baseContent = await this.runGitRaw(`show ${gitRef}`, repoPath);
-      fs.writeFileSync(tempFile, baseContent, 'utf8');
-    } catch {
-      fs.writeFileSync(tempFile, '', 'utf8');
-    }
-
-    if (customDiffCmd && customDiffCmd.trim()) {
-      const cmd = customDiffCmd.replace('%1', `"${tempFile}"`).replace('%2', `"${fullPath}"`);
-      await execAsync(cmd).catch(() => {});
-      return;
-    }
-
-    try {
-      await execAsync(`code --diff "${tempFile}" "${fullPath}"`);
-    } catch {
-      if (process.platform === 'win32') {
-        execAsync(`WinMergeU "${tempFile}" "${fullPath}"`).catch(() => {
-          execAsync(`bcomp "${tempFile}" "${fullPath}"`).catch(() => {});
-        });
-      } else {
-        execAsync(`meld "${tempFile}" "${fullPath}"`).catch(() => {});
-      }
-    }
+  /** Writes the version a diff compares against (HEAD if staged, else the index) to a temp file. */
+  async exportBaseVersion(repoPath: string, filePath: string, staged: boolean): Promise<string> {
+    const tempFile = path.join(os.tmpdir(), `gitter-diff-${staged ? 'HEAD' : 'INDEX'}-${Date.now()}-${path.basename(filePath)}`);
+    const base = await this.runGitRaw(`show ${staged ? 'HEAD' : ''}:"${filePath}"`, repoPath).catch(() => '');
+    await fs.promises.writeFile(tempFile, base, 'utf8');
+    return tempFile;
   }
 
   async getReflog(repoPath: string, limit = 50): Promise<Array<{ hash: string; selector: string; action: string; message: string; date: string }>> {
@@ -1415,63 +1351,6 @@ export class GitService {
     }
 
     return repos;
-  }
-
-  // Native folder picker per OS
-  async pickNativeFolder(): Promise<string | null> {
-    const isWindows = process.platform === 'win32';
-    const isMac = process.platform === 'darwin';
-
-    if (isWindows) {
-      try {
-        const candidatePaths = [
-          path.resolve(__dirname, 'pickFolder.ps1'),
-          path.resolve(__dirname, 'server', 'pickFolder.ps1'),
-          path.resolve(__dirname, '..', 'pickFolder.ps1'),
-          path.resolve(process.cwd(), 'server', 'pickFolder.ps1'),
-          path.resolve(process.cwd(), 'pickFolder.ps1'),
-        ];
-        const scriptPath = candidatePaths.find((p) => fs.existsSync(p));
-
-        const cmd = scriptPath
-          ? `powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File "${scriptPath}"`
-          : `powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.ShowNewFolderButton = $true; $f = New-Object System.Windows.Forms.Form; $f.TopMost = $true; $f.Opacity = 0; $f.Show(); if ($d.ShowDialog($f) -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::WriteLine($d.SelectedPath) }; $f.Dispose(); $d.Dispose()"`;
-
-        const { stdout } = await execAsync(cmd, { timeout: 60000 });
-        const lines = stdout.trim().split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-        const selected = lines.length > 0 ? lines[lines.length - 1].replace(/\\/g, '/') : null;
-        return selected || null;
-      } catch (err: any) {
-        console.error('Failed to invoke Windows folder dialog:', err);
-        return null;
-      }
-    } else if (isMac) {
-      try {
-        const { stdout } = await execAsync(
-          `osascript -e 'POSIX path of (choose folder with prompt "Select Git Repository Folder")'`,
-          { timeout: 60000 }
-        );
-        return stdout.trim() || null;
-      } catch {
-        return null;
-      }
-    } else {
-      // Linux
-      try {
-        const { stdout } = await execAsync(
-          `zenity --file-selection --directory --title="Select Git Repository Folder"`,
-          { timeout: 60000 }
-        );
-        return stdout.trim() || null;
-      } catch {
-        try {
-          const { stdout } = await execAsync(`kdialog --getexistingdirectory`, { timeout: 60000 });
-          return stdout.trim() || null;
-        } catch {
-          return null;
-        }
-      }
-    }
   }
 
   // Per-repository configuration (.git/gitter/config.json)
@@ -2488,85 +2367,6 @@ export class GitService {
     return { success: true, output: output || 'Command completed with no output.' };
   }
 
-  // Zero-Friction In-Place Software Updater
-  async performInPlaceUpdate(
-    targetVersion: string,
-    downloadUrl?: string,
-    assetName?: string
-  ): Promise<{ success: boolean; method: string; message: string }> {
-    const cwd = process.cwd();
-    let isGitRepo = false;
-
-    try {
-      const remoteUrl = await this.runGitRaw('config --get remote.origin.url', cwd);
-      if (remoteUrl && remoteUrl.includes('gitter')) {
-        isGitRepo = true;
-      }
-    } catch {
-      isGitRepo = false;
-    }
-
-    // Mode A: Running from Git clone (Local Dev / Source Installation)
-    if (isGitRepo) {
-      try {
-        await this.runGitRaw('fetch origin --tags', cwd);
-        await this.runGitRaw('pull origin main', cwd);
-        await execAsync('npm run build', { cwd });
-        return {
-          success: true,
-          method: 'git-rebuild',
-          message: `In-place update to v${targetVersion} pulled & compiled successfully! Reloading...`,
-        };
-      } catch (err: any) {
-        console.warn('Git in-place update fallback to binary download:', err);
-      }
-    }
-
-    // Mode B: Packaged binary / Installer update
-    if (!downloadUrl) {
-      throw new Error(`No direct download URL available for v${targetVersion} on this platform.`);
-    }
-
-    const tempDir = os.tmpdir();
-    const filename = assetName || `gitter-update-${targetVersion}.exe`;
-    const tempFilePath = path.join(tempDir, filename);
-
-    const res = await fetch(downloadUrl);
-    if (!res.ok) {
-      throw new Error(`Failed to download update binary from GitHub (${res.status} ${res.statusText})`);
-    }
-    const buffer = Buffer.from(await res.arrayBuffer());
-    await fs.promises.writeFile(tempFilePath, buffer);
-
-    const isWindows = process.platform === 'win32';
-    const isMac = process.platform === 'darwin';
-
-    if (isWindows) {
-      if (filename.endsWith('.exe')) {
-        // NSIS installer silent update with /S
-        exec(`start "" "${tempFilePath}" /S`);
-      } else if (filename.endsWith('.msi')) {
-        exec(`msiexec /i "${tempFilePath}" /passive`);
-      } else {
-        exec(`start "" "${tempFilePath}"`);
-      }
-    } else if (isMac) {
-      exec(`open "${tempFilePath}"`);
-    } else {
-      if (filename.endsWith('.AppImage')) {
-        await execAsync(`chmod +x "${tempFilePath}"`);
-        exec(`"${tempFilePath}"`);
-      } else if (filename.endsWith('.deb')) {
-        exec(`xdg-open "${tempFilePath}"`);
-      }
-    }
-
-    return {
-      success: true,
-      method: 'installer-launched',
-      message: `Update package saved to ${tempFilePath}. Installer launched automatically!`,
-    };
-  }
 }
 
 export const gitService = new GitService();

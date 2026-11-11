@@ -3,7 +3,7 @@ export interface ReleaseAsset {
   browser_download_url: string;
   size: number;
   content_type: string;
-  platform?: 'windows' | 'macos' | 'linux' | 'vscode' | 'other';
+  platform?: 'windows' | 'macos' | 'vscode' | 'other';
 }
 
 export interface UpdateInfo {

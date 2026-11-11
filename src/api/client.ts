@@ -26,124 +26,41 @@ import {
   AgentReviewState,
 } from '../types/agentReview';
 
-// Desktop/Electron global extensions
+import { isTauri } from '@tauri-apps/api/core';
+
+interface BackendLocation {
+  baseUrl: string;
+  token?: string;
+}
+
 declare global {
   interface Window {
-    electronAPI?: {
-      openDirectoryDialog: () => Promise<string | null>;
-    };
+    /** Set by the desktop app before the page loads: where its bundled backend listens. */
+    __GITTER_BACKEND__?: BackendLocation;
   }
 }
 
-let cachedWorkingBase: string | null = null;
-
-function getCandidateBases(): string[] {
-  if (typeof window === 'undefined') return ['http://127.0.0.1:3001/api', 'http://localhost:3001/api'];
-
-  const custom = localStorage.getItem('gitter_api_url');
-  if (custom) return [custom.replace(/\/$/, '') + '/api'];
-
-  const { hostname, port } = window.location;
-  const candidates: string[] = [];
-
-  if (cachedWorkingBase) {
-    candidates.push(cachedWorkingBase);
-  }
-
-  // If already served directly by Express on port 3001, /api is preferred
-  if (port === '3001') {
-    candidates.push('/api');
-  }
-
-  // Host-matching candidate (prevents Private Network Access / PNA blocks in Edge/Chrome)
-  if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
-    candidates.push(`http://${hostname}:3001/api`);
-  }
-
-  candidates.push('http://127.0.0.1:3001/api');
-  candidates.push('http://localhost:3001/api');
-  candidates.push('/api');
-
-  // Return unique candidates preserving priority order
-  return Array.from(new Set(candidates));
-}
-
-export function getApiBases(): string[] {
-  return getCandidateBases();
-}
-
-function getAgentEventUrls(path: string): string[] {
-  const query = `agent-events?path=${encodeURIComponent(path)}`;
-  const bases = getCandidateBases();
-  if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
-    bases.unshift('/api');
-  }
-  return Array.from(new Set(bases.map((base) => `${base.replace(/\/$/, '')}/${query}`)));
-}
+// In the browser the backend shares the page's origin: Vite proxies /api in
+// development, and the backend serves the built UI itself otherwise.
+const backend: BackendLocation = window.__GITTER_BACKEND__ ?? { baseUrl: '/api' };
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const candidates = getCandidateBases();
-  let lastError: Error | null = null;
-
-  for (const base of candidates) {
-    try {
-      const fullUrl = `${base}${url}`;
-      const res = await fetch(fullUrl, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...options?.headers,
-        },
-      });
-
-      const contentType = res.headers.get('content-type') || '';
-
-      // If an endpoint returned HTML (e.g. Vite SPA index.html fallback when proxying times out or drops),
-      // DO NOT accept it as valid API data - skip to the next candidate (direct port 3001)!
-      if (!contentType.includes('application/json')) {
-        const rawText = await res.text();
-        if (rawText.includes('<!DOCTYPE') || rawText.includes('<html') || rawText.includes('<head>')) {
-          lastError = new Error(`Candidate '${base}' returned SPA HTML fallback instead of JSON (Status ${res.status}).`);
-          continue;
-        }
-
-        try {
-          const parsed = JSON.parse(rawText);
-          cachedWorkingBase = base;
-          return parsed;
-        } catch {
-          lastError = new Error(`Candidate '${base}' returned non-JSON text (${res.status}): ${rawText.slice(0, 100)}`);
-          continue;
-        }
-      }
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(errorData.error || `HTTP error ${res.status}`);
-      }
-
-      cachedWorkingBase = base;
-      return await res.json();
-    } catch (err: any) {
-      lastError = err;
-      // If error was an explicit API business-logic error (e.g. invalid git branch, rebase conflict),
-      // re-throw immediately rather than attempting unrelated candidates
-      if (
-        err.message &&
-        !err.message.includes('Failed to fetch') &&
-        !err.message.includes('NetworkError') &&
-        !err.message.includes('SPA HTML fallback') &&
-        !err.message.includes('Load failed') &&
-        !err.message.includes('non-JSON')
-      ) {
-        throw err;
-      }
-    }
+  let res: Response;
+  try {
+    res = await fetch(`${backend.baseUrl}${url}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(backend.token ? { 'X-Gitter-Token': backend.token } : {}),
+        ...options?.headers,
+      },
+    });
+  } catch {
+    throw new Error(`Cannot reach the Gitter backend at ${backend.baseUrl}. Is it running?`);
   }
-
-  throw new Error(
-    `Cannot connect to Gitter backend daemon on port 3001. Please ensure 'npm run server' is running. (${lastError?.message || 'Connection failed'})`
-  );
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.error || `Backend error ${res.status} ${res.statusText}`);
+  return body as T;
 }
 
 export const api = {
@@ -475,27 +392,19 @@ export const api = {
       lastCommitDate?: string;
     }>>(`/repo/scan?path=${encodeURIComponent(folderPath)}`),
 
-  // Native OS folder picker dialog
-  pickNativeFolder: async (): Promise<{ path: string | null }> => {
-    // 1. In Electron desktop runtime:
-    if (typeof window !== 'undefined' && window.electronAPI?.openDirectoryDialog) {
-      try {
-        const electronDir = await window.electronAPI.openDirectoryDialog();
-        if (electronDir) {
-          return { path: electronDir.replace(/\\/g, '/') };
-        }
-      } catch (e) {
-        console.warn('Electron directory picker error:', e);
-      }
+  /** Shows the OS folder picker. Resolves to the chosen folder, or null if cancelled. */
+  pickFolder: async (title = 'Select folder'): Promise<string | null> => {
+    if (isTauri()) {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const picked = await open({ directory: true, multiple: false, title });
+      return typeof picked === 'string' ? picked.replace(/\\/g, '/') : null;
     }
-
-    // 2. Fall back to backend native dialog (PowerShell on Windows, osascript on macOS, zenity on Linux)
-    try {
-      return await fetchJson<{ path: string | null }>('/dialog/pick-folder', { method: 'POST' });
-    } catch (e: any) {
-      console.warn('Backend pick-folder failed:', e);
-      return { path: null };
-    }
+    // A plain browser has no folder dialog that reveals paths, so the backend shows one.
+    const { path } = await fetchJson<{ path: string | null }>('/dialog/pick-folder', {
+      method: 'POST',
+      body: JSON.stringify({ title }),
+    });
+    return path;
   },
 
   // Per-Repository Configuration
@@ -643,15 +552,16 @@ export const api = {
       body: JSON.stringify({ path, agentId, patch, action: 'reject' }),
     }),
 
-  // Live fleet + review state over Server-Sent Events, with URL failover.
+  // Live fleet + review state over Server-Sent Events. EventSource cannot send
+  // headers, so the token travels in the query string.
   subscribeAgentEvents: (
     path: string,
     onSnapshot: (snapshot: AgentReviewSnapshot) => void,
     onConnectionChange?: (connected: boolean) => void
   ): (() => void) => {
-    const urls = getAgentEventUrls(path);
+    const query = new URLSearchParams({ path, ...(backend.token ? { token: backend.token } : {}) });
+    const url = `${backend.baseUrl}/agent-events?${query}`;
     let source: EventSource | null = null;
-    let index = 0;
     let closed = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
 
@@ -661,14 +571,7 @@ export const api = {
 
     const connect = () => {
       if (closed) return;
-      const url = urls[index % urls.length];
-      try {
-        source = new EventSource(url);
-      } catch {
-        index += 1;
-        schedule();
-        return;
-      }
+      source = new EventSource(url);
       source.onopen = () => onConnectionChange?.(true);
       source.onmessage = (event) => {
         try {
@@ -683,7 +586,6 @@ export const api = {
       source.onerror = () => {
         onConnectionChange?.(false);
         source?.close();
-        index += 1;
         schedule();
       };
     };
@@ -696,26 +598,18 @@ export const api = {
     };
   },
 
-  // Zero-Friction In-Place Software Updater
-  inPlaceUpdate: (targetVersion: string, downloadUrl?: string, assetName?: string) =>
-    fetchJson<{ success: boolean; method: string; message: string }>('/app/in-place-update', {
+  getLatestRelease: () => fetchJson<any>('/app/check-update'),
+
+  /** Downloads a release installer and starts it; the installer restarts Gitter. */
+  installUpdate: (downloadUrl: string) =>
+    fetchJson<{ installerPath: string }>('/app/install-update', {
       method: 'POST',
-      body: JSON.stringify({ targetVersion, downloadUrl, assetName }),
+      body: JSON.stringify({ downloadUrl }),
     }),
 
-  // OS Native URL Opener (Opens in default web browser without sandboxed webview blocks)
-  openExternalUrl: async (url: string): Promise<{ success: boolean }> => {
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.openExternalUrl) {
-      try {
-        await (window as any).electronAPI.openExternalUrl(url);
-        return { success: true };
-      } catch (e) {
-        console.warn('Electron openExternalUrl error:', e);
-      }
-    }
-    return fetchJson<{ success: boolean }>('/open-url', {
+  openExternalUrl: (url: string) =>
+    fetchJson<{ success: boolean }>('/open-url', {
       method: 'POST',
       body: JSON.stringify({ url }),
-    });
-  },
+    }),
 };

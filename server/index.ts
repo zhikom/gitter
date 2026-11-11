@@ -3,31 +3,38 @@ import cors from 'cors';
 import { gitService } from './gitService';
 import { aiService } from './aiService';
 import { githubService } from './githubService';
+import * as os from './osIntegration';
+import { downloadAndInstall, fetchLatestRelease } from './appUpdate';
+import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
+import { AddressInfo } from 'net';
 import { fileURLToPath } from 'url';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// The desktop app starts this backend with --desktop: loopback only, a free
+// port, a per-launch token the app hands to its webview, and exit when the app
+// (--parent-pid) does. Without it, the backend serves the dev UI on port 3001.
+const desktop = process.argv.includes('--desktop');
+const parentPid = Number(process.argv.find((a) => a.startsWith('--parent-pid='))?.split('=')[1]) || 0;
+const token = desktop ? crypto.randomBytes(24).toString('hex') : undefined;
 
-const execAsync = promisify(exec);
 const app = express();
-const PORT = process.env.PORT || 3001;
 
-app.use(cors({ origin: true, credentials: true }));
-// Handle Private Network Access (PNA) and preflight requests for Chrome/Edge/Tauri/Vite
+// Chromium-based webviews (WebView2, Edge) ask before a page reaches a loopback
+// address (Private Network Access); this header answers yes on the preflight.
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   res.header('Access-Control-Allow-Private-Network', 'true');
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(204);
-  }
   next();
 });
+app.use(cors({ origin: true, credentials: true, allowedHeaders: ['Content-Type', 'X-Gitter-Token'] }));
+
+if (token) {
+  // EventSource cannot send headers, so the token may also come as ?token=.
+  app.use('/api', (req, res, next) => {
+    if (req.get('x-gitter-token') === token || req.query.token === token) return next();
+    res.status(401).json({ error: 'Missing or invalid Gitter token.' });
+  });
+}
 
 app.use(express.json({ limit: '50mb' }));
 
@@ -222,7 +229,8 @@ app.post('/api/repo/branch/rename', async (req, res) => {
 app.post('/api/repo/reveal', async (req, res) => {
   try {
     const { path: repoPath, file } = req.body;
-    await gitService.revealInExplorer(resolvePath(repoPath), file);
+    const root = resolvePath(repoPath);
+    await os.revealInFileManager(file ? path.join(root, file) : root);
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -232,7 +240,8 @@ app.post('/api/repo/reveal', async (req, res) => {
 app.post('/api/repo/open-vscode', async (req, res) => {
   try {
     const { path: repoPath, file } = req.body;
-    await gitService.openInVsCode(resolvePath(repoPath), file);
+    const root = resolvePath(repoPath);
+    await os.openInEditor(file ? path.join(root, file) : root);
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -242,7 +251,7 @@ app.post('/api/repo/open-vscode', async (req, res) => {
 app.post('/api/repo/open-terminal', async (req, res) => {
   try {
     const { path: repoPath } = req.body;
-    await gitService.openInTerminal(resolvePath(repoPath));
+    await os.openTerminal(resolvePath(repoPath));
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -252,7 +261,9 @@ app.post('/api/repo/open-terminal', async (req, res) => {
 app.post('/api/repo/external-diff', async (req, res) => {
   try {
     const { path: repoPath, file, staged, customCmd } = req.body;
-    await gitService.openExternalDiff(resolvePath(repoPath), file, staged, customCmd);
+    const root = resolvePath(repoPath);
+    const baseFile = await gitService.exportBaseVersion(root, file, Boolean(staged));
+    await os.openDiffTool(baseFile, path.join(root, file), customCmd);
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -904,17 +915,7 @@ app.post('/api/ai/pr-description', async (req, res) => {
 // App Auto-Update & GitHub Releases Proxy
 app.get('/api/app/check-update', async (req, res) => {
   try {
-    const response = await fetch('https://api.github.com/repos/zhikom/gitter/releases/latest', {
-      headers: {
-        'User-Agent': 'Gitter-App',
-        Accept: 'application/vnd.github.v3+json',
-      },
-    });
-    if (!response.ok) {
-      return res.status(response.status).json({ error: `GitHub API error: ${response.statusText}` });
-    }
-    const data = await response.json();
-    res.json(data);
+    res.json(await fetchLatestRelease());
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -934,8 +935,8 @@ app.get('/api/repo/scan', async (req, res) => {
 // Native OS folder picker dialog
 app.post('/api/dialog/pick-folder', async (req, res) => {
   try {
-    const selectedPath = await gitService.pickNativeFolder();
-    res.json({ path: selectedPath });
+    const { title, startIn } = req.body ?? {};
+    res.json({ path: await os.pickFolder(title, startIn) });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -1192,12 +1193,12 @@ app.get('/api/agent-events', async (req, res) => {
   req.on('close', () => clearInterval(timer));
 });
 
-// In-Place Software Updater Endpoint
-app.post('/api/app/in-place-update', async (req, res) => {
+app.post('/api/app/install-update', async (req, res) => {
   try {
-    const { targetVersion, downloadUrl, assetName } = req.body;
-    const result = await gitService.performInPlaceUpdate(targetVersion, downloadUrl, assetName);
-    res.json(result);
+    const installerPath = await downloadAndInstall(String(req.body.downloadUrl ?? ''));
+    res.json({ installerPath });
+    // The installer replaces this executable; exit so the file is not in use.
+    if (desktop) setTimeout(() => process.exit(0), 500);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -1206,38 +1207,24 @@ app.post('/api/app/in-place-update', async (req, res) => {
 // OS Native URL Opener (Bypasses sandboxed webview restrictions)
 app.post('/api/open-url', async (req, res) => {
   try {
-    const { url } = req.body;
-    if (!url || typeof url !== 'string' || !url.startsWith('http')) {
-      return res.status(400).json({ error: 'Invalid URL parameter' });
-    }
-    const isWindows = process.platform === 'win32';
-    const isMac = process.platform === 'darwin';
-    const cmd = isWindows
-      ? `start "" "${url}"`
-      : isMac
-      ? `open "${url}"`
-      : `xdg-open "${url}"`;
-    await execAsync(cmd);
+    await os.openUrl(String(req.body.url ?? ''));
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// Serve built frontend assets if dist folder exists
-const distCandidates = [
-  path.resolve(__dirname, '../dist'),
-  path.resolve(__dirname, 'dist'),
-  path.resolve(process.cwd(), 'dist'),
-];
-const distPath = distCandidates.find((d) => fs.existsSync(d) && fs.existsSync(path.join(d, 'index.html')));
+// Running from source after `npm run build`, the backend also serves the UI.
+// The desktop app bundles the UI itself and never has a dist folder here.
+const distPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist');
+const servesUi = !desktop && fs.existsSync(path.join(distPath, 'index.html'));
 
 // Catch unhandled /api calls to prevent falling into the SPA HTML fallback
 app.all('/api/*', (req, res) => {
   res.status(404).json({ error: `API endpoint not found: ${req.method} ${req.path}` });
 });
 
-if (distPath) {
+if (servesUi) {
   app.use(express.static(distPath));
   // Client-side SPA routing fallback for non-API routes
   app.get('*', (req, res, next) => {
@@ -1248,6 +1235,19 @@ if (distPath) {
   });
 }
 
-app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`Gitter backend server running on http://127.0.0.1:${PORT} and http://localhost:${PORT}`);
+const server = app.listen(desktop ? 0 : Number(process.env.PORT) || 3001, desktop ? '127.0.0.1' : '0.0.0.0', () => {
+  const { port } = server.address() as AddressInfo;
+  // The desktop app reads this line to learn where to point its webview.
+  if (desktop) console.log(`GITTER_READY ${JSON.stringify({ port, token })}`);
+  else console.log(`Gitter backend listening on http://localhost:${port}`);
 });
+
+if (parentPid) {
+  setInterval(() => {
+    try {
+      process.kill(parentPid, 0);
+    } catch {
+      process.exit(0);
+    }
+  }, 2000);
+}
