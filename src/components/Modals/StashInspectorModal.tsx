@@ -1,18 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import {
-  X,
-  Archive,
-  Check,
-  Trash2,
-  RotateCcw,
-  FileCode,
-  Copy,
-  ExternalLink,
-  Layers,
-  Search,
-} from 'lucide-react';
+import { X, Archive, Check, Trash2, RotateCcw, FileCode, Copy, ExternalLink, Layers, Search } from 'lucide-react';
 import { FileDiff } from '../../types/git';
-import { Shelf } from '../../types/shelf';
 import { api } from '../../api/client';
 import { DiffViewer } from '../Staging/DiffViewer';
 
@@ -26,19 +14,12 @@ interface StashFileItem {
 
 interface StashInspectorModalProps {
   repoPath: string;
-  target:
-    | { type: 'stash'; index: number; name: string }
-    | { type: 'shelf'; shelf: Shelf };
+  target: { type: 'stash'; index: number; name: string };
   onClose: () => void;
   onRefresh: () => void;
 }
 
-export const StashInspectorModal: React.FC<StashInspectorModalProps> = ({
-  repoPath,
-  target,
-  onClose,
-  onRefresh,
-}) => {
+export const StashInspectorModal: React.FC<StashInspectorModalProps> = ({ repoPath, target, onClose, onRefresh }) => {
   const [files, setFiles] = useState<StashFileItem[]>([]);
   const [summary, setSummary] = useState<string>('');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -47,43 +28,29 @@ export const StashInspectorModal: React.FC<StashInspectorModalProps> = ({
   const [actionLoading, setActionLoading] = useState(false);
   const [search, setSearch] = useState('');
 
-  const isStash = target.type === 'stash';
-  const title = isStash ? `Stash: ${target.name}` : `Shelf: ${target.shelf.name}`;
+  const title = `Stash: ${target.name}`;
 
-  // Fetch files in stash or shelf
+  // Fetch files in the stash
   useEffect(() => {
     let isMounted = true;
     setLoading(true);
 
-    if (isStash) {
-      api.getStashFiles(repoPath, target.index)
-        .then((res) => {
-          if (!isMounted) return;
-          setFiles(res.files || []);
-          setSummary(res.summary || '');
-          if (res.files && res.files.length > 0) {
-            setSelectedFile(res.files[0].path);
-          }
-        })
-        .catch((e) => {
-          console.error('Fetch stash files error:', e);
-        })
-        .finally(() => {
-          if (isMounted) setLoading(false);
-        });
-    } else {
-      // Shelf files
-      const items: StashFileItem[] = target.shelf.files.map((p) => ({
-        path: p,
-        status: 'M',
-        additions: 0,
-        deletions: 0,
-      }));
-      setFiles(items);
-      setSummary(`${items.length} files in shelf`);
-      if (items.length > 0) setSelectedFile(items[0].path);
-      setLoading(false);
-    }
+    api
+      .getStashFiles(repoPath, target.index)
+      .then((res) => {
+        if (!isMounted) return;
+        setFiles(res.files || []);
+        setSummary(res.summary || '');
+        if (res.files && res.files.length > 0) {
+          setSelectedFile(res.files[0].path);
+        }
+      })
+      .catch((e) => {
+        console.error('Fetch stash files error:', e);
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
 
     return () => {
       isMounted = false;
@@ -99,24 +66,14 @@ export const StashInspectorModal: React.FC<StashInspectorModalProps> = ({
 
     let isMounted = true;
 
-    if (isStash) {
-      api.getStashFileDiff(repoPath, target.index, selectedFile)
-        .then((diffs) => {
-          if (isMounted) setFileDiffs(diffs);
-        })
-        .catch(() => {
-          if (isMounted) setFileDiffs([]);
-        });
-    } else {
-      // For shelf, we can parse patch directly or display file diff
-      api.getDiff(repoPath, selectedFile, false)
-        .then((diffs) => {
-          if (isMounted) setFileDiffs(diffs);
-        })
-        .catch(() => {
-          if (isMounted) setFileDiffs([]);
-        });
-    }
+    api
+      .getStashFileDiff(repoPath, target.index, selectedFile)
+      .then((diffs) => {
+        if (isMounted) setFileDiffs(diffs);
+      })
+      .catch(() => {
+        if (isMounted) setFileDiffs([]);
+      });
 
     return () => {
       isMounted = false;
@@ -125,7 +82,6 @@ export const StashInspectorModal: React.FC<StashInspectorModalProps> = ({
 
   // Actions
   const handleApplyStash = async () => {
-    if (!isStash) return;
     setActionLoading(true);
     try {
       await api.applyStash(repoPath, target.index);
@@ -140,7 +96,6 @@ export const StashInspectorModal: React.FC<StashInspectorModalProps> = ({
   };
 
   const handlePopStash = async () => {
-    if (!isStash) return;
     setActionLoading(true);
     try {
       await api.popStash(repoPath, target.index);
@@ -155,7 +110,6 @@ export const StashInspectorModal: React.FC<StashInspectorModalProps> = ({
   };
 
   const handleDropStash = async () => {
-    if (!isStash) return;
     if (!confirm(`Are you sure you want to drop stash@{${target.index}}?`)) return;
     setActionLoading(true);
     try {
@@ -170,39 +124,7 @@ export const StashInspectorModal: React.FC<StashInspectorModalProps> = ({
     }
   };
 
-  const handleUnshelve = async (deleteAfter: boolean = false) => {
-    if (isStash) return;
-    setActionLoading(true);
-    try {
-      await api.unshelve(repoPath, target.shelf.id, deleteAfter);
-      toast(`Unshelved "${target.shelf.name}"! Changes restored to working directory.`);
-      onRefresh();
-      onClose();
-    } catch (e: any) {
-      toast(`Unshelve failed: ${e.message}`);
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleDeleteShelf = async () => {
-    if (isStash) return;
-    if (!confirm(`Delete shelf "${target.shelf.name}"?`)) return;
-    setActionLoading(true);
-    try {
-      await api.deleteShelf(repoPath, target.shelf.id);
-      onRefresh();
-      onClose();
-    } catch (e: any) {
-      toast(`Delete shelf failed: ${e.message}`);
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const filteredFiles = files.filter((f) =>
-    f.path.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredFiles = files.filter((f) => f.path.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex items-center justify-center p-4 select-none">
@@ -216,9 +138,7 @@ export const StashInspectorModal: React.FC<StashInspectorModalProps> = ({
             <div>
               <div className="flex items-center space-x-2">
                 <span className="font-bold text-sm text-slate-100">{title}</span>
-                <span className="text-[10px] px-2 py-0.5 rounded bg-[#1e2636] text-slate-400 font-mono">
-                  {summary}
-                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded bg-[#1e2636] text-slate-400 font-mono">{summary}</span>
               </div>
               <span className="text-[11px] text-slate-400">
                 Inspect changes and file diffs before applying or discarding
@@ -228,61 +148,30 @@ export const StashInspectorModal: React.FC<StashInspectorModalProps> = ({
 
           {/* Action buttons */}
           <div className="flex items-center space-x-2">
-            {isStash ? (
-              <>
-                <button
-                  onClick={handleApplyStash}
-                  disabled={actionLoading}
-                  className="px-3 py-1.5 rounded-lg bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/40 text-xs font-medium transition"
-                  title="Apply changes to working tree while keeping stash in list"
-                >
-                  Apply Stash
-                </button>
-                <button
-                  onClick={handlePopStash}
-                  disabled={actionLoading}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition shadow"
-                  title="Apply changes and remove stash from list"
-                >
-                  Pop Stash
-                </button>
-                <button
-                  onClick={handleDropStash}
-                  disabled={actionLoading}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-[#202736] transition"
-                  title="Drop Stash"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={() => handleUnshelve(false)}
-                  disabled={actionLoading}
-                  className="px-3 py-1.5 rounded-lg bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/40 text-xs font-medium transition"
-                  title="Unshelve changes to working tree and keep shelf"
-                >
-                  Unshelve (Keep)
-                </button>
-                <button
-                  onClick={() => handleUnshelve(true)}
-                  disabled={actionLoading}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition shadow"
-                  title="Unshelve changes and remove shelf"
-                >
-                  Unshelve & Remove
-                </button>
-                <button
-                  onClick={handleDeleteShelf}
-                  disabled={actionLoading}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-[#202736] transition"
-                  title="Delete Shelf"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </>
-            )}
+            <button
+              onClick={handleApplyStash}
+              disabled={actionLoading}
+              className="px-3 py-1.5 rounded-lg bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/40 text-xs font-medium transition"
+              title="Apply changes to working tree while keeping stash in list"
+            >
+              Apply Stash
+            </button>
+            <button
+              onClick={handlePopStash}
+              disabled={actionLoading}
+              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition shadow"
+              title="Apply changes and remove stash from list"
+            >
+              Pop Stash
+            </button>
+            <button
+              onClick={handleDropStash}
+              disabled={actionLoading}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-[#202736] transition"
+              title="Drop Stash"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
 
             <button
               onClick={onClose}

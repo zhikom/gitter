@@ -19,7 +19,6 @@ import {
   Worktree,
 } from '../types/git';
 import { VirtualBranch, VirtualBranchCommitPayload } from '../types/virtualBranch';
-import { Shelf } from '../types/shelf';
 import { AgentActivityState, AgentFleetState, AgentHarness, AgentInstance } from '../types/agentFleet';
 import {
   AgentDiffResponse,
@@ -282,28 +281,6 @@ export const api = {
       body: JSON.stringify({ path, patch }),
     }),
 
-  // Shelve & Unshelve (JetBrains Source Control)
-  getShelves: (path: string): Promise<Shelf[]> =>
-    fetchJson(`/repo/shelves?path=${encodeURIComponent(path)}`),
-
-  shelve: (path: string, name: string, files: string[], keepWorkingChanges = false): Promise<Shelf> =>
-    fetchJson('/repo/shelves', {
-      method: 'POST',
-      body: JSON.stringify({ path, name, files, keepWorkingChanges }),
-    }),
-
-  unshelve: (path: string, shelfId: string, deleteAfter = false) =>
-    fetchJson<{ success: boolean }>('/repo/shelve/unshelve', {
-      method: 'POST',
-      body: JSON.stringify({ path, shelfId, deleteAfter }),
-    }),
-
-  deleteShelf: (path: string, shelfId: string) =>
-    fetchJson<{ success: boolean }>('/repo/shelve/delete', {
-      method: 'POST',
-      body: JSON.stringify({ path, shelfId }),
-    }),
-
   // Stash Inspector
   getStashFiles: (path: string, index = 0) =>
     fetchJson<{
@@ -335,8 +312,17 @@ export const api = {
   getStashes: (path: string): Promise<Stash[]> =>
     fetchJson(`/repo/stashes?path=${encodeURIComponent(path)}`),
 
-  saveStash: (path: string, message: string, includeUntracked = true) =>
-    fetchJson('/repo/stash/save', { method: 'POST', body: JSON.stringify({ path, message, includeUntracked }) }),
+  saveStash: (
+    path: string,
+    message: string,
+    includeUntracked = true,
+    files?: string[],
+    keepWorkingChanges = false
+  ) =>
+    fetchJson('/repo/stash/save', {
+      method: 'POST',
+      body: JSON.stringify({ path, message, includeUntracked, files, keepWorkingChanges }),
+    }),
 
   popStash: (path: string, index = 0) =>
     fetchJson('/repo/stash/pop', { method: 'POST', body: JSON.stringify({ path, index }) }),

@@ -423,47 +423,6 @@ app.post('/api/repo/virtual-branch/apply', async (req, res) => {
   }
 });
 
-// Shelve & Unshelve (JetBrains Source Control)
-app.get('/api/repo/shelves', async (req, res) => {
-  try {
-    const targetPath = resolvePath(req.query.path as string);
-    const shelves = await gitService.getShelves(targetPath);
-    res.json(shelves);
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.post('/api/repo/shelves', async (req, res) => {
-  try {
-    const { path: repoPath, name, files, keepWorkingChanges } = req.body;
-    const shelf = await gitService.shelve(resolvePath(repoPath), name, files, keepWorkingChanges);
-    res.json(shelf);
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.post('/api/repo/shelve/unshelve', async (req, res) => {
-  try {
-    const { path: repoPath, shelfId, deleteAfter } = req.body;
-    await gitService.unshelve(resolvePath(repoPath), shelfId, deleteAfter);
-    res.json({ success: true });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.post('/api/repo/shelve/delete', async (req, res) => {
-  try {
-    const { path: repoPath, shelfId } = req.body;
-    await gitService.deleteShelf(resolvePath(repoPath), shelfId);
-    res.json({ success: true });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 // Stash Inspector (Preview stash contents and file diffs)
 app.get('/api/repo/stash/inspect', async (req, res) => {
   try {
@@ -555,8 +514,14 @@ app.get('/api/repo/stashes', async (req, res) => {
 
 app.post('/api/repo/stash/save', async (req, res) => {
   try {
-    const { path: repoPath, message, includeUntracked } = req.body;
-    await gitService.saveStash(resolvePath(repoPath), message, includeUntracked);
+    const { path: repoPath, message, includeUntracked, files, keepWorkingChanges } = req.body;
+    await gitService.saveStash(
+      resolvePath(repoPath),
+      message,
+      includeUntracked,
+      Array.isArray(files) ? files.map(String) : undefined,
+      Boolean(keepWorkingChanges)
+    );
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });

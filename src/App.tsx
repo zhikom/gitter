@@ -20,7 +20,7 @@ import { DiffViewer } from './components/Staging/DiffViewer';
 import { CommitDetailModal } from './components/CommitDetail/CommitDetailModal';
 import { AgentSidebar } from './components/Agent/AgentSidebar';
 import { CreateBranchModal } from './components/Modals/CreateBranchModal';
-import { StashModal } from './components/Modals/StashModal';
+import { StashModal, StashSaveOptions } from './components/Modals/StashModal';
 import { CloneRepoModal } from './components/Modals/CloneRepoModal';
 import { OpenRepoModal } from './components/Modals/OpenRepoModal';
 import { SettingsModal } from './components/Modals/SettingsModal';
@@ -37,7 +37,6 @@ import { QuickLaunchModal } from './components/Modals/QuickLaunchModal';
 import { LaunchpadModal } from './components/Modals/LaunchpadModal';
 import { StashInspectorModal } from './components/Modals/StashInspectorModal';
 import { FileHistoryModal } from './components/Modals/FileHistoryModal';
-import { ShelveModal } from './components/Modals/ShelveModal';
 import { VirtualBranchPanel } from './components/VirtualBranches/VirtualBranchPanel';
 import { UpdateModal } from './components/Modals/UpdateModal';
 import { GitflowModal } from './components/Modals/GitflowModal';
@@ -52,7 +51,6 @@ import { UpdateInfo } from './types/update';
 import { AgentAttentionItem, AgentReviewItem } from './types/agentReview';
 import { useAgentLive } from './hooks/useAgentLive';
 import { PullRequest, Submodule, Worktree } from './types/git';
-import { Shelf } from './types/shelf';
 
 import { toast } from './utils/toast';
 export const App: React.FC = () => {
@@ -63,7 +61,6 @@ export const App: React.FC = () => {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [stashes, setStashes] = useState<Stash[]>([]);
-  const [shelves, setShelves] = useState<Shelf[]>([]);
   const [remotes, setRemotes] = useState<Remote[]>([]);
   const [worktrees, setWorktrees] = useState<Worktree[]>([]);
   const [submodules, setSubmodules] = useState<Submodule[]>([]);
@@ -260,11 +257,9 @@ export const App: React.FC = () => {
     [applyAgentReview]
   );
 
-  // JetBrains Shelves & Inspector
-  const [showShelveModal, setShowShelveModal] = useState<boolean>(false);
+  // Stash inspector
   const [stashInspectorTarget, setStashInspectorTarget] = useState<
     | { type: 'stash'; index: number; name: string }
-    | { type: 'shelf'; shelf: Shelf }
     | null
   >(null);
   const [fileHistoryTarget, setFileHistoryTarget] = useState<string | null>(null);
@@ -331,7 +326,6 @@ export const App: React.FC = () => {
         fetchedWorktrees,
         fetchedSubmodules,
         fetchedPrs,
-        fetchedShelves,
         fetchedFleet,
       ] = await Promise.all([
         api.getCommits(state.path, 300),
@@ -343,7 +337,6 @@ export const App: React.FC = () => {
         api.getWorktrees(state.path),
         api.getSubmodules(state.path),
         api.getPullRequests(state.path).catch(() => []),
-        api.getShelves(state.path).catch(() => []),
         api.getAgentFleet(state.path).catch(() => null),
       ]);
 
@@ -352,7 +345,6 @@ export const App: React.FC = () => {
       setBranches(fetchedBranches);
       setTags(fetchedTags);
       setStashes(fetchedStashes);
-      setShelves(fetchedShelves);
       setRemotes(fetchedRemotes);
       setWorktrees(fetchedWorktrees);
       setSubmodules(fetchedSubmodules);
@@ -747,8 +739,8 @@ export const App: React.FC = () => {
   };
 
   // Stash actions
-  const handleSaveStash = async (message: string, includeUntracked: boolean) => {
-    await api.saveStash(repoPath, message, includeUntracked);
+  const handleSaveStash = async ({ message, includeUntracked, files, keepWorkingChanges }: StashSaveOptions) => {
+    await api.saveStash(repoPath, message, includeUntracked, files, keepWorkingChanges);
     await refreshRepo();
   };
 
@@ -770,43 +762,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // JetBrains Shelves actions
-  const handleShelve = async (name: string, files: string[], keepWorkingChanges: boolean) => {
-    setLoading(true);
-    try {
-      await api.shelve(repoPath, name, files, keepWorkingChanges);
-      await refreshRepo();
-    } catch (e: any) {
-      toast(`Shelve failed: ${e.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const handleUnshelve = async (shelfId: string) => {
-    setLoading(true);
-    try {
-      await api.unshelve(repoPath, shelfId, false);
-      await refreshRepo();
-    } catch (e: any) {
-      toast(`Unshelve failed: ${e.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteShelf = async (shelfId: string) => {
-    if (!confirm('Are you sure you want to delete this shelf?')) return;
-    setLoading(true);
-    try {
-      await api.deleteShelf(repoPath, shelfId);
-      await refreshRepo();
-    } catch (e: any) {
-      toast(`Delete shelf failed: ${e.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleRevealInExplorer = async (file?: string) => {
     try {
@@ -1241,7 +1197,6 @@ export const App: React.FC = () => {
               remotes={remotes}
               tags={tags}
               stashes={stashes}
-              shelves={shelves}
               pullRequests={pullRequests}
               worktrees={worktrees}
               submodules={submodules}
@@ -1256,10 +1211,6 @@ export const App: React.FC = () => {
               onApplyStash={handleApplyStash}
               onDropStash={handleDropStash}
               onInspectStash={(index, name) => setStashInspectorTarget({ type: 'stash', index, name })}
-              onInspectShelf={(shelf) => setStashInspectorTarget({ type: 'shelf', shelf })}
-              onUnshelve={handleUnshelve}
-              onDeleteShelf={handleDeleteShelf}
-              onShelve={() => setShowShelveModal(true)}
               onDeleteTag={handleDeleteTag}
               onPushTag={handlePushTag}
               onCreateBranch={() => {
@@ -1425,7 +1376,6 @@ export const App: React.FC = () => {
                         onDiscardFile={handleDiscardFile}
                         onDiscardAll={handleDiscardAll}
                         onStash={() => setShowStashModal(true)}
-                        onShelve={() => setShowShelveModal(true)}
                         onOpenBlame={(file) => setBlameFilePath(file)}
                         onOpenFileHistory={(file) => setFileHistoryTarget(file)}
                         onRevealInExplorer={handleRevealInExplorer}
@@ -1614,6 +1564,7 @@ export const App: React.FC = () => {
 
       {showStashModal && (
         <StashModal
+          files={statuses}
           onClose={() => setShowStashModal(false)}
           onSave={handleSaveStash}
         />
@@ -1894,14 +1845,6 @@ export const App: React.FC = () => {
           onOpenAgentFleet={() => setShowAgentFleetModal(true)}
           onOpenAgent={handleOpenAgentRun}
           onAskAgent={handleAskAgent}
-        />
-      )}
-
-      {showShelveModal && (
-        <ShelveModal
-          files={statuses}
-          onClose={() => setShowShelveModal(false)}
-          onShelve={handleShelve}
         />
       )}
 

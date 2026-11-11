@@ -1,7 +1,7 @@
 {
   "name": "gitter-vscode",
   "displayName": "Gitter - The Elite Git Client for VS Code",
-  "description": "Ultra-fast interactive Git graph, 3-way merge conflict resolver, JetBrains shelves, GitButler virtual branches, and AI commit assistant directly inside VS Code.",
+  "description": "Ultra-fast interactive Git graph, 3-way merge conflict resolver, GitButler virtual branches, and AI commit assistant directly inside VS Code.",
   "version": "1.1.1",
   "publisher": "zhikom",
   "repository": {
@@ -23,8 +23,7 @@
     "sublime merge",
     "diff",
     "virtual branches",
-    "merge conflict",
-    "shelve"
+    "merge conflict"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -68,12 +67,6 @@
         "icon": "$(history)"
       },
       {
-        "command": "gitter.shelve",
-        "title": "Gitter: Shelve Changes (JetBrains Shelf)",
-        "category": "Gitter",
-        "icon": "$(bookmark)"
-      },
-      {
         "command": "gitter.virtualBranches",
         "title": "Gitter: Multi-Branch Stacking (Virtual Branches)",
         "category": "Gitter",
@@ -114,9 +107,6 @@
         {
           "command": "gitter.fileHistory",
           "when": "editorIsOpen"
-        },
-        {
-          "command": "gitter.shelve"
         },
         {
           "command": "gitter.virtualBranches"

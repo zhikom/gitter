@@ -47,6 +47,12 @@ import { AGENT_BRANCH_PREFIX, HARNESS_REGISTRY, detectCollisions, harnessColor, 
 
 const execAsync = promisify(exec);
 
+// The UI polls status, diffs and the agent fleet every few seconds. Without this,
+// each `git status` briefly takes .git/index.lock and can make a concurrent
+// write (stash, commit, checkout) fail with "index.lock: File exists".
+// Only optional locks are skipped; operations that write still lock as usual.
+process.env.GIT_OPTIONAL_LOCKS = '0';
+
 
 interface AgentReviewStoreEntry {
   status?: AgentReviewStatus;
@@ -638,10 +644,41 @@ export class GitService {
     return stashes;
   }
 
-  async saveStash(repoPath: string, message: string = '', includeUntracked: boolean = true): Promise<void> {
-    const uFlag = includeUntracked ? '-u' : '';
-    const mFlag = message ? `-m "${message.replace(/"/g, '\\"')}"` : '';
-    await this.runGitRaw(`stash push ${uFlag} ${mFlag}`.trim(), repoPath);
+  async saveStash(
+    repoPath: string,
+    message: string = '',
+    includeUntracked: boolean = true,
+    files?: string[],
+    keepWorkingChanges: boolean = false
+  ): Promise<void> {
+    // Arguments go to git without a shell, so messages and paths need no quoting.
+    const args = ['stash', 'push'];
+    if (includeUntracked) args.push('-u');
+    if (message) args.push('-m', message);
+    if (files && files.length > 0) args.push('--', ...files);
+    await this.waitForIndexLock(repoPath);
+    await this.runGitWithStdin(args, '', repoPath);
+    if (keepWorkingChanges) {
+      // Snapshot only: restore the stashed changes (and staged state) right away.
+      await this.waitForIndexLock(repoPath);
+      try {
+        await this.runGitWithStdin(['stash', 'apply', '--index', 'stash@{0}'], '', repoPath);
+      } catch (e: any) {
+        throw new Error(
+          `Stash saved, but restoring the working tree failed: ${e.message}\nYour changes are safe in stash@{0}; apply it to get them back.`
+        );
+      }
+    }
+  }
+
+  // Another git process (an IDE, a terminal, an agent) may briefly hold the index
+  // lock. Wait for it to clear rather than failing a two-step operation halfway.
+  private async waitForIndexLock(repoPath: string, timeoutMs = 3000): Promise<void> {
+    const lock = path.join(this.resolveGitDir(repoPath), 'index.lock');
+    const deadline = Date.now() + timeoutMs;
+    while (fs.existsSync(lock) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
   }
 
   async popStash(repoPath: string, index: number = 0): Promise<void> {
@@ -1194,83 +1231,17 @@ export class GitService {
     return patch;
   }
 
-  // Shelve & Unshelve (JetBrains Source Control)
-  private getShelvesDir(repoPath: string): string {
-    const dir = path.join(this.resolveGitDir(repoPath), 'gitter', 'shelves');
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    return dir;
-  }
-
-  async getShelves(repoPath: string): Promise<any[]> {
-    try {
-      const dir = this.getShelvesDir(repoPath);
-      const files = await fs.promises.readdir(dir);
-      const shelves: any[] = [];
-      for (const file of files) {
-        if (file.endsWith('.json')) {
-          const content = await fs.promises.readFile(path.join(dir, file), 'utf8');
-          shelves.push(JSON.parse(content));
-        }
-      }
-      return shelves.sort((a, b) => b.timestamp - a.timestamp);
-    } catch {
-      return [];
-    }
-  }
-
-  async shelve(repoPath: string, name: string, filePaths: string[], keepWorkingChanges: boolean = false): Promise<any> {
-    const dir = this.getShelvesDir(repoPath);
-    const id = `shelf-${Date.now()}`;
-    const fileArgs = filePaths.map((f) => `"${f}"`).join(' ');
-    const patch = await this.runGitRaw(`diff HEAD -- ${fileArgs}`, repoPath);
-    if (!keepWorkingChanges) {
-      await this.runGitRaw(`checkout HEAD -- ${fileArgs}`, repoPath);
-    }
-    const shelf = {
-      id,
-      name: name.trim() || `Shelf on ${new Date().toLocaleDateString()}`,
-      date: new Date().toISOString(),
-      timestamp: Date.now(),
-      files: filePaths,
-      patch,
-    };
-    await fs.promises.writeFile(path.join(dir, `${id}.json`), JSON.stringify(shelf, null, 2), 'utf8');
-    return shelf;
-  }
-
-  async unshelve(repoPath: string, shelfId: string, deleteAfter: boolean = false): Promise<void> {
-    const dir = this.getShelvesDir(repoPath);
-    const shelfFile = path.join(dir, `${shelfId}.json`);
-    if (!fs.existsSync(shelfFile)) throw new Error('Shelf not found');
-    const content = JSON.parse(await fs.promises.readFile(shelfFile, 'utf8'));
-    if (content.patch) {
-      await this.stagePatch(repoPath, content.patch);
-      // Reset index to leave changes in working tree unstaged
-      await this.runGitRaw('reset', repoPath);
-    }
-    if (deleteAfter) {
-      await fs.promises.unlink(shelfFile);
-    }
-  }
-
-  async deleteShelf(repoPath: string, shelfId: string): Promise<void> {
-    const dir = this.getShelvesDir(repoPath);
-    const shelfFile = path.join(dir, `${shelfId}.json`);
-    if (fs.existsSync(shelfFile)) {
-      await fs.promises.unlink(shelfFile);
-    }
-  }
-
   // Stash details & Diff Inspector
   async getStashFiles(repoPath: string, index: number = 0): Promise<{
     files: Array<{ path: string; status: string; additions: number; deletions: number }>;
     summary: string;
   }> {
     const stashRef = `stash@{${index}}`;
-    const numstat = await this.runGitRaw(`stash show --numstat ${stashRef}`, repoPath);
-    const nameStatus = await this.runGitRaw(`stash show --name-status ${stashRef}`, repoPath);
+    // --include-untracked lists files saved with `stash push -u`, which plain `stash show` hides.
+    const [numstat, nameStatus] = await Promise.all([
+      this.runGitWithStdin(['stash', 'show', '--include-untracked', '--numstat', stashRef], '', repoPath),
+      this.runGitWithStdin(['stash', 'show', '--include-untracked', '--name-status', stashRef], '', repoPath),
+    ]);
 
     const statusMap = new Map<string, string>();
     for (const line of nameStatus.split('\n')) {
@@ -1299,8 +1270,18 @@ export class GitService {
 
   async getStashFileDiff(repoPath: string, index: number, filePath: string): Promise<FileDiff[]> {
     const stashRef = `stash@{${index}}`;
-    const rawDiff = await this.runGitRaw(`stash show -p ${stashRef} -- "${filePath}"`, repoPath);
-    return parseGitDiff(rawDiff);
+    // `git stash show` takes no pathspec, so diff the stash commit against its base.
+    const tracked = await this.runGitWithStdin(['diff', `${stashRef}^1`, stashRef, '--', filePath], '', repoPath);
+    if (tracked.trim()) return parseGitDiff(tracked);
+
+    // Untracked files live in the stash's third parent; diff them against an empty tree.
+    const hasUntracked = await this.runGitWithStdin(['rev-parse', '--verify', '--quiet', `${stashRef}^3`], '', repoPath)
+      .then(() => true)
+      .catch(() => false);
+    if (!hasUntracked) return [];
+    const emptyTree = (await this.runGitWithStdin(['hash-object', '-t', 'tree', '--stdin'], '', repoPath)).trim();
+    const untracked = await this.runGitWithStdin(['diff', emptyTree, `${stashRef}^3`, '--', filePath], '', repoPath);
+    return parseGitDiff(untracked);
   }
 
   // File Commit Diff (for File History Timeline)

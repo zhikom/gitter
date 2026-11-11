@@ -29,17 +29,6 @@ export function activate(context: vscode.ExtensionContext) {
     openGitterWebview(context, { view: 'fileHistory', filePath: relativePath });
   });
 
-  // Command: Shelve Changes (JetBrains Shelf)
-  const shelveCmd = vscode.commands.registerCommand('gitter.shelve', async () => {
-    const shelfName = await vscode.window.showInputBox({
-      prompt: 'Enter name for the JetBrains shelf',
-      placeHolder: `Shelf: ${new Date().toLocaleTimeString()}`,
-    });
-    if (!shelfName) return;
-
-    openGitterWebview(context, { view: 'shelve', shelfName });
-  });
-
   // Command: GitButler Virtual Branches
   const virtualBranchesCmd = vscode.commands.registerCommand('gitter.virtualBranches', () => {
     openGitterWebview(context, { view: 'virtualBranches' });
@@ -61,7 +50,6 @@ export function activate(context: vscode.ExtensionContext) {
     openGraphCmd,
     openDiffCmd,
     fileHistoryCmd,
-    shelveCmd,
     virtualBranchesCmd,
     conflictResolverCmd,
     launchDesktopCmd
@@ -69,9 +57,8 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 interface WebviewOptions {
-  view: 'graph' | 'diff' | 'fileHistory' | 'shelve' | 'virtualBranches' | 'conflicts';
+  view: 'graph' | 'diff' | 'fileHistory' | 'virtualBranches' | 'conflicts';
   filePath?: string;
-  shelfName?: string;
 }
 
 function openGitterWebview(context: vscode.ExtensionContext, options: WebviewOptions) {
@@ -252,12 +239,6 @@ class GitterQuickActionsProvider implements vscode.TreeDataProvider<GitterQuickA
         'GitButler-style virtual branch stacking',
         new vscode.ThemeIcon('git-pull-request'),
         { command: 'gitter.virtualBranches', title: 'Virtual Branches' }
-      ),
-      new GitterQuickActionItem(
-        'Shelve Changes (JetBrains)',
-        'Shelve & unshelve local working changes',
-        new vscode.ThemeIcon('bookmark'),
-        { command: 'gitter.shelve', title: 'Shelve Changes' }
       ),
       new GitterQuickActionItem(
         'Working Tree & Line Staging',

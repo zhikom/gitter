@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>Ultra-Fast • Lightweight Native Rust Backend • GitButler Virtual Branches • JetBrains Shelves • 3-Way Conflict Resolver • VS Code Extension • AI Copilot</strong>
+  <strong>Ultra-Fast • Lightweight Native Rust Backend • GitButler Virtual Branches • 3-Way Conflict Resolver • VS Code Extension • AI Copilot</strong>
 </p>
 
 <p align="center">
@@ -36,8 +36,8 @@ Instead of 350MB+ of Electron bloat and monthly SaaS subscriptions, Gitter ships
 │  • Pre-flight file claim matrix• Ahead/Behind live badges    • Multi-feature WIP│
 ├────────────────────────────────────────────────────────────────────────────────┤
 │  JETBRAINS (IDEA / RIDER)      AI COPILOT & AGENTS           VS CODE & TABS    │
-│  • Persistent named shelves    • Claude Code, Antigravity,   • Embedded webview│
-│  • Rebase-immune patch store     Codex, Grok, Cursor, Aider  • Native extension│
+│  • Selective file stashing     • Claude Code, Antigravity,   • Embedded webview│
+│  • Snapshot stash (keep WIP)     Codex, Grok, Cursor, Aider  • Native extension│
 │  • Lifetime file history       • AI conflict resolution agent• Multi-repo tabs │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -82,11 +82,10 @@ Instead of 350MB+ of Electron bloat and monthly SaaS subscriptions, Gitter ships
 - Drag files between unassigned changes and independent virtual lanes.
 - Commit, stash, or hide lanes individually while preserving clean Git working tree state.
 
-### 3. 📦 JetBrains Shelve & Unshelve *(Persistent Named Shelves)*
-- **Shelve Changes**: Save dirty changes into named, persistent shelves in `.git/gitter/shelves/` with custom descriptions and selective file checklists.
-- **Rebase-Immune**: Unlike standard Git stashes, shelves are never dropped, indexed out-of-order, or broken by rebases and branch switches.
-- **Duplicate or Rollback**: Option to *"Keep files in working directory"* (duplicate shelf) or rollback local working copy upon shelving.
-- **Stash & Shelf Inspector**: Click any stash or shelf in the sidebar to inspect modified files, addition/deletion stats (`+N / -M`), and diffs before applying or popping.
+### 3. 📦 Selective Stash & Stash Inspector
+- **Selective Stash**: Name a stash and pick exactly which files go into it (`git stash push -- <paths>`), with or without untracked files.
+- **Snapshot Mode**: Option to *"Keep changes in the working directory"* saves a stash without reverting your files.
+- **Stash Inspector**: Click any stash in the sidebar to inspect modified files, addition/deletion stats (`+N / -M`), and diffs before applying, popping, or dropping.
 
 ### 4. 📜 Interactive File History Timeline
 - Right-click any file in the staging list or diff view to open **"Show File History (All Commits)"**.
@@ -130,7 +129,6 @@ Instead of 350MB+ of Electron bloat and monthly SaaS subscriptions, Gitter ships
 - Command Palette integration:
   - `Gitter: Open Interactive Commit Graph`
   - `Gitter: View File History Timeline`
-  - `Gitter: Shelve Changes (JetBrains Shelf)`
   - `Gitter: Multi-Branch Stacking (Virtual Branches)`
   - `Gitter: 3-Way Visual Merge Conflict Resolver`
 - Dedicated **Gitter Activity Bar View** with quick launch actions.
@@ -169,14 +167,14 @@ gitter/
 │   ├── src/lib.rs         # Tauri application configuration & hooks
 │   └── tauri.conf.json    # Multi-platform bundle definitions
 ├── server/                # Lightweight Node.js/Express service for Web mode
-│   ├── gitService.ts      # Git operations, patch generation, shelves, reflog
+│   ├── gitService.ts      # Git operations, patch generation, stashes, reflog
 │   └── index.ts           # REST API endpoints
 ├── src/                   # React 18 + TypeScript frontend
 │   ├── components/
 │   │   ├── CommitGraph/   # Topological lanes, bezier curves, density switcher
 │   │   ├── ConflictResolver/ # 3-way visual merge conflict tool
 │   │   ├── CommitComparison/ # 2-commit range diff & AI release notes
-│   │   ├── Modals/        # ShelveModal, StashInspectorModal, FileHistoryModal, Reflog
+│   │   ├── Modals/        # StashModal, StashInspectorModal, FileHistoryModal, Reflog
 │   │   ├── Navigation/    # Multi-repo top tab bar
 │   │   ├── Staging/       # Staging list, hunk & line-level diff viewer
 │   │   └── VirtualBranches/ # GitButler multi-branch lane manager

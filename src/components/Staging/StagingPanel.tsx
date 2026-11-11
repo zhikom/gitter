@@ -16,7 +16,6 @@ import {
   ExternalLink,
   Archive,
   History,
-  Bookmark,
   AlertTriangle,
 } from 'lucide-react';
 
@@ -31,7 +30,6 @@ interface StagingPanelProps {
   onDiscardFile: (file: string) => void;
   onDiscardAll: () => void;
   onStash?: () => void;
-  onShelve?: () => void;
   onOpenBlame?: (file: string) => void;
   onOpenFileHistory?: (file: string) => void;
   onRevealInExplorer?: (file: string) => void;
@@ -60,7 +58,6 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
   onDiscardFile,
   onDiscardAll,
   onStash,
-  onShelve,
   onOpenBlame,
   onOpenFileHistory,
   onRevealInExplorer,
@@ -296,16 +293,6 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
 
             {unstagedFiles.length > 0 && (
               <div className="flex items-center space-x-1">
-                {onShelve && (
-                  <button
-                    onClick={onShelve}
-                    title="Shelve changes (JetBrains-style shelf)"
-                    className="flex items-center space-x-1 px-1.5 py-0.5 rounded hover:bg-[#283244] text-[10px] text-indigo-300 transition"
-                  >
-                    <Bookmark className="w-3 h-3 text-indigo-400" />
-                    <span>Shelve</span>
-                  </button>
-                )}
                 {onStash && (
                   <button
                     onClick={onStash}
@@ -489,16 +476,16 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
             </button>
           )}
 
-          {onShelve && (
+          {onStash && (
             <button
               onClick={() => {
-                onShelve();
+                onStash();
                 setContextMenu(null);
               }}
-              className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-indigo-300"
+              className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-amber-300"
             >
-              <Bookmark className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Shelve Changes...</span>
+              <Archive className="w-3.5 h-3.5 text-amber-400" />
+              <span>Stash Changes...</span>
             </button>
           )}
 
