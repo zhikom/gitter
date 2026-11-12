@@ -1,12 +1,10 @@
 import React from 'react';
 import { Bot, Inbox, Plus, Radio } from 'lucide-react';
-import { AgentFleetState } from '../../types/agentFleet';
-import { AgentReviewState } from '../../types/agentReview';
+import type { AgentReviewItem } from '../../../shared/types/agentReview';
 import { AgentAvatar } from './agentUi';
 
 interface AgentRailProps {
-  fleet: AgentFleetState | null;
-  review: AgentReviewState | null;
+  reviews: AgentReviewItem[];
   connected: boolean;
   selectedAgentId: string | null;
   onOpenInbox: () => void;
@@ -16,8 +14,7 @@ interface AgentRailProps {
 }
 
 export const AgentRail: React.FC<AgentRailProps> = ({
-  fleet,
-  review,
+  reviews: items,
   connected,
   selectedAgentId,
   onOpenInbox,
@@ -25,9 +22,7 @@ export const AgentRail: React.FC<AgentRailProps> = ({
   onSpawn,
   onSelectAgent,
 }) => {
-  const items = review?.items ?? [];
   const needsReview = items.filter((item) => item.status === 'needs-review').length;
-  const collisionAgents = new Set((fleet?.collisions ?? []).flatMap((c) => c.contendingAgents));
 
   return (
     <nav
@@ -74,14 +69,14 @@ export const AgentRail: React.FC<AgentRailProps> = ({
 
       <div className="flex-1 w-full overflow-y-auto flex flex-col items-center gap-1.5 px-1">
         {items.map((item) => {
-          const hasCollision = collisionAgents.has(item.agentName) || item.collisions.length > 0;
+          const hasCollision = item.collisions.length > 0;
           return (
             <button
-              key={item.id}
-              onClick={() => onSelectAgent(item.id)}
+              key={item.agentId}
+              onClick={() => onSelectAgent(item.agentId)}
               title={`${item.agentName} · ${item.status.replace('-', ' ')}${hasCollision ? ' · collision' : ''}`}
               className={`relative p-0.5 rounded-lg transition ${
-                selectedAgentId === item.id
+                selectedAgentId === item.agentId
                   ? 'ring-2 ring-teal-400/70 bg-teal-400/10'
                   : 'ring-1 ring-transparent hover:ring-white/20 hover:bg-white/[0.04]'
               }`}
@@ -89,7 +84,6 @@ export const AgentRail: React.FC<AgentRailProps> = ({
               <AgentAvatar
                 name={item.agentName}
                 harness={item.harness}
-                color={item.color}
                 status={item.agentStatus}
                 size="sm"
               />

@@ -29,18 +29,12 @@ const push = (tone: ToastTone, message: string) => {
   const id = ++seq;
   items = [...items.slice(-3), { id, tone, message }];
   emit();
-  setTimeout(() => dismissToast(id), tone === 'error' ? 7000 : 4000);
+  // Errors stay long enough to read; the user can also dismiss them.
+  setTimeout(() => dismissToast(id), tone === 'error' ? 8000 : 4000);
 };
 
-// Drop-in replacement for window.alert(): errors stay visible longer and use the error tone.
-export const toast = Object.assign((message: string) => push(inferTone(message), message), {
+export const toast = {
   success: (message: string) => push('success', message),
   error: (message: string) => push('error', message),
   info: (message: string) => push('info', message),
-});
-
-const ERROR_PATTERN = /\b(error|fail(ed|ure)?|could not|cannot|can't|invalid|not found|denied|conflict)\b/i;
-
-function inferTone(message: string): ToastTone {
-  return ERROR_PATTERN.test(message) ? 'error' : 'info';
-}
+};

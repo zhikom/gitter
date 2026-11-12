@@ -1,6 +1,8 @@
-import React, { useState, useMemo } from 'react';
-import { Commit, GraphNode } from '../../types/git';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Commit, GraphNode } from '../../../shared/types/git';
 import { layoutCommitGraph, getLaneColor } from '../../utils/graphLayout';
+import { usePreference } from '../../preferences';
+import { aiAuthorOf, HARNESS_META } from '../Agent/agentUi';
 import {
   GitCommit,
   GitBranch,
@@ -31,8 +33,8 @@ interface CommitGraphProps {
   onResetCommit: (hash: string, mode: 'soft' | 'mixed' | 'hard') => void;
   onCherryPick: (hash: string) => void;
   onInteractiveRebase?: (baseHash: string) => void;
-  onOpenInVsCode?: (hash: string) => void;
-  onCreatePatch?: (hash: string) => void;
+  onOpenInEditor?: () => void;
+  onCopyPatch?: (hash: string) => void;
   onCompareCommits?: (commitA: Commit, commitB: Commit) => void;
   agentBranchNames?: string[];
   hasAgentCollisions?: boolean;
@@ -60,19 +62,17 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
   onResetCommit,
   onCherryPick,
   onInteractiveRebase,
-  onOpenInVsCode,
-  onCreatePatch,
+  onOpenInEditor,
+  onCopyPatch,
   onCompareCommits,
   agentBranchNames = [],
   hasAgentCollisions = false,
 }) => {
   const agentBranchSet = new Set(agentBranchNames);
   const [searchQuery, setSearchQuery] = useState('');
-  const [density, setDensity] = useState<GraphDensity>(() => {
-    const saved = localStorage.getItem('gitter_graph_density');
-    if (saved === 'compact' || saved === 'normal' || saved === 'comfortable') return saved;
-    return 'normal';
-  });
+  const [density, setDensity] = usePreference('graphDensity');
+  // The checked-out commit; the list is newest first across all branches, so it need not be first.
+  const headCommit = commits.find((c) => c.refs.some((r) => r === 'HEAD' || r.startsWith('HEAD ->')));
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -137,6 +137,20 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
   const { rowHeight, laneWidth, nodeRadius } = DENSITY_SETTINGS[density];
   const graphWidth = GRAPH_PADDING_X * 2 + maxLanes * laneWidth;
 
+  // Columns follow the pane's own width, which side panels change without the window resizing.
+  const root = useRef<HTMLDivElement>(null);
+  const [paneWidth, setPaneWidth] = useState(1000);
+  useEffect(() => {
+    const observer = new ResizeObserver(([entry]) => setPaneWidth(entry.contentRect.width));
+    if (root.current) observer.observe(root.current);
+    return () => observer.disconnect();
+  }, []);
+  // Many lanes are clipped rather than pushing the messages out of view.
+  const graphColumn = Math.min(graphWidth, Math.max(80, Math.floor(paneWidth * 0.3)));
+  const showAuthor = paneWidth >= 520;
+  const showDate = paneWidth >= 660;
+  const showSha = paneWidth >= 780;
+
   const handleContextMenu = (e: React.MouseEvent, commit: Commit) => {
     e.preventDefault();
     setContextMenu({
@@ -152,6 +166,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
 
   return (
     <div
+      ref={root}
       className="flex-1 flex flex-col h-full bg-[#14181f] overflow-hidden select-none"
       onClick={() => setContextMenu(null)}
     >
@@ -176,10 +191,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             {(['compact', 'normal', 'comfortable'] as const).map((d) => (
               <button
                 key={d}
-                onClick={() => {
-                  setDensity(d);
-                  localStorage.setItem('gitter_graph_density', d);
-                }}
+                onClick={() => setDensity(d)}
                 className={`px-2 py-0.5 rounded transition capitalize font-medium ${
                   density === d
                     ? 'bg-teal-500/20 text-teal-300 shadow-sm border border-teal-500/30'
@@ -209,13 +221,13 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
 
       {/* Table Headers */}
       <div className="h-7 bg-[#1b212c] border-b border-[#2a3447] flex items-center text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-2">
-        <div style={{ width: graphWidth }} className="flex-shrink-0 px-2">
+        <div style={{ width: graphColumn }} className="flex-shrink-0 px-2">
           Graph
         </div>
-        <div className="min-w-0 flex-1 px-3">Commit Message</div>
-        <div className="w-24 sm:w-32 flex-shrink-0 px-2 text-right">Author</div>
-        <div className="hidden sm:block w-24 flex-shrink-0 px-2 text-right">Date</div>
-        <div className="hidden md:block w-16 lg:w-20 flex-shrink-0 px-2 text-right font-mono">SHA</div>
+        <div className="min-w-0 flex-1 px-3 truncate">Message</div>
+        {showAuthor && <div className="w-32 flex-shrink-0 px-2 text-right">Author</div>}
+        {showDate && <div className="w-24 flex-shrink-0 px-2 text-right">Date</div>}
+        {showSha && <div className="w-20 flex-shrink-0 px-2 text-right font-mono">SHA</div>}
       </div>
 
       {/* Commit Rows Virtual/Scrollable Area */}
@@ -275,7 +287,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
               >
                 {/* SVG Graph Column */}
                 <div
-                  style={{ width: graphWidth, height: rowHeight }}
+                  style={{ width: graphColumn, height: rowHeight }}
                   className="flex-shrink-0 relative overflow-hidden"
                 >
                   <svg
@@ -431,30 +443,23 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                   </span>
                 </div>
 
-                {/* Author */}
-                <div className="w-24 sm:w-32 flex-shrink-0 px-2 text-right truncate text-slate-400 flex items-center justify-end space-x-1.5">
-                  {(() => {
-                    const text = `${commit.author.name} ${commit.author.email} ${commit.summary} ${commit.body || ''}`.toLowerCase();
-                    if (text.includes('claude')) return <span className="px-1 py-0.2 rounded text-[9px] font-semibold border bg-purple-500/20 text-purple-300 border-purple-500/40">Claude</span>;
-                    if (text.includes('antigravity') || text.includes('gemini')) return <span className="px-1 py-0.2 rounded text-[9px] font-semibold border bg-emerald-500/20 text-emerald-300 border-emerald-500/40">AGY</span>;
-                    if (text.includes('codex') || text.includes('openai')) return <span className="px-1 py-0.2 rounded text-[9px] font-semibold border bg-blue-500/20 text-blue-300 border-blue-500/40">Codex</span>;
-                    if (text.includes('grok')) return <span className="px-1 py-0.2 rounded text-[9px] font-semibold border bg-orange-500/20 text-orange-300 border-orange-500/40">Grok</span>;
-                    if (text.includes('cursor')) return <span className="px-1 py-0.2 rounded text-[9px] font-semibold border bg-cyan-500/20 text-cyan-300 border-cyan-500/40">Cursor</span>;
-                    if (text.includes('bot') || text.includes('agent')) return <span className="px-1 py-0.2 rounded text-[9px] font-semibold border bg-teal-500/20 text-teal-300 border-teal-500/40">AI</span>;
-                    return null;
-                  })()}
-                  <span className="truncate">{commit.author.name}</span>
-                </div>
-
-                {/* Date */}
-                <div className="hidden sm:block w-24 flex-shrink-0 px-2 text-right truncate text-slate-500 text-[11px]">
-                  {commit.date.split(' ')[0] || commit.date}
-                </div>
-
-                {/* Short SHA */}
-                <div className="hidden md:block w-16 lg:w-20 flex-shrink-0 px-2 text-right font-mono text-[11px] text-slate-400">
-                  {commit.shortHash}
-                </div>
+                {showAuthor && (
+                  <div className="w-32 flex-shrink-0 px-2 text-right truncate text-slate-400 flex items-center justify-end gap-1.5">
+                    {(() => {
+                      const harness = commit.body ? aiAuthorOf(commit.body) : null;
+                      if (!harness) return null;
+                      const meta = HARNESS_META[harness];
+                      return (
+                        <span title={`Written with ${meta.label}`} className="px-1 rounded text-[9px] font-semibold border border-white/10" style={{ color: meta.color, backgroundColor: `${meta.color}22` }}>
+                          {meta.label.split(' ')[0]}
+                        </span>
+                      );
+                    })()}
+                    <span className="truncate">{commit.author.name}</span>
+                  </div>
+                )}
+                {showDate && <div className="w-24 flex-shrink-0 px-2 text-right truncate text-slate-500 text-[11px]">{commit.date.split(' ')[0] || commit.date}</div>}
+                {showSha && <div className="w-20 flex-shrink-0 px-2 text-right font-mono text-[11px] text-slate-400">{commit.shortHash}</div>}
               </div>
             );
           })
@@ -567,9 +572,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
           </button>
           <button
             onClick={() => {
-              if (confirm('Are you sure? Hard reset will discard all uncommitted changes!')) {
-                onResetCommit(contextMenu.commit.hash, 'hard');
-              }
+              onResetCommit(contextMenu.commit.hash, 'hard');
               setContextMenu(null);
             }}
             className="w-full text-left px-3 py-1 hover:bg-[#262f3f] text-red-400"
@@ -579,14 +582,11 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
 
           <div className="border-t border-[#2a3447] my-1" />
 
-          {onCompareCommits && commits.length > 1 && (
+          {onCompareCommits && headCommit && headCommit.hash !== contextMenu.commit.hash && (
             <>
               <button
                 onClick={() => {
-                  const headCommit = commits[0];
-                  if (headCommit && headCommit.hash !== contextMenu.commit.hash) {
-                    onCompareCommits(contextMenu.commit, headCommit);
-                  }
+                  onCompareCommits(contextMenu.commit, headCommit);
                   setContextMenu(null);
                 }}
                 className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-teal-300"
@@ -612,29 +612,29 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             </>
           )}
 
-          {onOpenInVsCode && (
+          {onOpenInEditor && (
             <button
               onClick={() => {
-                onOpenInVsCode(contextMenu.commit.hash);
+                onOpenInEditor();
                 setContextMenu(null);
               }}
               className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-blue-300"
             >
               <ExternalLink className="w-3.5 h-3.5 text-blue-400" />
-              <span>Open repository in VS Code</span>
+              <span>Open repository in editor</span>
             </button>
           )}
 
-          {onCreatePatch && (
+          {onCopyPatch && (
             <button
               onClick={() => {
-                onCreatePatch(contextMenu.commit.hash);
+                onCopyPatch(contextMenu.commit.hash);
                 setContextMenu(null);
               }}
               className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-teal-300"
             >
               <FileCode className="w-3.5 h-3.5 text-teal-400" />
-              <span>Create patch from this commit</span>
+              <span>Copy as patch</span>
             </button>
           )}
 

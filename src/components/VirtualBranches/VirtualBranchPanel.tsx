@@ -16,13 +16,14 @@ import {
   GripVertical,
   ExternalLink,
 } from 'lucide-react';
-import { VirtualBranch, VirtualBranchCommitPayload } from '../../types/virtualBranch';
-import { FileStatus } from '../../types/git';
+import type { VirtualBranch } from '../../../shared/types/virtualBranch';
+import type { FileStatus } from '../../../shared/types/git';
 import { api } from '../../api/client';
-
 import { toast } from '../../utils/toast';
+import { ask } from '../ui/ask';
+
 interface VirtualBranchPanelProps {
-  repoPath: string;
+  repo: string;
   currentBranch: string;
   statuses: FileStatus[];
   onSelectFile: (file: string, staged: boolean) => void;
@@ -39,8 +40,12 @@ const LANE_COLORS = [
   { name: 'Rose', border: 'border-rose-500/50', bg: 'bg-rose-500/10', text: 'text-rose-400', badge: 'bg-rose-500/20 text-rose-300' },
 ];
 
+/**
+ * Lanes: group the working tree's changes by the branch they belong to, and
+ * commit each group to its own branch without switching away from this one.
+ */
 export const VirtualBranchPanel: React.FC<VirtualBranchPanelProps> = ({
-  repoPath,
+  repo,
   currentBranch,
   statuses,
   onSelectFile,
@@ -60,14 +65,12 @@ export const VirtualBranchPanel: React.FC<VirtualBranchPanelProps> = ({
     let isMounted = true;
     setLoading(true);
 
-    api.getVirtualBranches(repoPath)
+    api
+      .virtualBranches({ repo })
       .then((data) => {
-        if (!isMounted) return;
-        setVirtualBranches(data || []);
+        if (isMounted) setVirtualBranches(data);
       })
-      .catch((err) => {
-        console.error('Fetch virtual branches error:', err);
-      })
+      .catch((err) => toast.error(`Could not load the lanes: ${err.message}`))
       .finally(() => {
         if (isMounted) setLoading(false);
       });
@@ -75,15 +78,15 @@ export const VirtualBranchPanel: React.FC<VirtualBranchPanelProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [repoPath]);
+  }, [repo]);
 
   // Persist virtual branches when changed
   const updateBranches = async (updated: VirtualBranch[]) => {
     setVirtualBranches(updated);
     try {
-      await api.saveVirtualBranches(repoPath, updated);
+      await api.saveVirtualBranches({ repo, branches: updated });
     } catch (e: any) {
-      console.error('Save virtual branches error:', e);
+      toast.error(`Could not save the lanes: ${e.message}`);
     }
   };
 
@@ -143,8 +146,8 @@ export const VirtualBranchPanel: React.FC<VirtualBranchPanelProps> = ({
 
   // Delete an entire virtual branch
   const handleDeleteLane = async (laneId: string) => {
-    const confirmDelete = confirm('Remove this virtual branch lane? (Files remain in working directory)');
-    if (!confirmDelete) return;
+    const confirmed = await ask.confirm({ title: 'Remove this lane?', message: 'Its files stay changed in the working tree; only the grouping goes.', confirmLabel: 'Remove lane' });
+    if (!confirmed) return;
     const next = virtualBranches.filter((vb) => vb.id !== laneId);
     await updateBranches(next);
   };
@@ -153,24 +156,22 @@ export const VirtualBranchPanel: React.FC<VirtualBranchPanelProps> = ({
   const handleCommitLane = async (lane: VirtualBranch, pushUpstream = false) => {
     const msg = commitMessages[lane.id] || { summary: '', description: '' };
     if (!msg.summary.trim()) {
-      toast('Please enter a commit message for this virtual branch');
+      toast.error('Write a commit message for this lane first.');
       return;
     }
 
     setCommittingLaneId(lane.id);
     try {
-      const payload: VirtualBranchCommitPayload = {
-        path: repoPath,
+      const res = await api.commitVirtualBranch({
+        repo,
         branchName: lane.name,
         files: lane.filePaths,
         summary: msg.summary.trim(),
         description: msg.description?.trim(),
-        targetBranch: lane.targetBranch,
         pushUpstream,
-      };
-
-      const res = await api.commitVirtualBranch(repoPath, payload);
-      toast(`Committed ${lane.filePaths.length} files to branch "${res.branchName}" (SHA: ${res.commitHash.slice(0, 7)})!`);
+      });
+      toast.success(`Committed ${lane.filePaths.length} files to ${res.branchName} (${res.commitHash.slice(0, 7)}).`);
+      if (res.pushError) toast.error(`The commit is made, but the push failed: ${res.pushError}`);
 
       // Clear assigned files that were committed
       const next = virtualBranches.map((vb) =>
@@ -180,7 +181,7 @@ export const VirtualBranchPanel: React.FC<VirtualBranchPanelProps> = ({
       setCommitMessages((prev) => ({ ...prev, [lane.id]: { summary: '', description: '' } }));
       await onRefresh();
     } catch (e: any) {
-      toast(`Commit virtual branch failed: ${e.message}`);
+      toast.error(`Could not commit the lane: ${e.message}`);
     } finally {
       setCommittingLaneId(null);
     }
@@ -189,30 +190,22 @@ export const VirtualBranchPanel: React.FC<VirtualBranchPanelProps> = ({
   // Stash / Hide Lane
   const handleToggleStashLane = async (lane: VirtualBranch) => {
     if (lane.isStashed) {
-      // Restore lane patch
       try {
-        if (lane.stashPatch) {
-          await api.applyVirtualBranch(repoPath, lane.stashPatch);
-        }
-        const next = virtualBranches.map((vb) =>
-          vb.id === lane.id ? { ...vb, isStashed: false, stashPatch: undefined } : vb
-        );
+        await api.unstashLane({ repo, laneId: lane.id });
+        const next = virtualBranches.map((vb) => (vb.id === lane.id ? { ...vb, isStashed: false } : vb));
         await updateBranches(next);
         await onRefresh();
       } catch (e: any) {
-        toast(`Restore lane failed: ${e.message}`);
+        toast.error(`Could not bring the lane back: ${e.message}`);
       }
     } else {
-      // Stash lane
       try {
-        const res = await api.stashVirtualBranch(repoPath, lane.filePaths);
-        const next = virtualBranches.map((vb) =>
-          vb.id === lane.id ? { ...vb, isStashed: true, stashPatch: res.patch } : vb
-        );
+        await api.stashLane({ repo, laneId: lane.id, files: lane.filePaths });
+        const next = virtualBranches.map((vb) => (vb.id === lane.id ? { ...vb, isStashed: true } : vb));
         await updateBranches(next);
         await onRefresh();
       } catch (e: any) {
-        toast(`Hide lane failed: ${e.message}`);
+        toast.error(`Could not put the lane away: ${e.message}`);
       }
     }
   };
@@ -223,10 +216,7 @@ export const VirtualBranchPanel: React.FC<VirtualBranchPanelProps> = ({
       <div className="h-11 bg-[#171c26] border-b border-[#242d3d] px-4 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center space-x-2">
           <Layers className="w-4 h-4 text-teal-400" />
-          <span className="font-bold text-xs text-slate-100">Virtual Branches</span>
-          <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40">
-            GitButler Stacking
-          </span>
+          <span className="font-bold text-xs text-slate-100">Lanes</span>
         </div>
 
         <div className="flex items-center space-x-2">

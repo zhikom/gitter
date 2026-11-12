@@ -26,7 +26,7 @@ import {
   Search,
   X,
 } from 'lucide-react';
-import { Branch, PullRequest, Remote, Stash, Submodule, Tag, Worktree } from '../types/git';
+import { Branch, PullRequest, Remote, Stash, Submodule, Tag, Worktree } from '../../shared/types/git';
 
 export interface SidebarSectionConfig {
   localBranches: boolean;
@@ -51,7 +51,8 @@ interface SidebarProps {
   currentBranch: string;
   onCheckoutBranch: (name: string) => void;
   onDeleteBranch: (name: string) => void;
-  onRenameBranch?: (oldName: string, newName: string) => void;
+  /** Asks for the new name itself. */
+  onRenameBranch?: (name: string) => void;
   onPushBranch?: (name: string) => void;
   onBranchDrop?: (sourceBranch: string, targetBranch: string) => void;
   onPopStash: (index: number) => void;
@@ -498,14 +499,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     setDragOverBranch(null);
                     setDraggedBranch(null);
 
-                    // Handle commit dragged onto branch (SmartGit / Tower cherry-pick)
+                    // A commit dropped on a branch is cherry-picked onto it.
                     const droppedCommit = e.dataTransfer.getData('application/x-gitter-commit');
                     if (droppedCommit) {
-                      if (confirm(`Cherry-pick commit ${droppedCommit.slice(0, 7)} into branch '${branch.name}'?`)) {
-                        if (onCherryPickToBranch) {
-                          onCherryPickToBranch(droppedCommit, branch.name);
-                        }
-                      }
+                      onCherryPickToBranch?.(droppedCommit, branch.name);
                       return;
                     }
 
@@ -558,9 +555,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (confirm(`Delete branch '${branch.name}'?`)) {
-                              onDeleteBranch(branch.name);
-                            }
+                            onDeleteBranch(branch.name);
                           }}
                           title="Delete branch"
                           className="p-1 hover:text-red-400 text-slate-500 rounded"
@@ -767,9 +762,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (confirm(`Delete tag '${tag.name}'?`)) {
-                        onDeleteTag(tag.name);
-                      }
+                      onDeleteTag(tag.name);
                     }}
                     title="Delete Tag"
                     className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 text-slate-500 rounded"
@@ -1048,10 +1041,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {onRenameBranch && (
                 <button
                   onClick={() => {
-                    const newName = prompt(`Rename branch '${contextMenu.item.name}' to:`, contextMenu.item.name);
-                    if (newName && newName !== contextMenu.item.name) {
-                      onRenameBranch(contextMenu.item.name, newName.trim());
-                    }
+                    onRenameBranch(contextMenu.item.name);
                     setContextMenu(null);
                   }}
                   className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"
@@ -1090,9 +1080,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="border-t border-[#2a3447] my-1" />
                   <button
                     onClick={() => {
-                      if (confirm(`Delete branch '${contextMenu.item.name}'?`)) {
-                        onDeleteBranch(contextMenu.item.name);
-                      }
+                      onDeleteBranch(contextMenu.item.name);
                       setContextMenu(null);
                     }}
                     className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-red-400"
@@ -1173,9 +1161,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="border-t border-[#2a3447] my-1" />
               <button
                 onClick={() => {
-                  if (confirm(`Delete tag '${contextMenu.item.name}'?`)) {
-                    onDeleteTag(contextMenu.item.name);
-                  }
+                  onDeleteTag(contextMenu.item.name);
                   setContextMenu(null);
                 }}
                 className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-red-400"
@@ -1216,9 +1202,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="border-t border-[#2a3447] my-1" />
               <button
                 onClick={() => {
-                  if (confirm(`Drop ${contextMenu.item.name}?`)) {
-                    onDropStash(contextMenu.item.index);
-                  }
+                  onDropStash(contextMenu.item.index);
                   setContextMenu(null);
                 }}
                 className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-red-400"

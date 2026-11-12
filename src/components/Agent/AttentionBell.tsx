@@ -1,20 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, Bell, CheckCheck, Lock, ShieldAlert, X } from 'lucide-react';
-import { AgentAttentionItem } from '../../types/agentReview';
-import { timeAgo } from './agentUi';
+import type { AttentionItem } from './agentUi';
 
 interface AttentionBellProps {
-  attention: AgentAttentionItem[];
-  acknowledged: Set<string>;
+  attention: AttentionItem[];
+  acknowledged: ReadonlySet<string>;
   onAcknowledge: (id: string) => void;
   onAcknowledgeAll: () => void;
-  onSelect: (item: AgentAttentionItem) => void;
+  onSelect: (item: AttentionItem) => void;
 }
 
-const iconFor = (kind: AgentAttentionItem['kind']) => {
+const iconFor = (kind: AttentionItem['kind']) => {
   if (kind === 'collision') return <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />;
   if (kind === 'index-lock') return <Lock className="w-3.5 h-3.5 text-rose-400" />;
-  if (kind === 'error') return <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />;
+  if (kind === 'problem') return <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />;
   return <Bell className="w-3.5 h-3.5 text-sky-400" />;
 };
 
@@ -110,7 +109,6 @@ export const AttentionBell: React.FC<AttentionBellProps> = ({
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center justify-between gap-2">
                         <span className="text-[11px] font-semibold text-slate-200 truncate">{item.title}</span>
-                        <span className="text-[9px] text-slate-600 flex-shrink-0">{timeAgo(item.createdAt)}</span>
                       </span>
                       <span className="block text-[10px] text-slate-500 mt-0.5 line-clamp-2">{item.detail}</span>
                     </span>

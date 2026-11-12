@@ -1,127 +1,89 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Dispatch, SetStateAction } from 'react';
-import { api } from '../api/client';
-import { AgentFleetState } from '../types/agentFleet';
-import { AgentReviewState } from '../types/agentReview';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { api, subscribeAgentEvents } from '../api/client';
+import type { AgentFleetState } from '../../shared/types/agentFleet';
+import type { AgentReviewItem, AgentReviewSnapshot } from '../../shared/types/agentReview';
+import { attentionItems, type AttentionItem } from '../components/Agent/agentUi';
 import { toast } from '../utils/toast';
 
 export interface AgentLiveState {
   fleet: AgentFleetState | null;
-  review: AgentReviewState | null;
+  reviews: AgentReviewItem[];
+  attention: AttentionItem[];
+  /** Whether the backend's event stream is connected; while it is not, the hook polls. */
   connected: boolean;
-  lastUpdated: number;
+  /** Shows a snapshot an agent action returned, ahead of the next pushed one. */
+  apply: (snapshot: AgentReviewSnapshot) => void;
   refresh: () => Promise<void>;
-  applyFleet: Dispatch<SetStateAction<AgentFleetState | null>>;
-  applyReview: Dispatch<SetStateAction<AgentReviewState | null>>;
 }
 
 /**
- * Live fleet + review state over SSE, with polling fallback and attention routing.
- * Routine agent progress never interrupts; only review decisions and errors do.
+ * The repository's agents, kept current by the backend's event stream. New
+ * attention items raise a toast; ones present when the repository opened do not.
  */
-export function useAgentLive(repoPath: string): AgentLiveState {
-  const [fleet, setFleet] = useState<AgentFleetState | null>(null);
-  const [review, setReview] = useState<AgentReviewState | null>(null);
+export function useAgentLive(repo: string): AgentLiveState {
+  const [snapshot, setSnapshot] = useState<AgentReviewSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState(0);
-  const seenAttention = useRef<Set<string>>(new Set());
-  const initialized = useRef(false);
   const connectedRef = useRef(false);
 
-  const applySnapshot = useCallback((nextFleet: AgentFleetState, nextReview: AgentReviewState) => {
-    setFleet(nextFleet);
-    setReview(nextReview);
-    setLastUpdated(Date.now());
-  }, []);
-
   const refresh = useCallback(async () => {
-    if (!repoPath) return;
+    if (!repo) return;
     try {
-      const [nextFleet, nextReview] = await Promise.all([
-        api.getAgentFleet(repoPath),
-        api.getAgentReview(repoPath),
-      ]);
-      applySnapshot(nextFleet, nextReview);
+      setSnapshot(await api.agentSnapshot({ repo }));
     } catch {
-      // The server may still be starting; the stream or next poll will recover.
+      // The backend may still be starting; the stream or the next poll catches up.
     }
-  }, [repoPath, applySnapshot]);
+  }, [repo]);
 
   useEffect(() => {
-    if (!repoPath) {
-      setFleet(null);
-      setReview(null);
-      setConnected(false);
-      return;
-    }
-
-    seenAttention.current = new Set();
-    connectedRef.current = false;
-    initialized.current = false;
+    setSnapshot(null);
+    setConnected(false);
+    if (!repo) return;
     let cancelled = false;
-
-    const unsubscribe = api.subscribeAgentEvents(
-      repoPath,
-      (snapshot) => {
-        if (!cancelled) applySnapshot(snapshot.fleet, snapshot.review);
-      },
+    const unsubscribe = subscribeAgentEvents(
+      repo,
+      (next) => !cancelled && setSnapshot(next),
       (isConnected) => {
         connectedRef.current = isConnected;
         if (!cancelled) setConnected(isConnected);
       }
     );
-
-    // Poll only as a fallback while the event stream is down.
-    const poll = setInterval(() => {
-      if (!cancelled && !connectedRef.current) refresh();
-    }, 10_000);
-
+    const poll = setInterval(() => !connectedRef.current && refresh(), 10_000);
     refresh();
-
     return () => {
       cancelled = true;
       unsubscribe();
       clearInterval(poll);
     };
-  }, [repoPath, applySnapshot, refresh]);
+  }, [repo, refresh]);
 
-  // Attention routing: decisions and errors interrupt; everything else stays ambient.
+  const attention = useMemo(() => (snapshot ? attentionItems(snapshot.fleet, snapshot.reviews) : []), [snapshot]);
+
+  // Items already there when the repository opened are not news.
+  const seen = useRef<Set<string> | null>(null);
   useEffect(() => {
-    if (!review) return;
-    const interruptive = review.attention.filter(
-      (item) =>
-        item.kind === 'review' ||
-        item.kind === 'collision' ||
-        item.kind === 'index-lock' ||
-        item.kind === 'error'
-    );
-
-    if (!initialized.current) {
-      interruptive.forEach((item) => seenAttention.current.add(item.id));
-      initialized.current = true;
+    seen.current = null;
+  }, [repo]);
+  useEffect(() => {
+    if (!snapshot) return;
+    if (!seen.current) {
+      seen.current = new Set(attention.map((item) => item.id));
       return;
     }
-
-    for (const item of interruptive) {
-      if (seenAttention.current.has(item.id)) continue;
-      seenAttention.current.add(item.id);
-      if (item.kind === 'review') {
-        toast.info(item.title);
-      } else if (item.kind === 'index-lock' || item.kind === 'error' || item.severity === 'high') {
-        toast.error(`${item.title}\n${item.detail}`);
-      } else {
-        toast.info(`${item.title}\n${item.detail}`);
-      }
+    for (const item of attention) {
+      if (seen.current.has(item.id)) continue;
+      seen.current.add(item.id);
+      const message = item.kind === 'review' ? item.title : `${item.title}\n${item.detail}`;
+      if (item.severity === 'high' && item.kind !== 'review') toast.error(message);
+      else toast.info(message);
     }
-  }, [review]);
+  }, [snapshot, attention]);
 
   return {
-    fleet,
-    review,
+    fleet: snapshot?.fleet ?? null,
+    reviews: snapshot?.reviews ?? [],
+    attention,
     connected,
-    lastUpdated,
+    apply: setSnapshot,
     refresh,
-    applyFleet: setFleet,
-    applyReview: setReview,
   };
 }

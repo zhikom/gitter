@@ -1,4 +1,4 @@
-import { Commit, GraphNode, GraphRoute } from '../types/git';
+import { Commit, GraphNode, GraphRoute } from '../../shared/types/git';
 
 export const LANE_COLORS = [
   '#18b487', // GitKraken Teal

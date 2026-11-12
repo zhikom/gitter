@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { FileStatus, GitFileState } from '../../types/git';
-import { AgentInstance, FileCollision } from '../../types/agentFleet';
+import { FileStatus, GitFileState } from '../../../shared/types/git';
+import type { AgentInstance, FileCollision } from '../../../shared/types/agentFleet';
+import { collisionAgents, COLLISION_TEXT, harnessColor } from '../Agent/agentUi';
 import {
   Plus,
   Minus,
@@ -86,6 +87,8 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
         return <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1 rounded">A</span>;
       case 'deleted':
         return <span className="text-[10px] font-bold text-red-400 bg-red-500/10 px-1 rounded">D</span>;
+      case 'renamed':
+        return <span className="text-[10px] font-bold text-sky-400 bg-sky-500/10 px-1 rounded">R</span>;
       case 'untracked':
         return <span className="text-[10px] font-bold text-blue-400 bg-blue-500/10 px-1 rounded">U</span>;
       case 'conflicted':
@@ -122,14 +125,14 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
             key={agent.id}
             title={`${agent.name} touched this file`}
             className="w-1.5 h-1.5 rounded-full"
-            style={{ backgroundColor: agent.color }}
+            style={{ backgroundColor: harnessColor(agent.harness) }}
           />
         ))}
         {owners.length > 3 && (
           <span className="text-[8px] text-slate-500">+{owners.length - 3}</span>
         )}
         {collision && (
-          <span title={`Collision: ${collision.contendingAgents.join(' ↔ ')}\n${collision.suggestedAction}`}>
+          <span title={`${COLLISION_TEXT[collision.kind].label}: ${collisionAgents(collision, agents).join(', ')}\n${COLLISION_TEXT[collision.kind].advice}`}>
             <AlertTriangle className="w-3 h-3 text-amber-400" />
           </span>
         )}
@@ -154,10 +157,10 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
             <button
               onClick={onToggleVirtualBranches}
               className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[10px] font-medium transition"
-              title="Switch to GitButler Virtual Branches"
+              title="Group changes into lanes and commit each to its own branch"
             >
               <Archive className="w-3 h-3 text-purple-400" />
-              <span>Virtual Lanes</span>
+              <span>Lanes</span>
             </button>
           )}
           <span className="text-xs text-slate-500">
@@ -200,7 +203,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
         >
           <div className="flex items-center justify-between px-3 py-2 bg-[#1c222e] text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
             <div className="flex items-center space-x-1.5">
-              <span>Staged Files</span>
+              <span>Staged</span>
               <span className="text-slate-400 font-normal">({stagedFiles.length})</span>
             </div>
 
@@ -285,9 +288,9 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
             }
           }}
         >
-          <div className="flex items-center justify-between px-3 py-2 bg-[#1c222e] text-[11px] font-bold text-amber-400 uppercase tracking-wider">
-            <div className="flex items-center space-x-1.5">
-              <span>Unstaged Files</span>
+          <div className="flex items-center justify-between gap-2 px-3 py-2 bg-[#1c222e] text-[11px] font-bold text-amber-400 uppercase tracking-wider">
+            <div className="flex items-center gap-1.5 min-w-0 whitespace-nowrap">
+              <span>Unstaged</span>
               <span className="text-slate-400 font-normal">({unstagedFiles.length})</span>
             </div>
 
@@ -297,27 +300,27 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
                   <button
                     onClick={onStash}
                     title="Stash uncommitted changes"
-                    className="flex items-center space-x-1 px-1.5 py-0.5 rounded hover:bg-[#283244] text-[10px] text-amber-300 transition"
+                    aria-label="Stash"
+                    className="p-1 rounded hover:bg-[#283244] text-amber-300 transition"
                   >
-                    <Archive className="w-3 h-3 text-amber-400" />
-                    <span>Stash</span>
+                    <Archive className="w-3.5 h-3.5 text-amber-400" />
                   </button>
                 )}
                 <button
                   onClick={onDiscardAll}
                   title="Discard all changes"
-                  className="flex items-center space-x-1 px-1.5 py-0.5 rounded hover:bg-red-500/20 text-[10px] text-red-300 transition"
+                  aria-label="Discard all changes"
+                  className="p-1 rounded hover:bg-red-500/20 text-red-300 transition"
                 >
-                  <Trash2 className="w-3 h-3" />
-                  <span>Discard All</span>
+                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={onStageAll}
                   title="Stage all files"
-                  className="flex items-center space-x-1 px-1.5 py-0.5 rounded hover:bg-[#283244] text-[10px] text-teal-300 transition"
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[#283244] text-[10px] text-teal-300 transition whitespace-nowrap"
                 >
                   <Plus className="w-3 h-3" />
-                  <span>Stage All</span>
+                  <span>Stage all</span>
                 </button>
               </div>
             )}
@@ -358,9 +361,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (confirm(`Discard changes to ${file.path}?`)) {
-                            onDiscardFile(file.path);
-                          }
+                          onDiscardFile(file.path);
                         }}
                         title="Discard file changes"
                         className="p-1 hover:text-red-400 text-slate-500 rounded"
@@ -517,9 +518,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
 
           <button
             onClick={() => {
-              if (confirm(`Discard changes to ${contextMenu.file.path}?`)) {
-                onDiscardFile(contextMenu.file.path);
-              }
+              onDiscardFile(contextMenu.file.path);
               setContextMenu(null);
             }}
             className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-red-400"

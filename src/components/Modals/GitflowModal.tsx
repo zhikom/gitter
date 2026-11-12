@@ -14,27 +14,22 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { api } from '../../api/client';
-
 import { toast } from '../../utils/toast';
+import { ask } from '../ui/ask';
+
 interface GitflowModalProps {
-  repoPath: string;
+  repo: string;
   onClose: () => void;
   onRefresh: () => void;
 }
 
-export const GitflowModal: React.FC<GitflowModalProps> = ({ repoPath, onClose, onRefresh }) => {
+/** git-flow without the git-flow tool: feature, release and hotfix branches and how they finish. */
+export const GitflowModal: React.FC<GitflowModalProps> = ({ repo, onClose, onRefresh }) => {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [gitflowStatus, setGitflowStatus] = useState<{
-    initialized: boolean;
-    config: any;
-    currentBranch: string;
-    features: string[];
-    releases: string[];
-    hotfixes: string[];
-  } | null>(null);
+  const [gitflowStatus, setGitflowStatus] = useState<Awaited<ReturnType<typeof api.gitflowStatus>> | null>(null);
 
   // Init form
   const [masterBranch, setMasterBranch] = useState('main');
@@ -52,7 +47,7 @@ export const GitflowModal: React.FC<GitflowModalProps> = ({ repoPath, onClose, o
     setLoading(true);
     setError(null);
     try {
-      const status = await api.getGitflowStatus(repoPath);
+      const status = await api.gitflowStatus({ repo });
       setGitflowStatus(status);
       if (status.config) {
         setMasterBranch(status.config.masterBranch || 'main');
@@ -70,20 +65,16 @@ export const GitflowModal: React.FC<GitflowModalProps> = ({ repoPath, onClose, o
 
   useEffect(() => {
     loadStatus();
-  }, [repoPath]);
+    // Reloads only when the repository changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repo]);
 
   const handleInit = async (e: React.FormEvent) => {
     e.preventDefault();
     setActionLoading(true);
     setError(null);
     try {
-      await api.gitflowInit(repoPath, {
-        masterBranch,
-        developBranch,
-        featurePrefix,
-        releasePrefix,
-        hotfixPrefix,
-      });
+      await api.gitflowInit({ repo, config: { masterBranch, developBranch, featurePrefix, releasePrefix, hotfixPrefix } });
       await loadStatus();
       onRefresh();
     } catch (e: any) {
@@ -100,11 +91,11 @@ export const GitflowModal: React.FC<GitflowModalProps> = ({ repoPath, onClose, o
     setActionLoading(true);
     setError(null);
     try {
-      const res = await api.gitflowStart(repoPath, actionType, actionName.trim());
+      const branch = await api.gitflowStart({ repo, type: actionType, name: actionName.trim() });
       setActionName('');
       await loadStatus();
       onRefresh();
-      toast(`Started ${actionType}: checked out branch '${res.branch}'`);
+      toast.success(`Started ${actionType} on ${branch}.`);
     } catch (e: any) {
       setError(e.message || `Failed to start ${actionType}`);
     } finally {
@@ -113,15 +104,20 @@ export const GitflowModal: React.FC<GitflowModalProps> = ({ repoPath, onClose, o
   };
 
   const handleFinish = async (type: 'feature' | 'release' | 'hotfix', name: string) => {
-    if (!confirm(`Finish ${type} '${name}'? This will merge and delete the branch.`)) return;
+    const confirmed = await ask.confirm({
+      title: `Finish ${type} ${name}?`,
+      message: type === 'feature' ? 'It is merged into the develop branch and then deleted.' : 'It is merged into the main and develop branches, tagged, and then deleted.',
+      confirmLabel: 'Finish',
+    });
+    if (!confirmed) return;
 
     setActionLoading(true);
     setError(null);
     try {
-      const res = await api.gitflowFinish(repoPath, type, name);
+      const message = await api.gitflowFinish({ repo, type, name });
       await loadStatus();
       onRefresh();
-      toast(res.message);
+      toast.success(message);
     } catch (e: any) {
       setError(e.message || `Failed to finish ${type}`);
     } finally {

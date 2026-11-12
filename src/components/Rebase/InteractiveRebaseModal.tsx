@@ -1,307 +1,165 @@
-import React, { useState, useEffect } from 'react';
-import { RebaseCommitItem, RebaseActionType } from '../../types/git';
+import React, { useEffect, useState } from 'react';
+import { ArrowDown, ArrowUp, Check, GitMerge, Info, Wand2 } from 'lucide-react';
+import type { RebaseActionType, RebaseCommitItem } from '../../../shared/types/git';
 import { api } from '../../api/client';
-import {
-  X,
-  GitMerge,
-  ArrowUp,
-  ArrowDown,
-  Sparkles,
-  Check,
-  Trash2,
-  Edit3,
-  Layers,
-  AlertTriangle,
-} from 'lucide-react';
-
 import { toast } from '../../utils/toast';
+import { Button, Modal } from '../ui/Modal';
+
 interface InteractiveRebaseModalProps {
-  baseHash: string;
-  repoPath: string;
+  base: string;
+  repo: string;
   onClose: () => void;
   onComplete: () => void;
 }
 
-export const InteractiveRebaseModal: React.FC<InteractiveRebaseModalProps> = ({
-  baseHash,
-  repoPath,
-  onClose,
-  onComplete,
-}) => {
-  const [commits, setCommits] = useState<RebaseCommitItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [executing, setExecuting] = useState(false);
-  const [isAiOptimizing, setIsAiOptimizing] = useState(false);
+const ACTION_STYLE: Record<RebaseActionType, string> = {
+  pick: 'bg-blue-500/20 text-blue-300 border-blue-500/40',
+  reword: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40',
+  squash: 'bg-purple-500/20 text-purple-300 border-purple-500/40',
+  fixup: 'bg-pink-500/20 text-pink-300 border-pink-500/40',
+  drop: 'bg-rose-500/20 text-rose-400 border-rose-500/40',
+};
+
+/**
+ * git's autosquash: a commit titled "fixup! X" or "squash! X" moves right after
+ * the commit titled X and folds into it.
+ */
+export function autosquash(plan: RebaseCommitItem[]): RebaseCommitItem[] {
+  const result: RebaseCommitItem[] = [];
+  const pending = [...plan];
+  while (pending.length) {
+    // A fixup whose target came earlier was already taken out of `pending`; one
+    // still here has no target in the plan and stays where it is.
+    const item = pending.shift()!;
+    result.push(item);
+    const followers = pending.filter((c) => c.summary === `fixup! ${item.summary}` || c.summary === `squash! ${item.summary}`);
+    for (const follower of followers) {
+      pending.splice(pending.indexOf(follower), 1);
+      result.push({ ...follower, action: follower.summary.startsWith('fixup!') ? 'fixup' : 'squash' });
+    }
+  }
+  return result;
+}
+
+/** Rewrites the commits after `base`: reorder, reword, squash, fix up or drop them. */
+export const InteractiveRebaseModal: React.FC<InteractiveRebaseModalProps> = ({ base, repo, onClose, onComplete }) => {
+  const [plan, setPlan] = useState<RebaseCommitItem[] | null>(null);
+  const [running, setRunning] = useState(false);
 
   useEffect(() => {
-    let isMounted = true;
-    setLoading(true);
-
-    api.getRebaseCommits(repoPath, baseHash)
-      .then((items) => {
-        if (!isMounted) return;
-        setCommits(items);
-      })
+    api
+      .rebaseCommits({ repo, base })
+      .then(setPlan)
       .catch((e) => {
-        toast(`Failed to load rebase commits: ${e.message}`);
+        toast.error(`Could not list the commits: ${e.message}`);
         onClose();
-      })
-      .finally(() => {
-        if (isMounted) setLoading(false);
       });
+  }, [repo, base, onClose]);
 
-    return () => {
-      isMounted = false;
-    };
-  }, [baseHash, repoPath]);
-
-  const handleActionChange = (index: number, action: RebaseActionType) => {
-    setCommits((prev) => {
+  const update = (index: number, change: Partial<RebaseCommitItem>) => setPlan((prev) => prev && prev.map((c, i) => (i === index ? { ...c, ...change } : c)));
+  const move = (index: number, by: -1 | 1) =>
+    setPlan((prev) => {
+      if (!prev || index + by < 0 || index + by >= prev.length) return prev;
       const next = [...prev];
-      next[index] = { ...next[index], action };
+      [next[index], next[index + by]] = [next[index + by], next[index]];
       return next;
     });
-  };
 
-  const handleSummaryChange = (index: number, text: string) => {
-    setCommits((prev) => {
-      const next = [...prev];
-      next[index] = { ...next[index], newSummary: text };
-      return next;
-    });
-  };
+  const kept = plan?.filter((c) => c.action !== 'drop') ?? [];
+  const problem = !plan?.length
+    ? 'There are no commits to rewrite.'
+    : kept.length === 0
+      ? 'At least one commit has to stay.'
+      : kept[0].action === 'squash' || kept[0].action === 'fixup'
+        ? 'The first kept commit has nothing to fold into.'
+        : null;
 
-  const moveCommit = (index: number, direction: 'up' | 'down') => {
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= commits.length) return;
-
-    setCommits((prev) => {
-      const next = [...prev];
-      const temp = next[index];
-      next[index] = next[targetIndex];
-      next[targetIndex] = temp;
-      return next;
-    });
-  };
-
-  // AI Auto-Squash & Clean History
-  const handleAiAutoSquash = async () => {
-    setIsAiOptimizing(true);
+  const run = async () => {
+    if (!plan || problem) return;
+    setRunning(true);
     try {
-      // Analyze commit messages for WIP, fix, typo, formatting
-      const updated = commits.map((c, i) => {
-        const lower = c.summary.toLowerCase();
-        if (i > 0 && (lower.includes('wip') || lower.includes('fix') || lower.includes('typo') || lower.includes('cleanup'))) {
-          return {
-            ...c,
-            action: 'squash' as RebaseActionType,
-            newSummary: c.summary.replace(/^(wip|fix|cleanup)[:\s]*/i, '').trim(),
-          };
-        }
-        return c;
-      });
-
-      setCommits(updated);
-    } finally {
-      setIsAiOptimizing(false);
-    }
-  };
-
-  const handleStartRebase = async () => {
-    if (commits.length === 0) return;
-    if (commits.every((c) => c.action === 'drop')) {
-      toast('Cannot drop all commits.');
-      return;
-    }
-
-    if (commits[0].action === 'squash' || commits[0].action === 'fixup') {
-      toast('The first commit in the rebase plan cannot be squashed.');
-      return;
-    }
-
-    setExecuting(true);
-    try {
-      const res = await api.executeRebase(repoPath, baseHash, commits);
-      toast(res.output || 'Interactive rebase completed successfully!');
+      toast.success(await api.runRebasePlan({ repo, base, plan }));
       onComplete();
       onClose();
     } catch (e: any) {
-      toast(`Rebase failed: ${e.message}`);
+      toast.error(e.message);
     } finally {
-      setExecuting(false);
-    }
-  };
-
-  const getActionBadge = (action: RebaseActionType) => {
-    switch (action) {
-      case 'pick':
-        return 'bg-blue-500/20 text-blue-300 border-blue-500/40';
-      case 'reword':
-        return 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40';
-      case 'squash':
-        return 'bg-purple-500/20 text-purple-300 border-purple-500/40';
-      case 'fixup':
-        return 'bg-pink-500/20 text-pink-300 border-pink-500/40';
-      case 'drop':
-        return 'bg-rose-500/20 text-rose-400 border-rose-500/40';
+      setRunning(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6 select-none">
-      <div className="w-full max-w-4xl h-[80vh] bg-[#1b212c] border border-[#2a3447] rounded-lg shadow-2xl flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="h-14 bg-[#181d26] border-b border-[#2a3447] flex items-center justify-between px-4">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 rounded-lg bg-teal-500/20 border border-teal-500/40 flex items-center justify-center text-teal-400">
-              <GitMerge className="w-4 h-4" />
-            </div>
-            <div>
-              <span className="font-bold text-sm text-slate-100">
-                Interactive Rebase & Squash Tool
-              </span>
-              <span className="block text-xs font-mono text-slate-400">
-                Rebasing onto <span className="text-teal-400">{baseHash.slice(0, 7)}</span> ({commits.length} commits)
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={handleAiAutoSquash}
-              disabled={isAiOptimizing || loading}
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded bg-gradient-to-r from-teal-500/20 to-emerald-500/20 hover:from-teal-500/30 hover:to-emerald-500/30 border border-teal-500/40 text-teal-300 text-xs font-medium transition"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>AI Auto-Squash</span>
-            </button>
-
-            <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-200">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Warning Banner */}
-        <div className="bg-[#1a2332] px-4 py-2 border-b border-[#2a3447] flex items-center space-x-2 text-xs text-slate-300">
-          <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-          <span>
-            Reorder, squash, or reword commits below. Gitter creates an automatic backup branch and cleanly rewrites history.
-          </span>
-        </div>
-
-        {/* Commit Sequence Table */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {loading ? (
-            <div className="text-center py-12 text-slate-500 text-xs">Loading commits...</div>
-          ) : commits.length === 0 ? (
-            <div className="text-center py-12 text-slate-500 text-xs">No commits to rebase</div>
-          ) : (
-            commits.map((c, idx) => {
-              const isFirst = idx === 0;
-              const isLast = idx === commits.length - 1;
-              const isDropped = c.action === 'drop';
-
-              return (
-                <div
-                  key={c.hash}
-                  className={`flex items-center space-x-3 p-2.5 rounded border transition ${
-                    isDropped
-                      ? 'bg-[#14181f]/40 border-rose-950 opacity-60'
-                      : 'bg-[#14181f] border-[#2a3447] hover:border-slate-500'
-                  }`}
-                >
-                  {/* Reorder Buttons */}
-                  <div className="flex flex-col space-y-0.5">
-                    <button
-                      onClick={() => moveCommit(idx, 'up')}
-                      disabled={isFirst}
-                      title="Move Up"
-                      className="p-1 rounded hover:bg-[#202735] text-slate-400 hover:text-slate-200 disabled:opacity-20"
-                    >
-                      <ArrowUp className="w-3 h-3" />
-                    </button>
-                    <button
-                      onClick={() => moveCommit(idx, 'down')}
-                      disabled={isLast}
-                      title="Move Down"
-                      className="p-1 rounded hover:bg-[#202735] text-slate-400 hover:text-slate-200 disabled:opacity-20"
-                    >
-                      <ArrowDown className="w-3 h-3" />
-                    </button>
-                  </div>
-
-                  {/* Action Selector */}
-                  <select
-                    value={c.action}
-                    onChange={(e) => handleActionChange(idx, e.target.value as RebaseActionType)}
-                    className={`text-xs font-semibold px-2 py-1 rounded border uppercase ${getActionBadge(
-                      c.action
-                    )} bg-[#1b212c] focus:outline-none`}
-                  >
-                    <option value="pick">pick</option>
-                    <option value="reword">reword</option>
-                    <option value="squash" disabled={isFirst}>squash</option>
-                    <option value="fixup" disabled={isFirst}>fixup</option>
-                    <option value="drop">drop</option>
-                  </select>
-
-                  {/* Commit SHA */}
-                  <span className="font-mono text-xs text-teal-400 w-16">
-                    {c.shortHash}
-                  </span>
-
-                  {/* Summary (editable if reword or squash) */}
-                  <div className="flex-1">
-                    {c.action === 'reword' || c.action === 'squash' ? (
-                      <input
-                        type="text"
-                        value={c.newSummary !== undefined ? c.newSummary : c.summary}
-                        onChange={(e) => handleSummaryChange(idx, e.target.value)}
-                        placeholder="New commit summary..."
-                        className="w-full bg-[#1b212c] border border-teal-500/50 rounded px-2.5 py-1 text-xs text-slate-100 focus:outline-none"
-                      />
-                    ) : (
-                      <span className={`text-xs ${isDropped ? 'line-through text-slate-500' : 'text-slate-200'}`}>
-                        {c.summary}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Author */}
-                  <span className="text-xs text-slate-400 w-32 truncate text-right">
-                    {c.author}
-                  </span>
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="h-14 bg-[#181d26] border-t border-[#2a3447] flex items-center justify-between px-4">
-          <div className="text-xs text-slate-400">
-            {commits.filter((c) => c.action !== 'drop').length} commits will be applied
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={onClose}
-              className="px-3 py-1.5 rounded text-xs text-slate-400 hover:text-slate-200 hover:bg-[#202735]"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleStartRebase}
-              disabled={executing || loading}
-              className="flex items-center space-x-1.5 px-4 py-1.5 rounded bg-teal-500 hover:bg-teal-400 text-white font-semibold text-xs shadow-md transition disabled:opacity-40"
-            >
-              <Check className="w-4 h-4" />
-              <span>{executing ? 'Rewriting History...' : 'Start Rebase'}</span>
-            </button>
-          </div>
-        </div>
+    <Modal
+      width="lg"
+      tall
+      icon={<GitMerge className="w-4 h-4" />}
+      title="Interactive rebase"
+      subtitle={`${plan?.length ?? 0} commits after ${base.slice(0, 7)}`}
+      onClose={onClose}
+      actions={
+        <Button onClick={() => plan && setPlan(autosquash(plan))} disabled={!plan} title='Fold "fixup! …" and "squash! …" commits into the commits they name'>
+          <Wand2 className="w-3.5 h-3.5 text-teal-300" />
+          Autosquash
+        </Button>
+      }
+      footer={
+        <>
+          <span className={`mr-auto text-xs ${problem ? 'text-amber-300' : 'text-slate-400'}`}>{problem ?? `${kept.length} commits will remain`}</span>
+          <Button tone="quiet" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button tone="primary" onClick={run} busy={running} disabled={Boolean(problem)}>
+            <Check className="w-3.5 h-3.5" />
+            {running ? 'Rewriting…' : 'Rewrite history'}
+          </Button>
+        </>
+      }
+    >
+      <div className="px-4 py-2 border-b border-[#2a3447] flex items-center gap-2 text-xs text-slate-400">
+        <Info className="w-3.5 h-3.5 text-sky-400 flex-shrink-0" />
+        Needs a clean working tree. If a step fails, the branch goes back to where it was; afterwards the reflog still has the old commits.
       </div>
-    </div>
+      <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
+        {!plan && <div className="text-center py-12 text-slate-500 text-xs">Loading…</div>}
+        {plan?.map((c, i) => (
+          <div key={c.hash} className={`flex items-center gap-3 p-2 rounded border ${c.action === 'drop' ? 'bg-[#14181f]/40 border-rose-950 opacity-60' : 'bg-[#14181f] border-[#2a3447]'}`}>
+            <div className="flex flex-col">
+              <button onClick={() => move(i, -1)} disabled={i === 0} aria-label="Move up" className="p-0.5 rounded hover:bg-[#202735] text-slate-400 disabled:opacity-20">
+                <ArrowUp className="w-3 h-3" />
+              </button>
+              <button onClick={() => move(i, 1)} disabled={i === plan.length - 1} aria-label="Move down" className="p-0.5 rounded hover:bg-[#202735] text-slate-400 disabled:opacity-20">
+                <ArrowDown className="w-3 h-3" />
+              </button>
+            </div>
+            <select
+              value={c.action}
+              onChange={(e) => update(i, { action: e.target.value as RebaseActionType })}
+              aria-label={`Action for ${c.shortHash}`}
+              className={`text-xs font-semibold px-2 py-1 rounded border uppercase bg-[#1b212c] focus:outline-none ${ACTION_STYLE[c.action]}`}
+            >
+              {(['pick', 'reword', 'squash', 'fixup', 'drop'] as const).map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+            <span className="font-mono text-xs text-teal-400 w-16 flex-shrink-0">{c.shortHash}</span>
+            <div className="flex-1 min-w-0">
+              {c.action === 'reword' || c.action === 'squash' ? (
+                <input
+                  value={c.newSummary ?? c.summary}
+                  onChange={(e) => update(i, { newSummary: e.target.value })}
+                  aria-label="New message"
+                  className="w-full bg-[#1b212c] border border-teal-500/50 rounded px-2.5 py-1 text-xs text-slate-100 focus:outline-none"
+                />
+              ) : (
+                <span className={`block truncate text-xs ${c.action === 'drop' ? 'line-through text-slate-500' : 'text-slate-200'}`}>{c.summary}</span>
+              )}
+            </div>
+            <span className="text-xs text-slate-500 w-28 truncate text-right">{c.author}</span>
+          </div>
+        ))}
+      </div>
+    </Modal>
   );
 };

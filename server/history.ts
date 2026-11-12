@@ -1,0 +1,111 @@
+import type { BlameLine, Commit, FileCommitHistory } from '../shared/types/git';
+import { git, gitSucceeds } from './git';
+import { changedFiles, format, parseDiff, records } from './gitParse';
+import { inRepo } from './http';
+
+export interface ReflogEntry {
+  hash: string;
+  selector: string;
+  message: string;
+  date: string;
+}
+
+async function commits(repo: string, limit: number): Promise<Commit[]> {
+  if (!(await gitSucceeds(repo, ['rev-parse', '--verify', '--quiet', 'HEAD']))) return [];
+  // Branches, tags and remotes only: other tools keep commits under their own
+  // refs (checkpoints, stashes), and --all would put those in the graph.
+  const out = await git(repo, [
+    'log', '--branches', '--tags', '--remotes', 'HEAD', '--topo-order', `-n${limit}`, '--date=iso',
+    format('%H', '%h', '%P', '%an', '%ae', '%ad', '%at', '%s', '%b', '%D'),
+  ]);
+  return records(out).map(([hash, shortHash, parents, name, email, date, at, summary, body, refs]) => ({
+    hash,
+    shortHash,
+    parents: parents ? parents.split(' ') : [],
+    author: { name, email },
+    date,
+    timestamp: Number(at) * 1000,
+    summary,
+    body: body.trim(),
+    message: body.trim() ? `${summary}\n\n${body.trim()}` : summary,
+    refs: refs ? refs.split(',').map((r) => r.trim()).filter(Boolean) : [],
+  }));
+}
+
+function blame(output: string): BlameLine[] {
+  const lines: Array<Omit<BlameLine, 'agePercent'> & { time: number }> = [];
+  const commits = new Map<string, { author: string; time: number; summary: string }>();
+  let hash = '';
+  let lineNumber = 0;
+  for (const line of output.split('\n')) {
+    const header = line.match(/^([0-9a-f]{40}) \d+ (\d+)/);
+    if (header) {
+      hash = header[1];
+      lineNumber = Number(header[2]);
+      if (!commits.has(hash)) commits.set(hash, { author: '', time: 0, summary: '' });
+    } else if (line.startsWith('author ')) commits.get(hash)!.author = line.slice(7);
+    else if (line.startsWith('author-time ')) commits.get(hash)!.time = Number(line.slice(12)) * 1000;
+    else if (line.startsWith('summary ')) commits.get(hash)!.summary = line.slice(8);
+    else if (line.startsWith('\t')) {
+      const c = commits.get(hash)!;
+      lines.push({
+        lineNumber,
+        code: line.slice(1),
+        commitHash: hash,
+        shortHash: hash.slice(0, 7),
+        author: c.author,
+        date: new Date(c.time).toISOString().slice(0, 10),
+        summary: c.summary,
+        time: c.time,
+      });
+    }
+  }
+  // Heatmap: 0.1 for the oldest line, 1 for the newest.
+  const times = lines.map((l) => l.time);
+  const oldest = Math.min(...times);
+  const range = Math.max(...times) - oldest || 1;
+  return lines.map(({ time, ...line }) => ({ ...line, agePercent: Math.max(0.1, (time - oldest) / range) }));
+}
+
+export const historyHandlers = {
+  commits: inRepo((repo, { limit = 300 }: { limit?: number }) => commits(repo, limit)),
+
+  /** A commit's changes; merges are shown against their first parent. */
+  commitDiff: inRepo(async (repo, { hash }: { hash: string }) =>
+    parseDiff(await git(repo, ['show', '--format=', '--diff-merges=first-parent', '--end-of-options', hash]))
+  ),
+
+  compareCommits: inRepo(async (repo, { base, target }: { base: string; target: string }) => {
+    const range = ['--end-of-options', base, target];
+    const [names, counts] = await Promise.all([
+      git(repo, ['diff', '--name-status', '-z', ...range]),
+      git(repo, ['diff', '--numstat', '-z', ...range]),
+    ]);
+    return changedFiles(names, counts);
+  }),
+
+  compareFileDiff: inRepo(async (repo, { base, target, file }: { base: string; target: string; file: string }) =>
+    parseDiff(await git(repo, ['diff', base, target, '--', file]))
+  ),
+
+  /** A file's content at a revision or conflict stage (`HEAD`, `:1`, `:2`, `:3`). */
+  fileAtRef: inRepo((repo, { ref, file }: { ref: string; file: string }) => git(repo, ['show', `${ref}:${file}`])),
+
+  blame: inRepo(async (repo, { file }: { file: string }) => blame(await git(repo, ['blame', '--line-porcelain', '--', file]))),
+
+  fileHistory: inRepo(async (repo, { file }: { file: string }): Promise<FileCommitHistory[]> => {
+    const out = await git(repo, ['log', '--follow', '--date=short', format('%H', '%h', '%an', '%ad', '%s'), '--', file]);
+    return records(out).map(([hash, shortHash, author, date, summary]) => ({ hash, shortHash, author, date, summary }));
+  }),
+
+  fileCommitDiff: inRepo(async (repo, { hash, file }: { hash: string; file: string }) =>
+    parseDiff(await git(repo, ['show', '--format=', hash, '--', file]))
+  ),
+
+  reflog: inRepo(async (repo, { limit = 50 }: { limit?: number }): Promise<ReflogEntry[]> => {
+    const out = await git(repo, ['reflog', `-n${limit}`, format('%H', '%gD', '%gs', '%ci')]);
+    return records(out).map(([hash, selector, message, date]) => ({ hash, selector, message, date }));
+  }),
+
+  formatPatch: inRepo((repo, { hash }: { hash: string }) => git(repo, ['format-patch', '-1', '--stdout', '--end-of-options', hash])),
+};

@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, ArrowRight, X } from 'lucide-react';
-import { FileCollision } from '../../types/agentFleet';
+import type { AgentInstance, FileCollision } from '../../../shared/types/agentFleet';
+import { collisionAgents, COLLISION_TEXT } from './agentUi';
 
 interface CollisionBarProps {
   collisions: FileCollision[];
+  agents: AgentInstance[];
   onOpenInbox: () => void;
 }
 
-export const CollisionBar: React.FC<CollisionBarProps> = ({ collisions, onOpenInbox }) => {
+export const CollisionBar: React.FC<CollisionBarProps> = ({ collisions, agents, onOpenInbox }) => {
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
@@ -25,8 +27,8 @@ export const CollisionBar: React.FC<CollisionBarProps> = ({ collisions, onOpenIn
       <div className="flex items-center gap-1 min-w-0 overflow-hidden">
         {collisions.slice(0, 3).map((collision) => (
           <span
-            key={`${collision.collisionType}:${collision.filePath}`}
-            title={`${collision.contendingAgents.join(' ↔ ')}\n${collision.suggestedAction}`}
+            key={collision.filePath}
+            title={`${COLLISION_TEXT[collision.kind].label}: ${collisionAgents(collision, agents).join(', ')}\n${COLLISION_TEXT[collision.kind].advice}`}
             className="px-1.5 py-0.5 rounded bg-black/30 font-mono text-[10px] text-amber-100/90 truncate max-w-[180px]"
           >
             {collision.filePath}

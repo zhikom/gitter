@@ -1,349 +1,133 @@
-import React, { useState, useEffect } from 'react';
-import {
-  X,
-  DownloadCloud,
-  CheckCircle2,
-  AlertCircle,
-  ExternalLink,
-  RefreshCw,
-  Sparkles,
-  ChevronDown,
-  ChevronUp,
-  FileBox,
-  Monitor,
-  Apple,
-  Zap,
-} from 'lucide-react';
-import { checkForAppUpdate, CURRENT_VERSION } from '../../services/updateService';
-import { ReleaseAsset, UpdateInfo } from '../../types/update';
+import React, { useCallback, useEffect, useState } from 'react';
+import { AlertCircle, CheckCircle2, DownloadCloud, ExternalLink, RefreshCw, Sparkles } from 'lucide-react';
+import type { UpdateInfo } from '../../../shared/types/update';
 import { api } from '../../api/client';
+import { usePreference } from '../../preferences';
+import { checkForAppUpdate, CURRENT_VERSION } from '../../services/updateService';
+import { Button, Modal } from '../ui/Modal';
 
 interface UpdateModalProps {
+  /** A check that already ran; without one the dialog checks itself. */
+  initial: UpdateInfo | null;
   onClose: () => void;
-  updateInfo?: UpdateInfo | null;
-  initialUpdateInfo?: UpdateInfo | null;
 }
 
-export const UpdateModal: React.FC<UpdateModalProps> = ({
-  onClose,
-  updateInfo: propUpdateInfo,
-  initialUpdateInfo,
-}) => {
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(
-    propUpdateInfo || initialUpdateInfo || null
-  );
-  const [loading, setLoading] = useState<boolean>(!initialUpdateInfo);
+const openInBrowser = (url: string) => api.openUrl({ url }).catch(() => window.open(url, '_blank'));
+const megabytes = (bytes: number) => (bytes ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : '');
+
+export const UpdateModal: React.FC<UpdateModalProps> = ({ initial, onClose }) => {
+  const [info, setInfo] = useState<UpdateInfo | null>(initial);
+  const [checking, setChecking] = useState(!initial);
   const [error, setError] = useState<string | null>(null);
-  const [showAllAssets, setShowAllAssets] = useState<boolean>(false);
-  const [autoCheck, setAutoCheck] = useState<boolean>(() => {
-    return localStorage.getItem('gitter_auto_check_updates') !== 'false';
-  });
-  const [updating, setUpdating] = useState<boolean>(false);
-  const [updateStatus, setUpdateStatus] = useState<string | null>(null);
-  const [updateComplete, setUpdateComplete] = useState<boolean>(false);
+  const [installing, setInstalling] = useState<'idle' | 'running' | 'started'>('idle');
+  const [autoCheck, setAutoCheck] = usePreference('checkForUpdates');
 
-  const handleInPlaceUpdate = async () => {
-    const asset = updateInfo?.recommendedAsset;
-    if (!asset) return;
-    setUpdating(true);
-    setError(null);
-    setUpdateStatus(`Downloading ${asset.name}...`);
-    try {
-      await api.installUpdate(asset.browser_download_url);
-      setUpdateStatus('Installer started. Gitter restarts when it finishes.');
-      setUpdateComplete(true);
-    } catch (err: any) {
-      setError(`In-place update failed: ${err.message}`);
-    } finally {
-      setUpdating(false);
-    }
-  };
-
-  const handleOpenBrowser = async (url: string) => {
-    try {
-      await api.openExternalUrl(url);
-    } catch {
-      window.open(url, '_blank');
-    }
-  };
-
-  const checkUpdates = async () => {
-    setLoading(true);
+  const check = useCallback(async () => {
+    setChecking(true);
     setError(null);
     try {
-      const info = await checkForAppUpdate();
-      setUpdateInfo(info);
-    } catch (err: any) {
-      setError(err.message || 'Failed to check for updates.');
+      setInfo(await checkForAppUpdate());
+    } catch (e: any) {
+      setError(e.message);
     } finally {
-      setLoading(false);
+      setChecking(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    if (!initialUpdateInfo) {
-      checkUpdates();
-    }
-  }, [initialUpdateInfo]);
+    if (!initial) void check();
+  }, [initial, check]);
 
-  const handleToggleAutoCheck = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.checked;
-    setAutoCheck(val);
-    localStorage.setItem('gitter_auto_check_updates', val ? 'true' : 'false');
-  };
-
-  const formatSize = (bytes: number): string => {
-    if (!bytes || bytes === 0) return '';
-    const mb = bytes / (1024 * 1024);
-    return `${mb.toFixed(1)} MB`;
-  };
-
-  const getPlatformIcon = (platform?: string) => {
-    switch (platform) {
-      case 'windows':
-        return <Monitor className="w-3.5 h-3.5 text-blue-400" />;
-      case 'macos':
-        return <Apple className="w-3.5 h-3.5 text-slate-200" />;
-      case 'vscode':
-        return <FileBox className="w-3.5 h-3.5 text-teal-400" />;
-      default:
-        return <DownloadCloud className="w-3.5 h-3.5 text-slate-400" />;
+  const install = async () => {
+    if (!info?.installer) return;
+    setInstalling('running');
+    setError(null);
+    try {
+      await api.installUpdate({ downloadUrl: info.installer.url });
+      setInstalling('started');
+    } catch (e: any) {
+      setError(`The update could not be installed: ${e.message}`);
+      setInstalling('idle');
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 select-none">
-      <div className="w-full max-w-2xl bg-[#1b212c] border border-[#2a3447] rounded-xl shadow-2xl flex flex-col max-h-[88vh] overflow-hidden">
-        {/* Header */}
-        <div className="h-13 bg-[#151a23] border-b border-[#2a3447] flex items-center justify-between px-5 py-3">
-          <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 rounded-lg bg-teal-500/15 border border-teal-500/30 flex items-center justify-center text-teal-400">
-              <DownloadCloud className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="text-sm font-bold text-slate-100 flex items-center space-x-2">
-                <span>Gitter Software Update</span>
-                <span className="text-[11px] font-mono font-normal text-slate-400 bg-[#222a3a] px-1.5 py-0.5 rounded border border-[#2a3447]">
-                  v{CURRENT_VERSION}
-                </span>
-              </div>
-              <div className="text-[11px] text-slate-400">
-                Official releases and changelogs from GitHub
-              </div>
-            </div>
+    <Modal
+      width="lg"
+      icon={<DownloadCloud className="w-4 h-4" />}
+      title="Software update"
+      subtitle={`Gitter ${CURRENT_VERSION}`}
+      onClose={onClose}
+      footer={
+        <>
+          <label className="mr-auto flex items-center gap-2 text-[11px] text-slate-400">
+            <input type="checkbox" checked={autoCheck} onChange={(e) => setAutoCheck(e.target.checked)} />
+            Check for updates when Gitter starts
+          </label>
+          <Button onClick={check} busy={checking}>
+            <RefreshCw className={`w-3.5 h-3.5 ${checking ? 'animate-spin' : ''}`} />
+            Check again
+          </Button>
+          <Button tone="primary" onClick={onClose}>
+            Close
+          </Button>
+        </>
+      }
+    >
+      <div className="p-5 space-y-4 text-xs text-slate-300">
+        {checking && !info && <div className="py-10 text-center text-slate-400">Checking GitHub for the latest release…</div>}
+        {error && (
+          <div className="flex items-start gap-3 p-3 rounded-lg bg-rose-500/10 border border-rose-500/30">
+            <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+            <span>{error}</span>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-[#202735] transition"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Content Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4 text-xs text-slate-300">
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-12 space-y-3">
-              <RefreshCw className="w-8 h-8 text-teal-400 animate-spin" />
-              <div className="text-sm font-medium text-slate-300">Checking for updates...</div>
-              <div className="text-[11px] text-slate-500">Querying GitHub Releases API</div>
-            </div>
-          ) : error ? (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 flex items-start space-x-3">
-              <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <div className="font-semibold text-red-300 mb-1">Check Failed</div>
-                <div className="text-slate-400 mb-3">{error}</div>
-                <button
-                  onClick={checkUpdates}
-                  className="px-3 py-1 bg-[#222a3a] hover:bg-[#2b3548] border border-[#2a3447] rounded text-slate-200 text-xs font-medium transition"
-                >
-                  Try Again
-                </button>
+        )}
+        {info &&
+          (info.hasUpdate ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-teal-500/10 border border-teal-500/30">
+              <div>
+                <div className="flex items-center gap-2 font-bold text-sm text-teal-300">
+                  <Sparkles className="w-4 h-4" />
+                  Gitter {info.version} is available
+                </div>
+                <div className="text-[11px] text-slate-400 mt-0.5">Released {new Date(info.publishedAt).toLocaleDateString()}</div>
               </div>
-            </div>
-          ) : updateInfo ? (
-            <>
-              {/* Status Banner */}
-              {updateInfo.hasUpdate ? (
-                <div className="bg-gradient-to-r from-teal-500/15 via-emerald-500/10 to-transparent border border-teal-500/30 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-                  <div className="space-y-1">
-                    <div className="flex items-center space-x-2">
-                      <Sparkles className="w-4 h-4 text-teal-400" />
-                      <span className="font-bold text-sm text-teal-300">
-                        New Version Available: v{updateInfo.latestVersion}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-400">
-                      You are running v{updateInfo.currentVersion}. Released on{' '}
-                      {new Date(updateInfo.publishedAt).toLocaleDateString()}.
-                    </p>
-                  </div>
-
-                  <div className="flex items-center space-x-2 flex-shrink-0">
-                    <button
-                      type="button"
-                      onClick={handleInPlaceUpdate}
-                      disabled={updating || updateComplete}
-                      className="px-4 py-2 rounded-lg bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-white font-bold text-xs shadow-lg shadow-teal-500/20 transition flex items-center space-x-1.5 disabled:opacity-50"
-                    >
-                      {updating ? (
-                        <RefreshCw className="w-4 h-4 animate-spin text-teal-200" />
-                      ) : updateComplete ? (
-                        <CheckCircle2 className="w-4 h-4 text-white" />
-                      ) : (
-                        <Zap className="w-4 h-4 text-amber-300" />
-                      )}
-                      <span>
-                        {updating
-                          ? 'Applying Update...'
-                          : updateComplete
-                          ? 'Reloading...'
-                          : '⚡ One-Click In-Place Update'}
-                      </span>
-                    </button>
-
-                    {updateInfo.recommendedAsset && (
-                      <button
-                        type="button"
-                        onClick={() => handleOpenBrowser(updateInfo.recommendedAsset!.browser_download_url)}
-                        title="Download manually in default web browser"
-                        className="px-3 py-2 rounded-lg bg-[#202737] hover:bg-[#2b3548] border border-[#2a3447] text-slate-300 hover:text-white text-xs font-semibold flex items-center space-x-1.5 transition"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        <span>Manual</span>
-                      </button>
-                    )}
-                  </div>
+              {info.installer ? (
+                <div className="flex items-center gap-2">
+                  <Button tone="primary" onClick={install} busy={installing === 'running'} disabled={installing === 'started'}>
+                    {installing === 'started' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <DownloadCloud className="w-3.5 h-3.5" />}
+                    {installing === 'running' ? 'Downloading…' : installing === 'started' ? 'Installer started' : `Install (${megabytes(info.installer.size)})`}
+                  </Button>
+                  <Button onClick={() => openInBrowser(info.installer!.url)} title="Download in your browser instead">
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </Button>
                 </div>
               ) : (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 flex items-center space-x-3">
-                  <CheckCircle2 className="w-6 h-6 text-emerald-400 flex-shrink-0" />
-                  <div>
-                    <div className="font-bold text-sm text-emerald-300">You're up to date!</div>
-                    <div className="text-[11px] text-slate-400">
-                      Gitter v{updateInfo.currentVersion} is currently the newest version available.
-                    </div>
-                  </div>
-                </div>
+                <Button onClick={() => openInBrowser(info.pageUrl)}>Download from GitHub</Button>
               )}
-
-              {/* In-Place Update Status Notification */}
-              {updateStatus && (
-                <div
-                  className={`p-3 rounded-lg border flex items-center space-x-2 text-xs font-medium ${
-                    updateComplete
-                      ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
-                      : 'bg-teal-500/15 border-teal-500/30 text-teal-300 animate-pulse'
-                  }`}
-                >
-                  {updateComplete ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                  ) : (
-                    <RefreshCw className="w-4 h-4 animate-spin text-teal-400 flex-shrink-0" />
-                  )}
-                  <span>{updateStatus}</span>
-                </div>
-              )}
-
-              {/* Changelog & Release Notes */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-semibold text-slate-300 text-xs flex items-center space-x-1.5">
-                    <span>What's New in {updateInfo.releaseTitle}</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenBrowser(updateInfo.htmlUrl)}
-                    className="text-teal-400 hover:text-teal-300 flex items-center space-x-1 text-[11px]"
-                  >
-                    <span>View on GitHub</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </button>
-                </div>
-
-                <div className="bg-[#14181f] border border-[#2a3447] rounded-lg p-3 max-h-56 overflow-y-auto font-mono text-[11px] leading-relaxed text-slate-300 whitespace-pre-wrap selection:bg-teal-500/30">
-                  {updateInfo.changelog}
-                </div>
-              </div>
-
-              {/* Platform Downloads Dropdown */}
-              {updateInfo.assets && updateInfo.assets.length > 0 && (
-                <div className="border border-[#2a3447] rounded-lg bg-[#151a23] overflow-hidden">
-                  <button
-                    onClick={() => setShowAllAssets(!showAllAssets)}
-                    className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-slate-300 hover:bg-[#1f2635] transition"
-                  >
-                    <div className="flex items-center space-x-2">
-                      <DownloadCloud className="w-3.5 h-3.5 text-teal-400" />
-                      <span>Download Installers for Other Platforms ({updateInfo.assets.length})</span>
-                    </div>
-                    {showAllAssets ? (
-                      <ChevronUp className="w-3.5 h-3.5 text-slate-500" />
-                    ) : (
-                      <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
-                    )}
-                  </button>
-
-                  {showAllAssets && (
-                    <div className="border-t border-[#2a3447] p-2 space-y-1 bg-[#13171f]">
-                      {updateInfo.assets.map((asset) => (
-                        <button
-                          key={asset.name}
-                          type="button"
-                          onClick={() => handleOpenBrowser(asset.browser_download_url)}
-                          className="w-full flex items-center justify-between px-3 py-1.5 rounded hover:bg-[#1d2432] text-xs transition group text-left"
-                        >
-                          <div className="flex items-center space-x-2 truncate">
-                            {getPlatformIcon(asset.platform)}
-                            <span className="font-mono text-[11px] text-slate-200 group-hover:text-teal-300 truncate">
-                              {asset.name}
-                            </span>
-                          </div>
-                          <div className="flex items-center space-x-2 text-[11px] text-slate-500 flex-shrink-0">
-                            {asset.size > 0 && <span>{formatSize(asset.size)}</span>}
-                            <DownloadCloud className="w-3 h-3 group-hover:text-teal-400 transition" />
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          ) : null}
-        </div>
-
-        {/* Footer */}
-        <div className="h-12 bg-[#151a23] border-t border-[#2a3447] flex items-center justify-between px-5">
-          <label className="flex items-center space-x-2 text-[11px] text-slate-400 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={autoCheck}
-              onChange={handleToggleAutoCheck}
-              className="rounded bg-[#14181f] border-[#2a3447] text-teal-500 focus:ring-0"
-            />
-            <span>Automatically check for updates on startup</span>
-          </label>
-
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={checkUpdates}
-              disabled={loading}
-              className="px-3 py-1.5 rounded bg-[#202735] hover:bg-[#2b3548] border border-[#2a3447] text-slate-300 text-xs font-medium transition flex items-center space-x-1.5 disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              <span>Check Again</span>
-            </button>
-            <button
-              onClick={onClose}
-              className="px-4 py-1.5 rounded bg-teal-600 hover:bg-teal-500 text-white font-semibold text-xs shadow-md transition"
-            >
-              Close
-            </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+              <span className="font-semibold text-emerald-300">You have the latest version.</span>
+            </div>
+          ))}
+        {installing === 'started' && <p className="text-slate-400">The installer is running. Gitter closes so it can be replaced, then starts again.</p>}
+        {info && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-semibold">What's new in {info.title}</span>
+              <button onClick={() => openInBrowser(info.pageUrl)} className="flex items-center gap-1 text-[11px] text-teal-400 hover:text-teal-300">
+                Release page
+                <ExternalLink className="w-3 h-3" />
+              </button>
+            </div>
+            <div className="max-h-64 overflow-y-auto p-3 rounded-lg bg-[#14181f] border border-[#2a3447] font-mono text-[11px] leading-relaxed whitespace-pre-wrap select-text">
+              {info.notes || 'No release notes.'}
+            </div>
           </div>
-        </div>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 };
