@@ -1,7 +1,10 @@
 import type { Branch, RebaseCommitItem, Tag } from '../shared/types/git';
-import { git } from './git';
+import fs from 'fs';
+import path from 'path';
+import { git, gitSucceeds } from './git';
 import { format, records, refFormat, STATUS_ARGS } from './gitParse';
 import { inRepo, UserError } from './http';
+import { worktreeGitDir } from './repoStore';
 
 async function branches(repo: string): Promise<Branch[]> {
   const out = await git(repo, [
@@ -45,38 +48,76 @@ async function undo(repo: string): Promise<string> {
   const [latest] = records(await git(repo, ['reflog', '-n1', format('%gs')]));
   if (!latest) throw new UserError('Nothing to undo.');
   const [action] = latest;
+
   const checkout = action.match(/^checkout: moving from (.+) to .+$/);
   if (checkout) {
     await git(repo, ['checkout', '--end-of-options', checkout[1]]);
     return `Switched back to ${checkout[1]}.`;
   }
-  // Commits, merges, resets: move HEAD back and keep the changes staged.
-  await git(repo, ['reset', '--soft', 'HEAD@{1}']);
-  const commit = action.match(/^commit(?: \([^)]*\))?: (.*)$/);
-  return commit ? `Undid the commit "${commit[1]}". Its changes are staged.` : `Undid "${action}".`;
+
+  // A commit (also an amend or a concluded merge) is taken back with its changes left staged.
+  const commit = action.match(/^commit(?: \(([^)]*)\))?: (.*)$/);
+  if (commit) {
+    // The first commit has no previous position: the branch becomes unborn again.
+    if (commit[1] === 'initial') await git(repo, ['update-ref', '-d', 'HEAD']);
+    else await git(repo, ['reset', '--soft', 'HEAD@{1}']);
+    return `Undid the commit "${commit[2]}". Its changes are staged.`;
+  }
+
+  // A finished rebase's last entries all point at the rewritten commits; ORIG_HEAD is where the branch was.
+  if (action.startsWith('rebase')) {
+    await git(repo, ['reset', '--keep', 'ORIG_HEAD']);
+    return 'Undid the rebase.';
+  }
+
+  // Resets, merges, pulls, cherry-picks: go back to the previous position. After a
+  // soft reset the index already holds that commit's content, so only the branch moves;
+  // otherwise --keep updates the files and refuses to overwrite uncommitted changes.
+  const soft = await gitSucceeds(repo, ['diff', '--cached', '--quiet', 'HEAD@{1}']);
+  await git(repo, ['reset', soft ? '--soft' : '--keep', 'HEAD@{1}']);
+  return `Undid "${action}".`;
 }
 
+/** Cherry-picks a commit; one whose change is already there (it would come out empty) is skipped. */
+async function pick(repo: string, hash: string, noCommit = false): Promise<void> {
+  try {
+    await git(repo, ['cherry-pick', ...(noCommit ? ['-n'] : []), '--end-of-options', hash]);
+  } catch (e) {
+    const empty = fs.existsSync(path.join(worktreeGitDir(repo), 'CHERRY_PICK_HEAD')) && (await git(repo, STATUS_ARGS)).length === 0;
+    if (!empty) throw e;
+    await git(repo, ['cherry-pick', '--skip']);
+  }
+}
+
+const fullMessage = async (repo: string, hash: string) => (await git(repo, ['log', '-1', '--format=%B', '--end-of-options', hash])).trim();
+
 async function runRebasePlan(repo: string, base: string, plan: RebaseCommitItem[]): Promise<string> {
+  const first = plan.find((item) => item.action !== 'drop');
+  if (!first) throw new UserError('At least one commit has to stay.');
+  if (first.action === 'squash' || first.action === 'fixup') throw new UserError('The first kept commit has nothing to fold into.');
   await requireCleanTree(repo, 'an interactive rebase');
   const branch = (await git(repo, ['branch', '--show-current'])).trim();
   const start = (await git(repo, ['rev-parse', 'HEAD'])).trim();
   try {
     await git(repo, ['reset', '--hard', '--end-of-options', base]);
     for (const item of plan) {
-      const summary = item.newSummary || item.summary;
       if (item.action === 'drop') continue;
       if (item.action === 'pick') {
-        await git(repo, ['cherry-pick', '--end-of-options', item.hash]);
+        await pick(repo, item.hash);
       } else if (item.action === 'reword') {
-        await git(repo, ['cherry-pick', '--end-of-options', item.hash]);
-        await git(repo, ['commit', '--amend', '-F', '-'], { input: summary });
+        // A new summary replaces the first line; the body stays.
+        const [, ...body] = (await fullMessage(repo, item.hash)).split('\n');
+        await pick(repo, item.hash);
+        await git(repo, ['commit', '--amend', '-F', '-'], { input: [item.newSummary?.trim() || item.summary, ...body].join('\n') });
       } else if (item.action === 'squash') {
-        await git(repo, ['cherry-pick', '-n', '--end-of-options', item.hash]);
-        const previous = (await git(repo, ['log', '-1', '--format=%B'])).trim();
-        await git(repo, ['commit', '--amend', '-F', '-'], { input: `${previous}\n\n* ${summary}` });
+        // Like git: the messages of both commits, the squashed one's possibly reworded.
+        const squashed = item.newSummary?.trim() || (await fullMessage(repo, item.hash));
+        await pick(repo, item.hash, true);
+        const previous = await fullMessage(repo, 'HEAD');
+        await git(repo, ['commit', '--amend', '--allow-empty', '-F', '-'], { input: `${previous}\n\n${squashed}` });
       } else if (item.action === 'fixup') {
-        await git(repo, ['cherry-pick', '-n', '--end-of-options', item.hash]);
-        await git(repo, ['commit', '--amend', '--no-edit']);
+        await pick(repo, item.hash, true);
+        await git(repo, ['commit', '--amend', '--allow-empty', '--no-edit']);
       }
     }
     return `Rewrote ${branch || 'HEAD'} onto ${base.slice(0, 7)}.`;
@@ -136,7 +177,8 @@ export const branchHandlers = {
 
   /** Commits after `base` on the current branch, oldest first, for the interactive rebase editor. */
   rebaseCommits: inRepo(async (repo, { base }: { base: string }): Promise<RebaseCommitItem[]> => {
-    const out = await git(repo, ['log', '--reverse', format('%H', '%h', '%an', '%s'), `${base}..HEAD`]);
+    // Merge commits are left out: like `git rebase`, the rewrite replays the commits merged in instead.
+    const out = await git(repo, ['log', '--reverse', '--no-merges', format('%H', '%h', '%an', '%s'), '--end-of-options', `${base}..HEAD`]);
     return records(out).map(([hash, shortHash, author, summary]) => ({ hash, shortHash, author, summary, action: 'pick' }));
   }),
 

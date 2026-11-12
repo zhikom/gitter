@@ -1,18 +1,16 @@
 // Everything Gitter asks of the operating system outside of git: dialogs, the
 // file manager, terminals, editors and installers. Gitter supports Windows and
 // macOS; adding a platform means adding a branch to each function here.
-import { exec, spawn } from 'child_process';
+import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
+import { UserError } from './errors';
 
 type Platform = 'win32' | 'darwin';
 
 function platform(): Platform {
   if (process.platform === 'win32' || process.platform === 'darwin') return process.platform;
-  throw new Error(`Gitter does not support ${process.platform}.`);
+  throw new UserError(`Gitter does not support ${process.platform}.`);
 }
 
 function run(command: string, args: string[], env?: NodeJS.ProcessEnv): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -39,10 +37,36 @@ function launch(command: string, args: string[], cwd?: string): Promise<void> {
   });
 }
 
-// Editors and diff tools install as shell shims (code.cmd, cursor.cmd), which
-// Windows can only start through a shell, so these go through one with quoting.
-function quote(arg: string): string {
-  return `"${arg.replace(/"/g, '\\"')}"`;
+/** Whether a command-line tool is installed: a path that exists, or a name on PATH. */
+async function installed(tool: string): Promise<boolean> {
+  if (/[\\/]/.test(tool)) return fs.existsSync(tool);
+  const { code } = await run(platform() === 'win32' ? 'where.exe' : 'which', [tool]);
+  return code === 0;
+}
+
+/**
+ * Starts an editor or diff tool and leaves it running. No shell parses the
+ * arguments, which come from file names in the repository. On Windows these
+ * tools are often .cmd shims, which only cmd.exe can start: every argument is
+ * quoted for it (Windows file names cannot contain quotes), so &, |, <, > and ^
+ * stay literal.
+ */
+function launchTool(tool: string, args: string[]): Promise<void> {
+  if (platform() !== 'win32') return launch(tool, args);
+  const line = [tool, ...args].map((arg) => `"${arg}"`).join(' ');
+  return new Promise((resolve, reject) => {
+    const child = spawn('cmd.exe', ['/d', '/s', '/c', `"${line}"`], { detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true });
+    child.once('error', reject);
+    child.once('spawn', () => {
+      child.unref();
+      resolve();
+    });
+  });
+}
+
+/** Splits a command template like `"C:\\Tools\\diff.exe" --two %1 %2` into words. */
+function words(template: string): string[] {
+  return (template.match(/"[^"]*"|\S+/g) ?? []).map((w) => w.replace(/^"|"$/g, ''));
 }
 
 // The modern Explorer folder picker (IFileOpenDialog), not the legacy tree
@@ -138,13 +162,13 @@ try {
 `;
 
 /** Shows the OS folder picker. Resolves to the chosen folder, or null if cancelled. */
-export async function pickFolder(title = 'Select folder', startIn = ''): Promise<string | null> {
+export async function pickFolder(title = 'Select folder'): Promise<string | null> {
   if (platform() === 'win32') {
     const encoded = Buffer.from(WINDOWS_FOLDER_PICKER, 'utf16le').toString('base64');
     const { code, stdout, stderr } = await run(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
-      { GITTER_PICKER_TITLE: title, GITTER_PICKER_START: startIn.replace(/\//g, '\\') }
+      { GITTER_PICKER_TITLE: title }
     );
     if (code !== 0) throw new Error(`Folder picker failed: ${stderr.trim() || `exit code ${code}`}`);
     const picked = stdout.trim();
@@ -165,7 +189,7 @@ export async function pickFolder(title = 'Select folder', startIn = ''): Promise
 }
 
 export async function openUrl(url: string): Promise<void> {
-  if (!/^https?:\/\//.test(url)) throw new Error('Only http(s) URLs can be opened.');
+  if (!/^https?:\/\//.test(url)) throw new UserError('Only http(s) URLs can be opened.');
   if (platform() === 'win32') await launch('rundll32.exe', ['url.dll,FileProtocolHandler', url]);
   else await launch('open', [url]);
 }
@@ -194,14 +218,9 @@ const EDITORS = ['code', 'cursor', 'windsurf'];
 /** Opens the target in the first installed VS Code-family editor. */
 export async function openInEditor(target: string): Promise<void> {
   for (const editor of EDITORS) {
-    try {
-      await execAsync(`${editor} ${quote(target)}`, { windowsHide: true });
-      return;
-    } catch {
-      // Not installed; try the next editor.
-    }
+    if (await installed(editor)) return launchTool(editor, [target]);
   }
-  throw new Error(`No editor found. Install one of: ${EDITORS.join(', ')}.`);
+  throw new UserError(`No editor found. Install one of: ${EDITORS.join(', ')}.`);
 }
 
 /**
@@ -209,23 +228,18 @@ export async function openInEditor(target: string): Promise<void> {
  * with %1 for the old file and %2 for the new one.
  */
 export async function openDiffTool(oldFile: string, newFile: string, customCommand?: string): Promise<void> {
-  if (customCommand?.trim()) {
-    await execAsync(customCommand.replace('%1', quote(oldFile)).replace('%2', quote(newFile)), { windowsHide: true });
-    return;
+  const templates = customCommand?.trim()
+    ? [customCommand]
+    : platform() === 'win32'
+      ? ['code --diff %1 %2', 'WinMergeU %1 %2', 'bcomp %1 %2']
+      : ['code --diff %1 %2', 'opendiff %1 %2'];
+  for (const template of templates) {
+    const [tool, ...args] = words(template).map((w) => (w === '%1' ? oldFile : w === '%2' ? newFile : w));
+    if (tool && (await installed(tool))) return launchTool(tool, args);
   }
-  const tools =
-    platform() === 'win32'
-      ? [`code --diff`, `WinMergeU`, `bcomp`]
-      : [`code --diff`, `opendiff`];
-  for (const tool of tools) {
-    try {
-      await execAsync(`${tool} ${quote(oldFile)} ${quote(newFile)}`, { windowsHide: true });
-      return;
-    } catch {
-      // Not installed; try the next tool.
-    }
-  }
-  throw new Error('No diff tool found. Install VS Code or set a custom diff command in Settings.');
+  throw new UserError(
+    customCommand?.trim() ? `The diff tool in Settings was not found: ${words(customCommand)[0]}` : 'No diff tool found. Install VS Code or set a diff tool in Settings.'
+  );
 }
 
 /** Runs a downloaded installer. Windows installers run silently and restart Gitter. */

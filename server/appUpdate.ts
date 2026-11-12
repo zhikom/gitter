@@ -49,8 +49,9 @@ export async function latestRelease(): Promise<Release> {
 
 /** Downloads a Gitter release installer and starts it. Returns where it was saved. */
 export async function downloadAndInstall(downloadUrl: string): Promise<string> {
-  // The installer runs with the user's rights, so only Gitter's own release assets qualify.
-  if (!downloadUrl.startsWith(DOWNLOAD_PREFIX)) {
+  // Checked on the parsed URL: a raw prefix check passes "…/download/../../other/repo/…".
+  const url = new URL(downloadUrl);
+  if (`${url.origin}${url.pathname}`.startsWith(DOWNLOAD_PREFIX) === false || url.search || url.hash) {
     throw new Error(`Updates can only be installed from ${DOWNLOAD_PREFIX}`);
   }
   const response = await fetch(downloadUrl);

@@ -11,19 +11,41 @@ export const CONSOLE_SUBCOMMANDS = [
   'shortlog', 'describe', 'rev-parse', 'ls-files',
 ];
 
+// Long options that run another program, write files, or overwrite history elsewhere.
+const BLOCKED_OPTIONS = [
+  'force', 'force-with-lease', 'force-if-includes', 'mirror', 'exec', 'extcmd', 'tool', 'output',
+  'upload-pack', 'receive-pack', 'exec-path', 'config-env', 'strategy',
+];
+
+// Short options with the same effect, per subcommand: -x runs a command, -s names a
+// merge strategy program, -f and -D force. They count anywhere in a cluster (-fu)
+// and with an attached value (-xcmd).
+const BLOCKED_SHORT: Record<string, string> = {
+  push: 'f',
+  rebase: 'xs',
+  merge: 's',
+  pull: 's',
+  checkout: 'f',
+  switch: 'f',
+  branch: 'Df',
+};
+
 function blockedFlag(subcommand: string, arg: string): boolean {
-  return (
-    /^--(force|force-with-lease|force-if-includes|mirror|exec|extcmd|tool|output|upload-pack|receive-pack|exec-path|config-env)(=|$)/.test(arg) ||
-    (['push', 'rebase', 'checkout', 'switch'].includes(subcommand) && /^-[a-zA-Z]*[fx][a-zA-Z]*$/.test(arg)) ||
-    (subcommand === 'push' && arg.startsWith('+')) ||
-    (subcommand === 'branch' && /^-[a-zA-Z]*D/.test(arg)) ||
-    arg === '-c' ||
-    arg.startsWith('-c=')
-  );
+  if (arg.startsWith('--')) {
+    // git accepts any unambiguous prefix of a long option (--upload-pac), so prefixes are blocked too.
+    const name = arg.slice(2).split('=')[0];
+    return name.length > 0 && BLOCKED_OPTIONS.some((option) => option.startsWith(name));
+  }
+  if (arg.startsWith('-') && arg.length > 1) {
+    if (arg.startsWith('-c')) return true; // -c sets configuration, which can name programs
+    const letters = BLOCKED_SHORT[subcommand] ?? '';
+    return [...arg.slice(1)].some((ch) => letters.includes(ch));
+  }
+  return subcommand === 'push' && arg.startsWith('+'); // +refspec forces the update
 }
 
 /** Splits a command line into arguments, honouring single and double quotes. */
-export function tokenize(input: string): string[] {
+function tokenize(input: string): string[] {
   const tokens: string[] = [];
   let current = '';
   let quote: '"' | "'" | null = null;

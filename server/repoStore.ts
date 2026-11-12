@@ -20,13 +20,13 @@ export function worktreeGitDir(worktree: string): string {
 }
 
 /** The git directory shared by every worktree of the repository. */
-export function commonGitDir(worktree: string): string {
+function commonGitDir(worktree: string): string {
   const own = worktreeGitDir(worktree);
   const commondir = path.join(own, 'commondir');
   return fs.existsSync(commondir) ? path.resolve(own, fs.readFileSync(commondir, 'utf8').trim()) : own;
 }
 
-export function gitterDir(repo: string): string {
+function gitterDir(repo: string): string {
   return path.join(commonGitDir(repo), 'gitter');
 }
 

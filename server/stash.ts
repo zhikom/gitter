@@ -21,6 +21,19 @@ async function waitForIndexLock(repo: string): Promise<void> {
   }
 }
 
+/**
+ * Runs `git stash push` and returns the new stash's commit, or null when there
+ * was nothing to stash (git then exits 0 without creating one, and stash@{0}
+ * is still an older, unrelated stash).
+ */
+export async function pushStash(repo: string, args: string[]): Promise<string | null> {
+  const tip = () => git(repo, ['rev-parse', '--verify', '--quiet', 'refs/stash']).then((s) => s.trim(), () => '');
+  const before = await tip();
+  await git(repo, ['stash', 'push', ...args]);
+  const after = await tip();
+  return after && after !== before ? after : null;
+}
+
 interface SaveStashInput {
   message?: string;
   includeUntracked?: boolean;
@@ -38,16 +51,16 @@ export const stashHandlers = {
 
   saveStash: inRepo(async (repo, { message, includeUntracked = true, files, keepWorkingChanges = false }: SaveStashInput) => {
     await waitForIndexLock(repo);
-    await git(repo, [
-      'stash', 'push',
+    const stash = await pushStash(repo, [
       ...(includeUntracked ? ['-u'] : []),
       ...(message ? ['-m', message] : []),
       ...(files?.length ? ['--', ...files] : []),
     ]);
+    if (!stash) throw new UserError('There were no changes to stash.');
     if (!keepWorkingChanges) return;
     await waitForIndexLock(repo);
     try {
-      await git(repo, ['stash', 'apply', '--index', 'stash@{0}']);
+      await git(repo, ['stash', 'apply', '--index', stash]);
     } catch (e: any) {
       throw new UserError(`The stash was saved, but restoring your files failed: ${e.message}\nApply stash@{0} to get them back.`);
     }

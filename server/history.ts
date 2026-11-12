@@ -38,7 +38,7 @@ function blame(output: string): BlameLine[] {
   let hash = '';
   let lineNumber = 0;
   for (const line of output.split('\n')) {
-    const header = line.match(/^([0-9a-f]{40}) \d+ (\d+)/);
+    const header = line.match(/^([0-9a-f]{40}|[0-9a-f]{64}) \d+ (\d+)/);
     if (header) {
       hash = header[1];
       lineNumber = Number(header[2]);
@@ -61,9 +61,9 @@ function blame(output: string): BlameLine[] {
     }
   }
   // Heatmap: 0.1 for the oldest line, 1 for the newest.
-  const times = lines.map((l) => l.time);
-  const oldest = Math.min(...times);
-  const range = Math.max(...times) - oldest || 1;
+  // reduce rather than Math.min(...times): spreading a 200k-line file overflows the stack.
+  const oldest = lines.reduce((min, l) => Math.min(min, l.time), Infinity);
+  const range = lines.reduce((max, l) => Math.max(max, l.time), -Infinity) - oldest || 1;
   return lines.map(({ time, ...line }) => ({ ...line, agePercent: Math.max(0.1, (time - oldest) / range) }));
 }
 
@@ -85,11 +85,8 @@ export const historyHandlers = {
   }),
 
   compareFileDiff: inRepo(async (repo, { base, target, file }: { base: string; target: string; file: string }) =>
-    parseDiff(await git(repo, ['diff', base, target, '--', file]))
+    parseDiff(await git(repo, ['diff', '--end-of-options', base, target, '--', file]))
   ),
-
-  /** A file's content at a revision or conflict stage (`HEAD`, `:1`, `:2`, `:3`). */
-  fileAtRef: inRepo((repo, { ref, file }: { ref: string; file: string }) => git(repo, ['show', `${ref}:${file}`])),
 
   blame: inRepo(async (repo, { file }: { file: string }) => blame(await git(repo, ['blame', '--line-porcelain', '--', file]))),
 
@@ -99,7 +96,7 @@ export const historyHandlers = {
   }),
 
   fileCommitDiff: inRepo(async (repo, { hash, file }: { hash: string; file: string }) =>
-    parseDiff(await git(repo, ['show', '--format=', hash, '--', file]))
+    parseDiff(await git(repo, ['show', '--format=', '--end-of-options', hash, '--', file]))
   ),
 
   reflog: inRepo(async (repo, { limit = 50 }: { limit?: number }): Promise<ReflogEntry[]> => {

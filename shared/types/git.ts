@@ -141,16 +141,6 @@ export interface AIExplanation {
   suggestedAction?: string;
 }
 
-export interface AIMessage {
-  id: string;
-  sender: 'user' | 'assistant' | 'system';
-  text: string;
-  timestamp: number;
-  suggestedCommand?: string;
-  suggestedAction?: () => void;
-  isLoading?: boolean;
-}
-
 export interface BlameLine {
   lineNumber: number;
   code: string;
@@ -194,20 +184,6 @@ export interface RebaseCommitItem {
   summary: string;
   action: RebaseActionType;
   newSummary?: string;
-}
-
-export interface GitConfig {
-  userName?: string;
-  userEmail?: string;
-  signingKey?: string;
-  gpgSign?: boolean;
-  gpgFormat?: string;
-}
-
-export interface GitHubUser {
-  login: string;
-  avatarUrl?: string;
-  isAuthenticated: boolean;
 }
 
 export interface PullRequest {

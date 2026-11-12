@@ -78,7 +78,8 @@ async function repoSettings(repo: string) {
       local(GIT_KEYS.userEmail),
       configValue(repo, GIT_KEYS.pullRebase),
       configValue(repo, GIT_KEYS.autocrlf),
-      configValue(repo, GIT_KEYS.gpgSign),
+      // git accepts yes/on/1 for true; --type=bool reports them as "true".
+      configValue(repo, GIT_KEYS.gpgSign, ['--type=bool']).catch(() => ''),
       configValue(repo, GIT_KEYS.signingKey),
       configValue(repo, GIT_KEYS.gpgFormat),
       configValue(repo, GIT_KEYS.userName, ['--global']),

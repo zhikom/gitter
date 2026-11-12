@@ -4,10 +4,10 @@
 // typed from the same handler map (see server/handlers.ts).
 import path from 'path';
 import type { Express } from 'express';
+import { UserError } from './errors';
 import { CommandError } from './git';
 
-/** A request refused as given. Its message is shown to the user. */
-export class UserError extends Error {}
+export { UserError };
 
 type Handler = (input: any) => unknown;
 

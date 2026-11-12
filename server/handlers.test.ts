@@ -98,6 +98,13 @@ describe('working tree', () => {
     assert.equal((await api.repoState({ repo })).conflictedCount, 0);
   });
 
+  test('a heading underline inside a conflict is text, not a marker', () => {
+    const file = parseConflicts('<<<<<<< HEAD\nTitle\n==========\nours\n=======\ntheirs\n>>>>>>> other\n');
+    const [conflict] = file.sections.filter((s) => s.kind === 'conflict');
+    assert.ok(conflict && conflict.kind === 'conflict');
+    assert.deepEqual([conflict.ours, conflict.theirs], [['Title', '==========', 'ours'], ['theirs']]);
+  });
+
   test('undo after a commit keeps its changes staged', async () => {
     const repo = await newRepo();
     write(repo, 'a.txt', 'changed\n');
@@ -198,21 +205,108 @@ describe('history and branches', () => {
     temps.push(upstream);
     await git(upstream, ['init', '-q', '--bare']);
     await git(repo, ['remote', 'add', 'upstream', upstream]);
-    await api.push({ repo, remote: 'upstream' });
+    await git(repo, ['push', '-q', '-u', 'upstream', 'main']);
     await api.fetch({ repo });
     const remote = (await api.branches({ repo })).find((b) => b.isRemote);
     assert.deepEqual([remote?.name, remote?.remoteName], ['upstream/main', 'upstream']);
   });
 
+  test('push sends a branch to the remote it tracks, not to origin', async () => {
+    const repo = await newRepo();
+    const upstream = fs.mkdtempSync(path.join(os.tmpdir(), 'gitter-test-remote-'));
+    temps.push(upstream);
+    await git(upstream, ['init', '-q', '--bare']);
+    await git(repo, ['remote', 'add', 'upstream', upstream]);
+    await git(repo, ['push', '-q', '-u', 'upstream', 'main']);
+    write(repo, 'a.txt', 'changed\n');
+    await api.stageAll({ repo });
+    await api.commit({ repo, summary: 'second' });
+    await api.push({ repo });
+    assert.equal((await git(upstream, ['rev-parse', 'main'])).trim(), (await git(repo, ['rev-parse', 'HEAD'])).trim());
+  });
+
   test('interactive rebase refuses to run over uncommitted changes', async () => {
     const repo = await newRepo();
+    write(repo, 'b.txt', 'b\n');
+    await git(repo, ['add', '-A']);
+    await git(repo, ['commit', '-qm', 'second']);
     write(repo, 'a.txt', 'dirty\n');
-    await assert.rejects(api.runRebasePlan({ repo, base: 'HEAD', plan: [] }), /Commit or stash/);
+    const plan = await api.rebaseCommits({ repo, base: 'HEAD~1' });
+    await assert.rejects(api.runRebasePlan({ repo, base: 'HEAD~1', plan }), /Commit or stash/);
     assert.equal(read(repo, 'a.txt'), 'dirty\n');
+  });
+
+  test('rewording keeps the body; squashing keeps both messages; an emptied pick is dropped', async () => {
+    const repo = await newRepo();
+    const commit = async (file: string, content: string, message: string) => {
+      write(repo, file, content);
+      await git(repo, ['add', '-A']);
+      await git(repo, ['commit', '-q', '-F', '-'], { input: message });
+    };
+    await commit('b.txt', 'b\n', 'add b\n\nwhy b exists');
+    await commit('c.txt', 'c\n', 'add c');
+    await commit('d.txt', 'd\n', 'add d');
+    await git(repo, ['revert', '--no-edit', 'HEAD']); // removes d again
+    const [b, c, d, revert] = await api.rebaseCommits({ repo, base: 'HEAD~4' });
+    await api.runRebasePlan({
+      repo,
+      base: 'HEAD~4',
+      plan: [{ ...b, action: 'reword', newSummary: 'add b, reworded' }, { ...c, action: 'squash' }, { ...revert, action: 'pick' }, { ...d, action: 'drop' }],
+    });
+    const messages = (await git(repo, ['log', '--format=%B%x00', 'HEAD~1..HEAD'])).split('\0').map((m) => m.trim()).filter(Boolean);
+    assert.equal(messages[0], 'add b, reworded\n\nwhy b exists\n\nadd c');
+    // Reverting d without d left nothing to commit, so that pick was skipped.
+    assert.equal((await git(repo, ['rev-list', '--count', 'HEAD'])).trim(), '2'); // init and the squashed commit
+    assert.equal(read(repo, 'c.txt'), 'c\n');
+  });
+
+  test('undo restores what a hard reset threw away', async () => {
+    const repo = await newRepo();
+    write(repo, 'a.txt', 'second\n');
+    await api.stageAll({ repo });
+    await api.commit({ repo, summary: 'second' });
+    await api.reset({ repo, hash: 'HEAD~1', mode: 'hard' });
+    await api.undo({ repo });
+    assert.equal((await git(repo, ['log', '-1', '--format=%s'])).trim(), 'second');
+    assert.ok((await api.repoState({ repo })).isClean);
+  });
+
+  test('undo after a soft reset moves the branch back', async () => {
+    const repo = await newRepo();
+    write(repo, 'a.txt', 'second\n');
+    await api.stageAll({ repo });
+    await api.commit({ repo, summary: 'second' });
+    await api.reset({ repo, hash: 'HEAD~1', mode: 'soft' });
+    await api.undo({ repo });
+    assert.equal((await git(repo, ['log', '-1', '--format=%s'])).trim(), 'second');
+    assert.ok((await api.repoState({ repo })).isClean);
+  });
+
+  test('undo of the first commit leaves its files staged on an unborn branch', async () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'gitter-test-'));
+    temps.push(repo);
+    await git(repo, ['init', '-q', '-b', 'main']);
+    await git(repo, ['config', 'user.name', 'Test']);
+    await git(repo, ['config', 'user.email', 'test@example.com']);
+    write(repo, 'a.txt', 'first\n');
+    await api.stageAll({ repo });
+    await api.commit({ repo, summary: 'first' });
+    await api.undo({ repo });
+    assert.deepEqual(await api.commits({ repo }), []);
+    assert.equal((await api.repoState({ repo })).stagedCount, 1);
   });
 });
 
 describe('stash', () => {
+  test('stashing with nothing to stash leaves older stashes alone', async () => {
+    const repo = await newRepo();
+    write(repo, 'a.txt', 'older\n');
+    await api.saveStash({ repo, message: 'older' });
+    await assert.rejects(api.saveStash({ repo, keepWorkingChanges: true }), /no changes to stash/);
+    assert.equal(read(repo, 'a.txt'), 'one\ntwo\n');
+    assert.equal((await api.stashes({ repo })).length, 1);
+  });
+
   test('stashing chosen files keeps the rest, and the stash lists untracked files', async () => {
     const repo = await newRepo();
     write(repo, 'a.txt', 'changed\n');
@@ -296,12 +390,17 @@ describe('agents', () => {
     const { agentId, worktreePath } = await api.spawnAgent({ repo, harness: 'codex', task: 'refactor' });
     temps.push(worktreePath);
     write(worktreePath, 'a.txt', 'checkpointed\n');
+    write(worktreePath, 'new.txt', 'not added yet\n');
     await api.checkpointAgent({ repo, agentId });
     write(worktreePath, 'a.txt', 'broken\n');
+    write(worktreePath, 'new.txt', 'broken\n');
     write(worktreePath, 'junk.txt', 'junk\n');
     await api.rollbackAgent({ repo, agentId });
     assert.equal(read(worktreePath, 'a.txt'), 'checkpointed\n');
+    assert.equal(read(worktreePath, 'new.txt'), 'not added yet\n');
     assert.ok(!fs.existsSync(path.join(worktreePath, 'junk.txt')));
+    // The agent's index is untouched: the restored files are uncommitted changes.
+    assert.equal((await git(worktreePath, ['diff', '--cached', '--name-only'])).trim(), '');
   });
 
   test('a released agent is not rediscovered from its branch', async () => {
@@ -328,10 +427,27 @@ describe('git console', () => {
   test('runs read-only and everyday commands', () => {
     assert.deepEqual(consoleArgs('git log --oneline -3'), ['log', '--oneline', '-3']);
     assert.deepEqual(consoleArgs('git commit -m "two words"'), ['commit', '-m', 'two words']);
+    assert.deepEqual(consoleArgs('git checkout -b feature/x'), ['checkout', '-b', 'feature/x']);
+    assert.deepEqual(consoleArgs('git log --format=%h -n 2'), ['log', '--format=%h', '-n', '2']);
   });
 
   test('refuses commands that rewrite history or run other programs', () => {
-    for (const command of ['git difftool --extcmd=calc', 'git rebase --exec calc main', 'git -c core.pager=calc log', 'git push -f', 'git push origin +main', 'git branch -D x', 'git status\ncalc', 'ls']) {
+    for (const command of [
+      'git difftool --extcmd=calc',
+      'git rebase --exec calc main',
+      'git rebase --exe=calc main',
+      'git rebase "-xcalc" main',
+      'git fetch --upload-pac="calc" origin',
+      'git push --receive-pa=calc',
+      'git merge -s ours x',
+      'git -c core.pager=calc log',
+      'git push -f',
+      'git push -uf origin x',
+      'git push origin +main',
+      'git branch -D x',
+      'git status\ncalc',
+      'ls',
+    ]) {
       assert.throws(() => consoleArgs(command), UserError, command);
     }
   });

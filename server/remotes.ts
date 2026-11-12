@@ -1,11 +1,16 @@
 import type { PullRequest, Remote } from '../shared/types/git';
 import { git, run } from './git';
-import { inRepo } from './http';
+import { inRepo, UserError } from './http';
 
 const PR_FIELDS = 'number,title,author,headRefName,baseRefName,state,url,createdAt,updatedAt,isDraft';
 
 function gh(repo: string, args: string[]): Promise<string> {
   return run('gh', repo, args, { env: { GH_PROMPT_DISABLED: '1', NO_COLOR: '1' } });
+}
+
+function checkPr(number: number): string {
+  if (!Number.isInteger(number) || number <= 0) throw new UserError(`No pull request #${number}.`);
+  return String(number);
 }
 
 function toPullRequest(item: any): PullRequest {
@@ -14,12 +19,14 @@ function toPullRequest(item: any): PullRequest {
 
 async function remotes(repo: string): Promise<Remote[]> {
   const byName = new Map<string, Remote>();
+  // Lines read "<name>\t<url> (fetch)"; the URL itself may contain spaces.
   for (const line of (await git(repo, ['remote', '-v'])).split('\n')) {
-    const [name, url, kind] = line.split(/\s+/);
-    if (!name || !url) continue;
+    const match = line.match(/^(\S+)\t(.*) \((fetch|push)\)$/);
+    if (!match) continue;
+    const [, name, url, kind] = match;
     const remote = byName.get(name) ?? { name, fetchUrl: '', pushUrl: '' };
-    if (kind === '(fetch)') remote.fetchUrl = url;
-    if (kind === '(push)') remote.pushUrl = url;
+    if (kind === 'fetch') remote.fetchUrl = url;
+    else remote.pushUrl = url;
     byName.set(name, remote);
   }
   return [...byName.values()];
@@ -45,10 +52,21 @@ export const remoteHandlers = {
     ])
   ),
 
-  /** Pushes the current branch, setting its upstream on the first push. */
-  push: inRepo(async (repo, { remote = 'origin', branch, forceWithLease = false }: { remote?: string; branch?: string; forceWithLease?: boolean }) => {
+  /**
+   * Pushes a branch (the checked-out one by default) to the branch it tracks. A
+   * branch that tracks nothing yet goes to origin under its own name and starts
+   * tracking it.
+   */
+  push: inRepo(async (repo, { branch, forceWithLease = false }: { branch?: string; forceWithLease?: boolean }) => {
     const target = branch || (await git(repo, ['branch', '--show-current'])).trim();
-    return git(repo, ['push', '-u', ...(forceWithLease ? ['--force-with-lease'] : []), '--end-of-options', remote, target]);
+    if (!target) throw new UserError('Check out a branch to push.');
+    const config = (key: string) => git(repo, ['config', '--get', `branch.${target}.${key}`]).then((v) => v.trim(), () => '');
+    const [trackedRemote, trackedRef] = await Promise.all([config('remote'), config('merge')]);
+    const force = forceWithLease ? ['--force-with-lease'] : [];
+    if (trackedRemote && trackedRef) {
+      return git(repo, ['push', ...force, '--end-of-options', trackedRemote, `refs/heads/${target}:${trackedRef}`]);
+    }
+    return git(repo, ['push', '-u', ...force, '--end-of-options', 'origin', target]);
   }),
 
   pullRequests: inRepo(async (repo, { state = 'open' }: { state?: 'open' | 'closed' | 'all' }) =>
@@ -57,8 +75,9 @@ export const remoteHandlers = {
 
   pullRequest: inRepo(async (repo, { number }: { number: number }) =>
     toPullRequest(
+      // checkPr throws for anything but a pull request number.
       JSON.parse(
-        await gh(repo, ['pr', 'view', String(number), `--json=${PR_FIELDS},body,mergeable,additions,deletions,changedFiles`])
+        await gh(repo, ['pr', 'view', checkPr(number), `--json=${PR_FIELDS},body,mergeable,additions,deletions,changedFiles`])
       )
     )
   ),
@@ -71,5 +90,5 @@ export const remoteHandlers = {
     }
   ),
 
-  checkoutPullRequest: inRepo((repo, { number }: { number: number }) => gh(repo, ['pr', 'checkout', String(number)])),
+  checkoutPullRequest: inRepo((repo, { number }: { number: number }) => gh(repo, ['pr', 'checkout', checkPr(number)])),
 };

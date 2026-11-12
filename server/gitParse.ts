@@ -4,8 +4,8 @@
 import type { ChangedFile, DiffHunk, FileDiff, FileStatus, GitFileState } from '../shared/types/git';
 
 /** Field and record separators for `--format`: `%x1f` between fields, `%x1e` after each record. */
-export const FIELD = '%x1f';
-export const RECORD = '%x1e';
+const FIELD = '%x1f';
+const RECORD = '%x1e';
 
 export function format(...placeholders: string[]): string {
   return `--format=${placeholders.join(FIELD)}${RECORD}`;
@@ -124,7 +124,7 @@ export interface NameStatus {
 }
 
 /** Parses `--name-status -z`. */
-export function parseNameStatus(output: string): NameStatus[] {
+function parseNameStatus(output: string): NameStatus[] {
   const parts = output.split('\0');
   const files: NameStatus[] = [];
   for (let i = 0; i < parts.length; i++) {

@@ -30,17 +30,18 @@ export function parseConflicts(content: string): ConflictedFile {
   let part: 'ours' | 'base' | 'theirs' = 'ours';
 
   for (const line of content.split(/\r?\n/)) {
-    if (line.startsWith('<<<<<<<')) {
+    // Markers are exact: a "=======" heading underline inside a conflict is text.
+    if (/^<{7}( |$)/.test(line)) {
       if (common.length) sections.push({ kind: 'common', lines: common });
       common = [];
       conflict = { kind: 'conflict', ours: [], theirs: [], oursLabel: line.slice(7).trim() || 'ours', theirsLabel: 'theirs', resolution: 'unresolved' };
       part = 'ours';
-    } else if (conflict && line.startsWith('|||||||')) {
+    } else if (conflict && /^\|{7}( |$)/.test(line)) {
       conflict.base = [];
       part = 'base';
-    } else if (conflict && line.startsWith('=======')) {
+    } else if (conflict && /^={7}$/.test(line)) {
       part = 'theirs';
-    } else if (conflict && line.startsWith('>>>>>>>')) {
+    } else if (conflict && /^>{7}( |$)/.test(line)) {
       conflict.theirsLabel = line.slice(7).trim() || 'theirs';
       sections.push(conflict);
       conflict = null;
@@ -52,7 +53,7 @@ export function parseConflicts(content: string): ConflictedFile {
   }
   if (conflict) {
     // An unterminated conflict is kept as plain text rather than lost.
-    common.push(`<<<<<<< ${conflict.oursLabel}`, ...conflict.ours, '=======', ...conflict.theirs);
+    common.push(`<<<<<<< ${conflict.oursLabel}`, ...conflict.ours, ...(conflict.base ? ['|||||||', ...conflict.base] : []), ...(part === 'theirs' ? ['======='] : []), ...conflict.theirs);
   }
   if (common.length) sections.push({ kind: 'common', lines: common });
   return { sections, eol };

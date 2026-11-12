@@ -9,6 +9,8 @@ import { gitterSettings } from './settings';
 
 const NULL_DEVICE = '/dev/null';
 
+const hasCommits = (repo: string) => gitSucceeds(repo, ['rev-parse', '--verify', '--quiet', 'HEAD']);
+
 async function isTracked(repo: string, file: string): Promise<boolean> {
   return gitSucceeds(repo, ['ls-files', '--error-unmatch', '--', file]);
 }
@@ -47,9 +49,16 @@ export const changeHandlers = {
   ),
 
   stageFile: inRepo((repo, { file }: { file: string }) => git(repo, ['add', '--', file]).then(() => undefined)),
-  unstageFile: inRepo((repo, { file }: { file: string }) => git(repo, ['restore', '--staged', '--', file]).then(() => undefined)),
+  // Before the first commit there is no HEAD to restore the index from, so the files are just untracked again.
+  unstageFile: inRepo(async (repo, { file }: { file: string }) => {
+    if (await hasCommits(repo)) await git(repo, ['restore', '--staged', '--', file]);
+    else await git(repo, ['rm', '--cached', '-q', '-r', '--', file]);
+  }),
   stageAll: inRepo((repo) => git(repo, ['add', '-A']).then(() => undefined)),
-  unstageAll: inRepo((repo) => git(repo, ['reset', '-q']).then(() => undefined)),
+  unstageAll: inRepo(async (repo) => {
+    if (await hasCommits(repo)) await git(repo, ['reset', '-q']);
+    else if ((await git(repo, ['ls-files'])).trim()) await git(repo, ['rm', '--cached', '-q', '-r', '--', '.']);
+  }),
 
   discardFile: inRepo(async (repo, { file }: { file: string }) => {
     if (await isTracked(repo, file)) await git(repo, ['restore', '--', file]);
@@ -57,7 +66,8 @@ export const changeHandlers = {
   }),
 
   discardAll: inRepo(async (repo) => {
-    await git(repo, ['restore', '--', '.']);
+    // `restore .` fails when nothing is tracked yet, as in a new repository.
+    if ((await git(repo, ['ls-files'])).trim()) await git(repo, ['restore', '--', '.']);
     await git(repo, ['clean', '-fd']);
   }),
 
@@ -71,10 +81,10 @@ export const changeHandlers = {
     return git(repo, ['commit', '-F', '-', ...(amend ? ['--amend'] : [])], { input: message });
   }),
 
-  /** Writes a resolved conflict to disk and, unless told otherwise, marks it resolved. */
   /** The file as it is on disk, e.g. with conflict markers in it. */
   workingFile: inRepo((repo, { file }: { file: string }) => fs.promises.readFile(insideRepo(repo, file), 'utf8')),
 
+  /** Writes a resolved conflict to disk and, unless told otherwise, marks it resolved. */
   saveConflictResolution: inRepo(async (repo, { file, content, stage = true }: { file: string; content: string; stage?: boolean }) => {
     await fs.promises.writeFile(insideRepo(repo, file), content, 'utf8');
     if (stage) await git(repo, ['add', '--', file]);

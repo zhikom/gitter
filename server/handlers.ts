@@ -3,6 +3,7 @@
 import { agentHandlers } from './agents';
 import { aiHandlers } from './ai';
 import { downloadAndInstall, latestRelease } from './appUpdate';
+import { UserError } from './errors';
 import { branchHandlers } from './branches';
 import { changeHandlers } from './changes';
 import { consoleHandlers } from './gitConsole';
@@ -24,10 +25,13 @@ export interface Host {
 function appHandlers(host: Host) {
   return {
     /** The OS folder picker, for a browser UI that has no dialog of its own. */
-    pickFolder: ({ title, startIn }: { title?: string; startIn?: string }) => os.pickFolder(title, startIn),
+    pickFolder: ({ title }: { title?: string }) => os.pickFolder(title),
     openUrl: ({ url }: { url: string }) => os.openUrl(url),
     latestRelease: () => latestRelease(),
     installUpdate: async ({ downloadUrl }: { downloadUrl: string }) => {
+      // The installer runs with the user's rights: only an asset of the current release qualifies.
+      const release = await latestRelease();
+      if (!release.assets.some((asset) => asset.url === downloadUrl)) throw new UserError('That file is not part of the latest Gitter release.');
       const installerPath = await downloadAndInstall(downloadUrl);
       host.onUpdateInstalling();
       return installerPath;

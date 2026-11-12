@@ -8,7 +8,7 @@ export interface AgentCheckpoint {
   createdAt: number;
   /** The agent branch's HEAD when the checkpoint was taken. */
   head: string;
-  /** A `git stash create` commit holding uncommitted files, when there were any. */
+  /** A commit of the worktree's files, untracked ones included, when any differed from `head`. */
   worktreeStash?: string;
   label: string;
 }

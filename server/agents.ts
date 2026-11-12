@@ -1,6 +1,7 @@
 // AI coding agents working in this repository, each on its own `agent/...`
 // branch and usually in its own worktree, and the review of their work.
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import {
   ACTIVE_WINDOW_MS,
@@ -15,7 +16,7 @@ import type { AgentActivityEvent, AgentFileOwnership, AgentHarness, AgentInstanc
 import type { ChangedFile } from '../shared/types/git';
 import type { AgentCheckpoint, AgentDiff, AgentReviewItem, AgentReviewSnapshot, AgentReviewStatus } from '../shared/types/agentReview';
 import { git, gitSucceeds } from './git';
-import { changedFiles, parseDiff, parseNumstat, parseStatus, refFormat, STATUS_ARGS } from './gitParse';
+import { changedFiles, parseDiff, parseNumstat, parseStatus, records, refFormat, STATUS_ARGS } from './gitParse';
 import { inRepo, UserError } from './http';
 import { readDoc, updateDoc, worktreeGitDir } from './repoStore';
 import { worktrees } from './worktrees';
@@ -54,9 +55,7 @@ async function discover(repo: string, doc: AgentsDoc): Promise<StoredAgent[]> {
   const out = await git(repo, ['for-each-ref', refFormat('%(refname:short)', '%(creatordate:unix)'), `refs/heads/${AGENT_BRANCH_PREFIX}`]);
   const known = new Set([...doc.agents.map((a) => a.branchName), ...doc.dismissedBranches]);
   const base = await checkedOutRef(repo);
-  return out
-    .split('\n')
-    .map((line) => line.split('\x1f'))
+  return records(out)
     .filter(([branch]) => branch && !known.has(branch))
     .map(([branch, created]) => ({
       id: `branch:${branch}`,
@@ -123,7 +122,11 @@ function reviewStatus(agent: StoredAgent, inspection: Inspection, running: boole
   return running ? 'running' : 'needs-review';
 }
 
-/** A lock this old cannot belong to a running git command; it was left by a crash. */
+/**
+ * A lock this old is most likely left over from a git process that crashed.
+ * It can still be live (`git commit` holds the lock while its editor is open),
+ * so it is only ever removed when the user asks, after a warning.
+ */
 const STALE_LOCK_MS = 30_000;
 
 function staleIndexLock(repo: string): boolean {
@@ -227,6 +230,26 @@ function updateAgent(repo: string, agent: StoredAgent, change: (agent: StoredAge
   });
 }
 
+/**
+ * A commit of every file in the worktree, untracked ones included, or undefined
+ * when nothing differs from HEAD. It is built in a temporary index, so the
+ * agent's own index and files are untouched. (`git stash create` would leave
+ * untracked files out, and a rollback's clean would then delete them.)
+ */
+async function snapshotWorktree(worktree: string, head: string): Promise<string | undefined> {
+  const index = path.join(os.tmpdir(), `gitter-snapshot-${process.pid}-${Date.now()}`);
+  const env = { GIT_INDEX_FILE: index };
+  try {
+    await git(worktree, ['read-tree', head], { env });
+    await git(worktree, ['add', '-A'], { env });
+    const tree = (await git(worktree, ['write-tree'], { env })).trim();
+    if (tree === (await git(worktree, ['rev-parse', `${head}^{tree}`])).trim()) return undefined;
+    return (await git(worktree, ['commit-tree', tree, '-p', head, '-m', 'Gitter checkpoint'])).trim();
+  } finally {
+    await fs.promises.rm(index, { force: true });
+  }
+}
+
 function setReview(repo: string, agent: StoredAgent, review: Partial<NonNullable<StoredAgent['review']>>) {
   return updateAgent(repo, agent, (a) => ({ ...a, review: { ...a.review, ...review, updatedAt: Date.now() } }));
 }
@@ -238,11 +261,13 @@ async function agentDiff(repo: string, agentId: string, file?: string): Promise<
   if (!worktree) {
     const range = `${agent.baseRef}...${agent.branchName}`;
     const [diff, counts] = await Promise.all([git(repo, ['diff', range, ...paths]), git(repo, ['diff', '--numstat', '-z', range, ...paths])]);
-    return { agentId, baseRef: agent.baseRef, files: toChanges(counts), diffs: parseDiff(diff) };
+    return { agentId, baseRef: agent.baseRef, files: toChanges(counts), diffs: parseDiff(diff) }; // three dots: from the fork point
   }
+  // From where the agent's branch left its base: commits the base gained since are not the agent's.
+  const forkPoint = (await git(worktree, ['merge-base', '--end-of-options', agent.baseRef, 'HEAD']).catch(() => agent.baseRef)).trim();
   const [diff, counts, untrackedOut] = await Promise.all([
-    git(worktree, ['diff', agent.baseRef, ...paths]),
-    git(worktree, ['diff', '--numstat', '-z', agent.baseRef, ...paths]),
+    git(worktree, ['diff', '--end-of-options', forkPoint, ...paths]),
+    git(worktree, ['diff', '--numstat', '-z', '--end-of-options', forkPoint, ...paths]),
     git(worktree, ['ls-files', '--others', '--exclude-standard', '-z', ...paths]),
   ]);
   const untracked = untrackedOut.split('\0').filter(Boolean);
@@ -322,7 +347,10 @@ export const agentHandlers = {
   agentDiff: inRepo((repo, { agentId, file }: { agentId: string; file?: string }) => agentDiff(repo, agentId, file)),
 
   spawnAgent: inRepo(async (repo, { harness, task, baseRef }: { harness: AgentHarness; task: string; baseRef?: string }) => {
-    const base = baseRef || (await checkedOutRef(repo));
+    const base = baseRef?.trim() || (await checkedOutRef(repo));
+    if (!(await gitSucceeds(repo, ['rev-parse', '--verify', '--quiet', '--end-of-options', `${base}^{commit}`]))) {
+      throw new UserError(`"${base}" is not a branch or commit in this repository.`);
+    }
     const branch = agentBranchName(harness, task);
     if (!(await gitSucceeds(repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]))) {
       await git(repo, ['branch', '--end-of-options', branch, base]);
@@ -373,7 +401,7 @@ export const agentHandlers = {
   checkpointAgent: inRepo(async (repo, { agentId, label }: { agentId: string; label?: string }) => {
     const { agent, worktree } = await requireWorktree(repo, agentId);
     const head = (await git(worktree, ['rev-parse', 'HEAD'])).trim();
-    const stash = (await git(worktree, ['stash', 'create'])).trim() || undefined;
+    const stash = await snapshotWorktree(worktree, head);
     const checkpoint: AgentCheckpoint = { id: `cp-${Date.now().toString(36)}`, createdAt: Date.now(), head, worktreeStash: stash, label: label?.trim() || 'Checkpoint' };
     // A ref keeps the stash commit from being garbage-collected before a rollback needs it.
     if (stash) await git(repo, ['update-ref', `refs/gitter/checkpoints/${agent.id.replace(/[^\w-]/g, '-')}`, stash]);
@@ -387,7 +415,8 @@ export const agentHandlers = {
     if (!checkpoint) throw new UserError(`${agent.name} has no checkpoint to roll back to.`);
     await git(worktree, ['reset', '--hard', checkpoint.head]);
     await git(worktree, ['clean', '-fd']);
-    if (checkpoint.worktreeStash) await git(worktree, ['stash', 'apply', checkpoint.worktreeStash]);
+    // The snapshot's files go back into the worktree as uncommitted changes; the index stays at HEAD.
+    if (checkpoint.worktreeStash) await git(worktree, ['restore', `--source=${checkpoint.worktreeStash}`, '--worktree', '--', '.']);
     await setReview(repo, agent, { status: 'queued', feedback: `Rolled back to "${checkpoint.label}".` });
     return agentSnapshot(repo);
   }),

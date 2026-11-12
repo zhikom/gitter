@@ -32,7 +32,11 @@ export async function worktrees(repo: string): Promise<Worktree[]> {
 export const worktreeHandlers = {
   worktrees: inRepo((repo) => worktrees(repo)),
 
-  /** Checks out `branch` in a new folder; a branch that exists nowhere yet is created from HEAD. */
+  /**
+   * Checks out `branch` in a new folder. A name only a remote has becomes a local
+   * branch tracking it (git does this when exactly one remote has the name); a
+   * name nothing has yet is created from HEAD.
+   */
   addWorktree: inRepo(async (repo, { folder, branch }: { folder: string; branch: string }) => {
     const local = await gitSucceeds(repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);
     // git itself creates a tracking branch when exactly one remote has the name.
@@ -51,7 +55,8 @@ export const worktreeHandlers = {
       .split('\n')
       .filter(Boolean)
       .map((line) => {
-        const [, commitHash, subPath, branch] = line.match(/^.(\S+) (\S+)(?: \((.+)\))?/) ?? [];
+        // "<state><hash> <path>[ (<describe>)]"; the path may contain spaces.
+        const [, commitHash, subPath, branch] = line.match(/^.(\S+) (.+?)(?: \(([^()]+)\))?$/) ?? [];
         return { name: path.basename(subPath ?? ''), path: subPath ?? '', commitHash: commitHash ?? '', branch };
       });
   }),

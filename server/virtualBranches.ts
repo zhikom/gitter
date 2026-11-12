@@ -7,6 +7,8 @@ import type { VirtualBranch } from '../shared/types/virtualBranch';
 import { git, gitSucceeds } from './git';
 import { inRepo, UserError } from './http';
 import { readDoc, updateDoc } from './repoStore';
+import { pushStash } from './stash';
+import { worktrees } from './worktrees';
 
 const laneRef = (laneId: string) => `refs/gitter/lanes/${laneId.replace(/[^\w-]/g, '-')}`;
 
@@ -23,6 +25,9 @@ async function commitToBranch(repo: string, branch: string, files: string[], mes
     return (await git(repo, ['rev-parse', 'HEAD'])).trim();
   }
 
+  // update-ref would move a branch another worktree (an agent's) has checked out, under its files.
+  const elsewhere = (await worktrees(repo)).find((w) => w.branch === branch && !w.isCurrent);
+  if (elsewhere) throw new UserError(`${branch} is checked out in ${elsewhere.path}; commit there instead.`);
   const ref = `refs/heads/${branch}`;
   const exists = await gitSucceeds(repo, ['rev-parse', '--verify', '--quiet', ref]);
   const parent = (await git(repo, ['rev-parse', exists ? ref : 'HEAD'])).trim();
@@ -67,10 +72,10 @@ export const virtualBranchHandlers = {
   /** Moves a lane's changes out of the working tree, keeping them under a ref of their own. */
   stashLane: inRepo(async (repo, { laneId, files }: { laneId: string; files: string[] }) => {
     if (files.length === 0) return;
-    await git(repo, ['stash', 'push', '-u', '-m', `gitter lane ${laneId}`, '--', ...files]);
-    const stash = (await git(repo, ['rev-parse', 'stash@{0}'])).trim();
+    const stash = await pushStash(repo, ['-u', '-m', `gitter lane ${laneId}`, '--', ...files]);
+    if (!stash) throw new UserError('The lane has no changes to put away.');
     await git(repo, ['update-ref', laneRef(laneId), stash]);
-    await git(repo, ['stash', 'drop', 'stash@{0}']);
+    await git(repo, ['stash', 'drop', 'stash@{0}']); // the one pushStash just made
   }),
 
   /** Puts a stashed lane's changes back into the working tree. */
