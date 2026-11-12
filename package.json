@@ -14,9 +14,8 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "vscode:build": "tsc -p extensions/vscode/tsconfig.json",
     "setup:hooks": "git config core.hooksPath .githooks",
-    "test": "node --test --import tsx server/**/*.test.ts"
+    "test": "node --test --import tsx server/handlers.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",

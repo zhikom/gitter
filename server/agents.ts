@@ -15,7 +15,7 @@ import type { AgentActivityEvent, AgentFileOwnership, AgentHarness, AgentInstanc
 import type { ChangedFile } from '../shared/types/git';
 import type { AgentCheckpoint, AgentDiff, AgentReviewItem, AgentReviewSnapshot, AgentReviewStatus } from '../shared/types/agentReview';
 import { git, gitSucceeds } from './git';
-import { changedFiles, parseDiff, parseNumstat, parseStatus, records, refFormat, STATUS_ARGS } from './gitParse';
+import { changedFiles, parseDiff, parseNumstat, parseStatus, refFormat, STATUS_ARGS } from './gitParse';
 import { inRepo, UserError } from './http';
 import { readDoc, updateDoc, worktreeGitDir } from './repoStore';
 import { worktrees } from './worktrees';

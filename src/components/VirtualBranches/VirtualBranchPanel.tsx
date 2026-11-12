@@ -3,18 +3,10 @@ import {
   GitBranch,
   Plus,
   Trash2,
-  Archive,
-  ArrowUpRight,
-  Sparkles,
-  Check,
-  ChevronDown,
   Layers,
-  FileCode,
   Eye,
   EyeOff,
-  MoveRight,
   GripVertical,
-  ExternalLink,
 } from 'lucide-react';
 import type { VirtualBranch } from '../../../shared/types/virtualBranch';
 import type { FileStatus } from '../../../shared/types/git';
@@ -54,7 +46,6 @@ export const VirtualBranchPanel: React.FC<VirtualBranchPanelProps> = ({
   onSwitchToStandardStaging,
 }) => {
   const [virtualBranches, setVirtualBranches] = useState<VirtualBranch[]>([]);
-  const [loading, setLoading] = useState(true);
   const [newBranchName, setNewBranchName] = useState('');
   const [showNewModal, setShowNewModal] = useState(false);
   const [committingLaneId, setCommittingLaneId] = useState<string | null>(null);
@@ -63,17 +54,13 @@ export const VirtualBranchPanel: React.FC<VirtualBranchPanelProps> = ({
   // Load virtual branches from server
   useEffect(() => {
     let isMounted = true;
-    setLoading(true);
 
     api
       .virtualBranches({ repo })
       .then((data) => {
         if (isMounted) setVirtualBranches(data);
       })
-      .catch((err) => toast.error(`Could not load the lanes: ${err.message}`))
-      .finally(() => {
-        if (isMounted) setLoading(false);
-      });
+      .catch((err) => toast.error(`Could not load the lanes: ${err.message}`));
 
     return () => {
       isMounted = false;

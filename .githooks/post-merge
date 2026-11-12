@@ -1,9 +1,10 @@
 #!/bin/sh
-# Git post-merge hook: Auto-build and install latest main branch in background after git pull
+# Git post-merge hook: rebuild the web UI (npm run build) in the background after a pull or merge on main.
+# It does not install the desktop app; releases reach installed copies through the updater.
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
 
 if [ "$BRANCH" = "main" ]; then
-    echo "⚡ [Gitter Hook] Merge/Pull on main detected: updating installation in background..."
+    echo "[Gitter hook] Merge on main: rebuilding the web UI in the background..."
     powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File "./scripts/auto-install-main.ps1" > /dev/null 2>&1 &
 fi

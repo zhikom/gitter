@@ -18,6 +18,8 @@ struct Backend {
 }
 
 /// The line the backend prints once it is listening: `GITTER_READY {"port":…,"token":"…"}`.
+/// This prefix and the `--desktop` / `--parent-pid=` arguments must match
+/// shared/host.ts, which the backend reads them from.
 #[derive(Deserialize)]
 struct Ready {
     port: u16,

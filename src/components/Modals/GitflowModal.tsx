@@ -3,14 +3,8 @@ import {
   X,
   GitBranch,
   GitMerge,
-  Sparkles,
-  Check,
   AlertCircle,
   Play,
-  CheckCircle2,
-  Tag,
-  Flame,
-  Layers,
   ChevronRight,
 } from 'lucide-react';
 import { api } from '../../api/client';
@@ -41,7 +35,6 @@ export const GitflowModal: React.FC<GitflowModalProps> = ({ repo, onClose, onRef
   // Start action
   const [actionType, setActionType] = useState<'feature' | 'release' | 'hotfix'>('feature');
   const [actionName, setActionName] = useState('');
-  const [selectedToFinish, setSelectedToFinish] = useState('');
 
   const loadStatus = async () => {
     setLoading(true);

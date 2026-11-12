@@ -110,8 +110,8 @@ jobs:
             src-tauri/target/**/bundle/macos/*.app
           if-no-files-found: warn
 
-  build-vscode-extension:
-    name: Build (VS Code Extension)
+  check:
+    name: Type check and tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -120,23 +120,18 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Compile Extension
-        run: npm run vscode:build
+      - name: Type check
+        run: npx tsc --noEmit
 
-      - name: Package VSIX
+      # Behavior tests run real git in temporary repositories.
+      - name: Tests
         run: |
-          cd extensions/vscode
-          npx @vscode/vsce package --no-git-tag-version --no-update-package-json -o gitter-vscode.vsix
-
-      - name: Upload VS Code Extension Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: gitter-vscode-extension
-          path: extensions/vscode/gitter-vscode.vsix
-          if-no-files-found: error
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.invalid"
+          npm test

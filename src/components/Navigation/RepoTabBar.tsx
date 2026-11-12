@@ -4,7 +4,6 @@ import {
   X,
   Plus,
   GitBranch,
-  ExternalLink,
   Copy,
   FolderOpen,
 } from 'lucide-react';

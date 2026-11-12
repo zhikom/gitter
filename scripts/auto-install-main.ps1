@@ -1,5 +1,5 @@
-# Gitter Auto-Install Hook Script
-# Executed automatically in the background after git commit or git merge on main
+# Run by the .githooks hooks after a commit or merge on main: rebuilds the web UI.
+# It does not install the desktop app.
 
 $ErrorActionPreference = "SilentlyContinue"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
@@ -11,5 +11,6 @@ Set-Location $RepoRoot
 # 2. Show Windows Toast/Popup Notification
 try {
     $wshell = New-Object -ComObject Wscript.Shell
-    $wshell.Popup("Gitter on branch main has been updated and built successfully!", 3, "Gitter Auto-Install", 64) | Out-Null
+    $message = if ($LASTEXITCODE -eq 0) { "Gitter's web UI on main was rebuilt." } else { "Rebuilding Gitter's web UI on main failed (npm run build)." }
+    $wshell.Popup($message, 3, "Gitter build hook", 64) | Out-Null
 } catch {}

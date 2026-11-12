@@ -20,7 +20,7 @@ const app = express();
 
 // Chromium-based webviews (WebView2, Edge) ask before a page reaches a loopback
 // address (Private Network Access); this header answers yes on the preflight.
-app.use((req, res, next) => {
+app.use((_req, res, next) => {
   res.header('Access-Control-Allow-Private-Network', 'true');
   next();
 });

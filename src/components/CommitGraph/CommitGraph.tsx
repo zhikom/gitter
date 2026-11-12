@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Commit, GraphNode } from '../../../shared/types/git';
+import { Commit } from '../../../shared/types/git';
 import { layoutCommitGraph, getLaneColor } from '../../utils/graphLayout';
 import { usePreference } from '../../preferences';
 import { aiAuthorOf, HARNESS_META } from '../Agent/agentUi';
@@ -11,9 +11,6 @@ import {
   Copy,
   RotateCcw,
   GitPullRequest,
-  Check,
-  ChevronRight,
-  Flame,
   GitMerge,
   ExternalLink,
   FileCode,
@@ -238,7 +235,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             <span>No commits found</span>
           </div>
         ) : (
-          filteredNodes.map((node, rowIndex) => {
+          filteredNodes.map((node) => {
             const commit = node.commit;
             const isSelected = selectedHash === commit.hash;
             const isWip = commit.isWip;

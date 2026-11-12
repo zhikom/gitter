@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Sparkles, Check, ChevronDown, Archive, RotateCcw, MessageSquare, ArrowUp, RefreshCw, Bot } from 'lucide-react';
+import React, { useState } from 'react';
+import { Sparkles, Check, ChevronDown, Archive, MessageSquare, ArrowUp, RefreshCw, Bot } from 'lucide-react';
 import type { Commit } from '../../../shared/types/git';
 import type { AgentHarness } from '../../../shared/types/agentFleet';
 import { HARNESSES, HARNESS_TRAILER } from '../../../shared/agents';
@@ -90,6 +90,14 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
       // Remove any existing prefix if present
       const cleaned = summary.replace(/^[a-z]+(\([a-z0-9_-]+\))?:\s*/i, '');
       setSummary(prefix + cleaned);
+    }
+  };
+
+  // Ctrl+Enter (Cmd+Enter on macOS) commits from either field.
+  const commitOnModEnter = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      void handleSubmit();
     }
   };
 
@@ -184,6 +192,8 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
             type="text"
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
+            onKeyDown={commitOnModEnter}
+            aria-label="Commit summary"
             placeholder="Commit summary (e.g. feat: add configurable side panels)"
             className="w-full bg-[#14181f] border border-[#2a3447] rounded pl-3 pr-14 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-teal-500 font-mono"
           />
@@ -215,6 +225,8 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
+              onKeyDown={commitOnModEnter}
+              aria-label="Commit description"
               placeholder="Commit description (optional details or reasoning)..."
               rows={3}
               className="w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-teal-500 resize-none font-mono"

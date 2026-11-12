@@ -75,7 +75,7 @@ import { WorktreesModal } from './components/Worktrees/WorktreesModal';
 import { useAgentActions } from './hooks/useAgentActions';
 import { useAgentLive } from './hooks/useAgentLive';
 import { useRepository } from './hooks/useRepository';
-import { getPreference, type RepoTab, usePreference } from './preferences';
+import { getPreference, usePreference } from './preferences';
 import { checkForAppUpdate } from './services/updateService';
 import { toast } from './utils/toast';
 
