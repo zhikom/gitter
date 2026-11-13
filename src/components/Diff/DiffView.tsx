@@ -2,7 +2,7 @@
 // from Preferences. Callers add per-hunk buttons (stage, reject) through
 // `hunkActions`, and line selection through `selection` and `onToggleLine`.
 import React from 'react';
-import { AlignLeft, Columns, FileCode, WrapText } from 'lucide-react';
+import { AlignLeft, ArrowLeft, Columns, FileCode, WrapText } from 'lucide-react';
 import type { DiffHunk, DiffLine, FileDiff } from '../../../shared/types/git';
 import { usePreference } from '../../preferences';
 
@@ -17,6 +17,9 @@ interface DiffViewProps {
   hunkActions?: (hunk: DiffHunk, index: number) => React.ReactNode;
   selection?: ReadonlyMap<number, ReadonlySet<number>>;
   onToggleLine?: (hunkIndex: number, lineIndex: number) => void;
+  onLineContextMenu?: (event: React.MouseEvent, hunkIndex: number, lineIndex: number) => void;
+  onHunkContextMenu?: (event: React.MouseEvent, hunkIndex: number) => void;
+  onBack?: () => void;
   emptyLabel?: string;
 }
 
@@ -54,6 +57,9 @@ export const DiffView: React.FC<DiffViewProps> = ({
   hunkActions,
   selection,
   onToggleLine,
+  onLineContextMenu,
+  onHunkContextMenu,
+  onBack,
   emptyLabel = 'Select a file to see its changes.',
 }) => {
   const [view, setView] = usePreference('diffView');
@@ -64,9 +70,12 @@ export const DiffView: React.FC<DiffViewProps> = ({
 
   if (!diff) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-2 text-slate-500 select-none p-6 text-center">
-        <FileCode className="w-10 h-10 opacity-25 text-teal-400" />
-        <span className="text-xs">{emptyLabel}</span>
+      <div className="flex-1 min-h-0 flex flex-col">
+        {onBack && <button onClick={onBack} className="self-start m-2 px-2 py-1 text-xs text-slate-300 hover:text-white">← Back to graph</button>}
+        <div className="flex-1 flex flex-col items-center justify-center gap-2 text-slate-500 select-none p-6 text-center">
+          <FileCode className="w-10 h-10 opacity-25 text-teal-400" />
+          <span className="text-xs">{emptyLabel}</span>
+        </div>
       </div>
     );
   }
@@ -76,9 +85,12 @@ export const DiffView: React.FC<DiffViewProps> = ({
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-[#14181f]">
-      <div className="h-9 flex-shrink-0 flex items-center justify-between gap-2 px-3 bg-[#1b212c] border-b border-[#2a3447] select-none">
-        <div className="flex items-center gap-2 min-w-0">{title}</div>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+      <div className="min-h-9 flex-shrink-0 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-1 bg-[#1b212c] border-b border-[#2a3447] select-none">
+        <div className="flex min-w-[130px] flex-1 items-center gap-2">
+          {onBack && <button onClick={onBack} title="Back to graph" aria-label="Back to graph" className="p-1 rounded text-slate-400 hover:bg-[#2d384c] hover:text-white"><ArrowLeft className="w-4 h-4" /></button>}
+          {title}
+        </div>
+        <div className="flex max-w-full flex-wrap items-center gap-1.5">
           {toolbar}
           <button onClick={() => setWrap(!wrap)} title="Wrap long lines" aria-pressed={wrap} className={toggle(wrap)}>
             <WrapText className="w-3.5 h-3.5" />
@@ -102,9 +114,9 @@ export const DiffView: React.FC<DiffViewProps> = ({
         ) : (
           diff.hunks.map((hunk, h) => (
             <section key={`${h}:${hunk.header}`} className="mb-3 border border-[#222a38] rounded overflow-hidden">
-              <div className="flex items-center justify-between gap-2 px-3 py-1 bg-[#181e29] border-b border-[#222a38] text-[11px] select-none">
-                <span className="text-teal-400/90 truncate">{hunk.header}</span>
-                <span className="flex items-center gap-1.5 flex-shrink-0 font-sans">{hunkActions?.(hunk, h)}</span>
+              <div onContextMenu={onHunkContextMenu ? (event) => onHunkContextMenu(event, h) : undefined} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-1 bg-[#181e29] border-b border-[#222a38] text-[11px] select-none">
+                <span className="flex min-w-[110px] flex-1 items-center gap-2"><span className="text-teal-400/90 truncate">{hunk.header}</span><DiffCounts additions={hunk.lines.filter((line) => line.type === 'add').length} deletions={hunk.lines.filter((line) => line.type === 'delete').length} /></span>
+                <span className="flex flex-wrap items-center gap-1.5 font-sans">{hunkActions?.(hunk, h)}</span>
               </div>
               {view === 'unified' ? (
                 <div className="bg-[#12161d]">
@@ -115,6 +127,11 @@ export const DiffView: React.FC<DiffViewProps> = ({
                       <div
                         key={l}
                         onClick={selectable ? () => onToggleLine!(h, l) : undefined}
+                        onContextMenu={onLineContextMenu ? (event) => onLineContextMenu(event, h, l) : undefined}
+                        role={selectable ? 'button' : undefined}
+                        tabIndex={selectable ? 0 : undefined}
+                        aria-pressed={selectable ? Boolean(selected) : undefined}
+                        onKeyDown={selectable ? (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onToggleLine!(h, l); } } : undefined}
                         className={`flex ${selected ? 'bg-teal-500/25 ring-1 ring-inset ring-teal-500/40' : LINE_TONE[line.type]} ${selectable ? 'cursor-pointer' : ''}`}
                       >
                         <span className="w-10 flex-shrink-0 pr-2 text-right text-slate-600 select-none border-r border-[#222a38]">{line.oldLineNumber ?? ''}</span>
@@ -126,7 +143,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
                   })}
                 </div>
               ) : (
-                <SplitHunk hunk={hunk} textClass={textClass} selected={selection?.get(h)} onToggle={onToggleLine && ((l) => onToggleLine(h, l))} />
+                <SplitHunk hunk={hunk} textClass={textClass} selected={selection?.get(h)} onToggle={onToggleLine && ((l) => onToggleLine(h, l))} onContext={onLineContextMenu && ((event, l) => onLineContextMenu(event, h, l))} />
               )}
             </section>
           ))
@@ -139,11 +156,12 @@ export const DiffView: React.FC<DiffViewProps> = ({
 type Indexed = { line: DiffLine; index: number } | null;
 
 /** Side by side: deletions on the left paired with the additions that replace them. */
-const SplitHunk: React.FC<{ hunk: DiffHunk; textClass: string; selected?: ReadonlySet<number>; onToggle?: (lineIndex: number) => void }> = ({
+const SplitHunk: React.FC<{ hunk: DiffHunk; textClass: string; selected?: ReadonlySet<number>; onToggle?: (lineIndex: number) => void; onContext?: (event: React.MouseEvent, lineIndex: number) => void }> = ({
   hunk,
   textClass,
   selected,
   onToggle,
+  onContext,
 }) => {
   const rows: Array<[Indexed, Indexed]> = [];
   for (let i = 0; i < hunk.lines.length; ) {
@@ -166,6 +184,11 @@ const SplitHunk: React.FC<{ hunk: DiffHunk; textClass: string; selected?: Readon
     return (
       <div
         onClick={selectable ? () => onToggle!(entry!.index) : undefined}
+        onContextMenu={entry && onContext ? (event) => onContext(event, entry.index) : undefined}
+        role={selectable ? 'button' : undefined}
+        tabIndex={selectable ? 0 : undefined}
+        aria-pressed={selectable ? Boolean(isSelected) : undefined}
+        onKeyDown={selectable ? (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onToggle!(entry!.index); } } : undefined}
         className={`flex ${isSelected ? 'bg-teal-500/25 ring-1 ring-inset ring-teal-500/40' : line ? LINE_TONE[line.type] : 'bg-black/20'} ${selectable ? 'cursor-pointer' : ''}`}
       >
         <span className="w-10 flex-shrink-0 pr-2 text-right text-slate-600 select-none border-r border-[#222a38]">

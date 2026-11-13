@@ -31,6 +31,7 @@ import {
   Workflow,
 } from 'lucide-react';
 import type { AIExplanation, Commit, FileDiff, PullRequest, Stash } from '../shared/types/git';
+import { buildPatch, type LineSelection } from '../shared/patch';
 import type { UpdateInfo } from '../shared/types/update';
 import type { AgentFleetState } from '../shared/types/agentFleet';
 import { api, pickFolder } from './api/client';
@@ -44,7 +45,8 @@ import { CollisionBar } from './components/Agent/CollisionBar';
 import { AssistantPanel, type AssistantQuestion } from './components/Assistant/AssistantPanel';
 import { FileBlameModal } from './components/Blame/FileBlameModal';
 import { CommitComparisonModal } from './components/CommitComparison/CommitComparisonModal';
-import { CommitDetailModal } from './components/CommitDetail/CommitDetailModal';
+import { CommitDiff } from './components/CommitDetail/CommitDiff';
+import { CommitPanel } from './components/CommitDetail/CommitPanel';
 import { CommitGraph } from './components/CommitGraph/CommitGraph';
 import { ThreeWayConflictResolverModal } from './components/ConflictResolver/ThreeWayConflictResolverModal';
 import { Explanation } from './components/Diff/Explanation';
@@ -89,14 +91,13 @@ type Dialog =
   | { kind: 'create-branch'; startPoint: string }
   | { kind: 'stash' }
   | { kind: 'stash-inspector'; stash: Stash }
-  | { kind: 'commit'; commit: Commit }
   | { kind: 'compare'; base: Commit; target: Commit }
   | { kind: 'reflog' }
   | { kind: 'worktrees' }
   | { kind: 'gitflow' }
   | { kind: 'rebase'; base: string }
-  | { kind: 'blame'; file: string }
-  | { kind: 'file-history'; file: string }
+  | { kind: 'blame'; file: string; revision?: string }
+  | { kind: 'file-history'; file: string; revision?: string }
   | { kind: 'conflict'; file: string }
   | { kind: 'explanation'; file: string; explanation: AIExplanation }
   | { kind: 'branch-drop'; source: string; target: string }
@@ -199,23 +200,25 @@ export const App: React.FC = () => {
   const [sidebarWidth, setSidebarWidth] = usePreference('sidebarWidth');
   const [stagingOpen, setStagingOpen] = usePreference('stagingOpen');
   const [rightWidth, setRightWidth] = usePreference('rightPanelWidth');
-  const [listWidth, setListWidth] = usePreference('stagingListWidth');
   const [laneMode, setLaneMode] = usePreference('laneMode');
   const [railOpen, setRailOpen] = usePreference('agentRailOpen');
   const [assistantOpen, setAssistantOpen] = usePreference('assistantOpen');
+  const [diffWorkspace, setDiffWorkspace] = useState<'working' | 'commit' | null>(null);
   const windowWidth = useWindowWidth();
 
-  // The graph keeps at least 260px; the side panels give way first on narrow windows.
+  // Reserve enough room for a readable diff; side panels yield on small windows.
   const assistantOverlay = windowWidth < 1350;
-  const effectiveSidebar = sidebarOpen ? Math.min(sidebarWidth, Math.max(160, Math.floor(windowWidth * 0.28))) : 0;
-  const maxRight = Math.max(300, windowWidth - effectiveSidebar - (assistantOpen && !assistantOverlay ? 352 : 0) - (railOpen ? 56 : 0) - 260);
+  const effectiveSidebar = sidebarOpen ? Math.min(sidebarWidth, Math.max(160, Math.floor(windowWidth * (diffWorkspace ? 0.2 : 0.28)))) : 0;
+  const maxRight = Math.max(240, windowWidth - effectiveSidebar - (assistantOpen && !assistantOverlay ? 352 : 0) - (railOpen ? 56 : 0) - (diffWorkspace ? 400 : 260));
   const effectiveRight = Math.min(rightWidth, maxRight);
-  const stacked = effectiveRight < 520;
-  const effectiveList = stacked ? effectiveRight : Math.min(listWidth, Math.max(160, effectiveRight - 200));
 
   // --- Selection ---------------------------------------------------------------
   const [selectedFile, setSelectedFile] = useState<{ path: string; staged: boolean } | null>(null);
   const [selectedCommit, setSelectedCommit] = useState<Commit | null>(null);
+  const [selectedCommitFile, setSelectedCommitFile] = useState<string | null>(null);
+  const [loadedCommitDiff, setLoadedCommitDiff] = useState<{ key: string; diffs: FileDiff[] } | null>(null);
+  const commitDiffKey = selectedCommit ? `${repo}\0${selectedCommit.hash}` : '';
+  const commitDiffs = loadedCommitDiff?.key === commitDiffKey ? loadedCommitDiff.diffs : null;
   const [ignoreWhitespace] = usePreference('ignoreWhitespace');
   // A loaded diff remembers what it is the diff of, so a newly selected file or
   // side never shows (and acts on) the previous one's hunks while its own loads.
@@ -229,11 +232,42 @@ export const App: React.FC = () => {
   repoRef.current = repo;
   const close = useCallback(() => setDialog(null), []);
 
+  const showCommit = (commit: Commit) => {
+    setSelectedCommit(commit);
+    setSelectedCommitFile(null);
+    setDiffWorkspace(null);
+    setStagingOpen(true);
+    setDialog(null);
+  };
+  const showWorkingChanges = () => {
+    setSelectedCommit(null);
+    setSelectedCommitFile(null);
+    setDiffWorkspace(null);
+    setStagingOpen(true);
+  };
+  const showWorkingFile = (path: string, staged: boolean) => {
+    setSelectedCommit(null);
+    setSelectedFile({ path, staged });
+    setDiffWorkspace('working');
+    setStagingOpen(true);
+  };
+
   useEffect(() => {
     setSelectedFile(null);
     setSelectedCommit(null);
+    setSelectedCommitFile(null);
+    setDiffWorkspace(null);
     setDialog(null);
   }, [repo]);
+
+  useEffect(() => {
+    let current = true;
+    if (!selectedCommit || !repo) return;
+    api.commitDiff({ repo, hash: selectedCommit.hash })
+      .then((diffs) => { if (current) setLoadedCommitDiff({ key: commitDiffKey, diffs }); })
+      .catch((error) => { if (current) { setLoadedCommitDiff({ key: commitDiffKey, diffs: [] }); toast.error(`Could not load the commit: ${error.message}`); } });
+    return () => { current = false; };
+  }, [repo, selectedCommit?.hash, commitDiffKey]);
 
   // A selected file that is no longer changed (committed, discarded) is dropped;
   // one that moved between staged and unstaged follows to the side it is on now.
@@ -351,6 +385,29 @@ export const App: React.FC = () => {
     patch: (action: PatchAction, patch: string) => {
       const send = { stage: api.stagePatch, unstage: api.unstagePatch, discard: api.discardPatch }[action];
       return run(`Could not ${action} the selection`, () => send({ repo, patch })).then(() => undefined);
+    },
+    async applyCommitPatch(patch: string, reverse: boolean) {
+      if (repoRef.current !== repo) return;
+      await run(reverse ? 'Could not revert the changes' : 'Could not apply the changes', () => api.applyCommitPatch({ repo, patch, reverse }), {
+        success: reverse ? 'Reverted changes in the working tree.' : 'Applied changes to the working tree.',
+      });
+    },
+    async applyCommitFile(diff: FileDiff, reverse: boolean) {
+      const selection: LineSelection = new Map(diff.hunks.map((_, index) => [index, 'all']));
+      const patch = buildPatch(diff, selection, reverse ? 'reverse' : 'forward');
+      if (!patch) return;
+      if (reverse && getPreference('confirmDiscard') && !(await ask.confirm({ title: `Revert changes to ${diff.path}?`, message: 'The inverse of this commit’s file changes will be applied to your working tree.', confirmLabel: 'Revert changes', danger: true }))) return;
+      if (repoRef.current !== repo) return;
+      await actions.applyCommitPatch(patch, reverse);
+    },
+    async restoreCommitFiles(commit: Commit, files: string[]) {
+      if (!(await ask.confirm({
+        title: files.length === 1 ? `Restore ${files[0]}?` : `Restore ${files.length} files?`,
+        message: `The selected files will be replaced with their state at ${commit.shortHash} in both the working tree and the index. Existing changes to those files will be overwritten.`,
+        confirmLabel: 'Restore files', danger: true,
+      }))) return;
+      if (repoRef.current !== repo) return;
+      await run('Could not restore the files', () => api.restoreCommitFiles({ repo, hash: commit.hash, files }), { success: `Restored ${files.length} file${files.length === 1 ? '' : 's'} from ${commit.shortHash}.` });
     },
 
     createBranch: (name: string, startPoint: string, checkout: boolean) =>
@@ -626,20 +683,41 @@ export const App: React.FC = () => {
 
           <div className="flex-1 min-w-[240px] flex flex-col overflow-hidden">
             <CollisionBar collisions={live.fleet?.collisions ?? []} agents={live.fleet?.agents ?? []} onOpenInbox={() => setDialog({ kind: 'fleet' })} />
-            <CommitGraph
+            {diffWorkspace === 'working' && selectedFile ? (
+              <WorkingDiff
+                diff={fileDiff}
+                staged={selectedFile.staged}
+                conflicted={conflicted}
+                whitespaceOnly={Boolean(currentDiffs && currentDiffs.length === 0 && ignoreWhitespace)}
+                banner={provenance && <Provenance review={provenance} file={selectedFile.path} onOpenLens={() => setDialog({ kind: 'agent-lens', agentId: provenance.agentId })} />}
+                onBack={() => setDiffWorkspace(null)}
+                onToggleStaged={() => quietly(selectedFile.staged ? actions.unstage(selectedFile.path) : actions.stage(selectedFile.path))}
+                onPatch={actions.patch}
+                onExplain={(diff) => void actions.explain(diff)}
+                onResolveConflict={(file) => setDialog({ kind: 'conflict', file })}
+                onBlame={(file) => setDialog({ kind: 'blame', file })}
+                onFileHistory={(file) => setDialog({ kind: 'file-history', file })}
+                onExternalDiff={(file, staged) => quietly(actions.externalDiff(file, staged))}
+              />
+            ) : diffWorkspace === 'commit' && selectedCommit && selectedCommitFile ? (
+              <CommitDiff
+                key={`${repo}\0${selectedCommit.hash}\0${selectedCommitFile}`}
+                commit={selectedCommit}
+                diff={commitDiffs?.find((diff) => diff.path === selectedCommitFile)}
+                onBack={() => setDiffWorkspace(null)}
+                onApply={actions.applyCommitPatch}
+                onBlame={(file) => setDialog({ kind: 'blame', file, revision: selectedCommit.hash })}
+                onHistory={(file) => setDialog({ kind: 'file-history', file, revision: selectedCommit.hash })}
+              />
+            ) : <CommitGraph
               commits={repository.commits}
               hasWip={hasWip}
               selectedHash={selectedCommit?.hash ?? (hasWip ? 'wip' : null)}
               agentBranchNames={live.reviews.map((r) => r.branchName)}
               hasAgentCollisions={(live.fleet?.collisions.length ?? 0) > 0}
               onSelectCommit={(commit) => {
-                if (commit.isWip) {
-                  setSelectedCommit(null);
-                  setStagingOpen(true);
-                } else {
-                  setSelectedCommit(commit);
-                  setDialog({ kind: 'commit', commit });
-                }
+                if (commit.isWip) showWorkingChanges();
+                else showCommit(commit);
               }}
               onCheckout={(hash) => quietly(actions.checkout(hash))}
               onCreateBranchAt={(hash) => setDialog({ kind: 'create-branch', startPoint: hash })}
@@ -651,35 +729,53 @@ export const App: React.FC = () => {
               onOpenInEditor={() => quietly(run('Could not open the editor', () => api.openInEditor({ repo }), { refresh: false }))}
               onCopyPatch={(hash) => quietly(actions.copyPatch(hash))}
               onCompareCommits={(base, target) => setDialog({ kind: 'compare', base, target })}
-            />
+            />}
           </div>
 
           {stagingOpen && (
             <>
-              <Resizer label="Working tree width" size={effectiveRight} direction={-1} min={300} max={Math.max(300, maxRight)} onResize={setRightWidth} />
+              <Resizer label="Working tree width" size={effectiveRight} direction={-1} min={240} max={Math.max(240, maxRight)} onResize={setRightWidth} />
               <div style={{ width: effectiveRight }} className="flex flex-col bg-[#14181f] flex-shrink-0 overflow-hidden">
-                {laneMode ? (
+                {selectedCommit ? (
+                  <CommitPanel
+                    key={`${repo}\0${selectedCommit.hash}`}
+                    commit={selectedCommit}
+                    diffs={commitDiffs}
+                    selectedFile={selectedCommitFile}
+                    onSelectFile={(file) => { setSelectedCommitFile(file); setDiffWorkspace('commit'); }}
+                    onWorkingChanges={showWorkingChanges}
+                    onRestoreFiles={(files) => quietly(actions.restoreCommitFiles(selectedCommit, files))}
+                    onApplyFile={(diff, reverse) => quietly(actions.applyCommitFile(diff, reverse))}
+                    onCheckout={() => quietly(actions.checkout(selectedCommit.hash))}
+                    onBranch={() => setDialog({ kind: 'create-branch', startPoint: selectedCommit.hash })}
+                    onCherryPick={() => quietly(actions.cherryPick(selectedCommit.hash))}
+                    onRevert={() => quietly(actions.revert(selectedCommit.hash))}
+                    onBlame={(file) => setDialog({ kind: 'blame', file, revision: selectedCommit.hash })}
+                    onHistory={(file) => setDialog({ kind: 'file-history', file, revision: selectedCommit.hash })}
+                    onEdit={(file) => quietly(run('Could not open the editor', () => api.openInEditor({ repo, file }), { refresh: false }))}
+                    onReveal={(file) => quietly(run('Could not open the folder', () => api.revealInFileManager({ repo, file }), { refresh: false }))}
+                  />
+                ) : laneMode ? (
                   <VirtualBranchPanel
                     key={repo}
                     repo={repo}
                     currentBranch={repoState?.currentBranch ?? ''}
                     statuses={statuses}
                     selectedFile={selectedFile?.path ?? null}
-                    onSelectFile={(path, staged) => setSelectedFile({ path, staged })}
+                    onSelectFile={showWorkingFile}
                     onRefresh={repository.refresh}
                     onSwitchToStandardStaging={() => setLaneMode(false)}
                   />
                 ) : (
                   <>
-                    <div className={`flex-1 flex overflow-hidden ${stacked ? 'flex-col' : 'flex-row'}`}>
-                      <div style={stacked ? { height: 220 } : { width: effectiveList }} className="flex-shrink-0 flex flex-col overflow-hidden">
+                    <div className="flex-1 min-h-0 flex overflow-hidden">
                         <StagingPanel
-                          width={effectiveList}
+                          width={effectiveRight}
                           statuses={statuses}
                           selected={selectedFile}
                           collisions={live.fleet?.collisions ?? []}
                           agents={live.fleet?.agents ?? []}
-                          onSelectFile={(path, staged) => setSelectedFile({ path, staged })}
+                          onSelectFile={showWorkingFile}
                           onStageFile={(file) => quietly(actions.stage(file))}
                           onUnstageFile={(file) => quietly(actions.unstage(file))}
                           onStageAll={() => quietly(actions.stageAll())}
@@ -694,27 +790,6 @@ export const App: React.FC = () => {
                           onOpenExternalDiff={(file, staged) => quietly(actions.externalDiff(file, staged))}
                           onToggleVirtualBranches={() => setLaneMode(true)}
                         />
-                      </div>
-                      {stacked ? (
-                        <div className="h-1 flex-shrink-0 bg-[#222a3a]" />
-                      ) : (
-                        <Resizer label="File list width" size={effectiveList} direction={1} min={160} max={Math.max(160, effectiveRight - 200)} onResize={setListWidth} />
-                      )}
-                      <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
-                        <WorkingDiff
-                          diff={fileDiff}
-                          staged={selectedFile?.staged ?? false}
-                          conflicted={conflicted}
-                          whitespaceOnly={Boolean(currentDiffs && currentDiffs.length === 0 && ignoreWhitespace)}
-                          banner={provenance && <Provenance review={provenance} file={selectedFile!.path} onOpenLens={() => setDialog({ kind: 'agent-lens', agentId: provenance.agentId })} />}
-                          onToggleStaged={() => selectedFile && quietly(selectedFile.staged ? actions.unstage(selectedFile.path) : actions.stage(selectedFile.path))}
-                          onPatch={actions.patch}
-                          onExplain={(diff) => void actions.explain(diff)}
-                          onResolveConflict={(file) => setDialog({ kind: 'conflict', file })}
-                          onBlame={(file) => setDialog({ kind: 'blame', file })}
-                          onExternalDiff={(file, staged) => quietly(actions.externalDiff(file, staged))}
-                        />
-                      </div>
                     </div>
                     <CommitBox
                       key={repo}
@@ -764,7 +839,7 @@ export const App: React.FC = () => {
             agents={live.reviews}
             onClose={close}
             onCheckout={(target) => quietly(actions.checkout(target))}
-            onOpenCommit={(commit) => setDialog({ kind: 'commit', commit })}
+            onOpenCommit={showCommit}
             onOpenAgent={(agentId) => setDialog({ kind: 'agent-run', agentId })}
           />
         );
@@ -778,17 +853,6 @@ export const App: React.FC = () => {
         return <StashModal files={statuses} onClose={close} onSave={(options) => actions.saveStash(options).then(() => undefined)} />;
       case 'stash-inspector':
         return <StashInspectorModal repo={repo} stash={dialog.stash} onClose={close} onApply={actions.applyStash} onPop={actions.popStash} onDrop={actions.dropStash} />;
-      case 'commit':
-        return (
-          <CommitDetailModal
-            commit={dialog.commit}
-            repo={repo}
-            onClose={close}
-            onCheckout={(hash) => quietly(actions.checkout(hash).then(close))}
-            onCreateBranchAt={(hash) => setDialog({ kind: 'create-branch', startPoint: hash })}
-            onRevert={(hash) => quietly(actions.revert(hash).then(close))}
-          />
-        );
       case 'compare':
         return <CommitComparisonModal base={dialog.base} target={dialog.target} repo={repo} onClose={close} />;
       case 'reflog':
@@ -812,11 +876,12 @@ export const App: React.FC = () => {
           <FileBlameModal
             file={dialog.file}
             repo={repo}
+            revision={dialog.revision}
             onClose={close}
-            onOpenHistory={(file) => setDialog({ kind: 'file-history', file })}
+            onOpenHistory={(file) => setDialog({ kind: 'file-history', file, revision: dialog.revision })}
             onOpenCommit={(hash) => {
               const commit = repository.commits.find((c) => c.hash === hash);
-              if (commit) setDialog({ kind: 'commit', commit });
+              if (commit) showCommit(commit);
               else toast.info(`${hash.slice(0, 7)} is not among the loaded commits.`);
             }}
           />
@@ -826,10 +891,11 @@ export const App: React.FC = () => {
           <FileHistoryModal
             file={dialog.file}
             repo={repo}
+            revision={dialog.revision}
             onClose={close}
             onOpenCommit={(hash) => {
               const commit = repository.commits.find((c) => c.hash === hash);
-              if (commit) setDialog({ kind: 'commit', commit });
+              if (commit) showCommit(commit);
               else toast.info(`${hash.slice(0, 7)} is not among the loaded commits.`);
             }}
           />

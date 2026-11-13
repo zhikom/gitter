@@ -1,12 +1,13 @@
 // The selected working-tree file's diff with the staging layer on top: stage,
 // unstage or discard whole hunks or chosen lines.
 import React, { useState } from 'react';
-import { AlertTriangle, Clock, ExternalLink, Minus, Plus, Sparkles } from 'lucide-react';
+import { AlertTriangle, Clock, ExternalLink, History, Minus, Plus, RotateCcw, Sparkles } from 'lucide-react';
 import type { FileDiff } from '../../../shared/types/git';
 import { buildPatch, wholeHunk, type LineSelection, type PatchDirection } from '../../../shared/patch';
 import { getPreference, usePreference } from '../../preferences';
 import { ask } from '../ui/ask';
 import { DiffCounts, diffCounts, DiffView } from '../Diff/DiffView';
+import { PatchContextMenu, type PatchMenuItem } from '../Diff/PatchContextMenu';
 
 export type PatchAction = 'stage' | 'unstage' | 'discard';
 
@@ -24,7 +25,9 @@ interface WorkingDiffProps {
   onExplain: (diff: FileDiff) => void;
   onResolveConflict: (file: string) => void;
   onBlame: (file: string) => void;
+  onFileHistory: (file: string) => void;
   onExternalDiff: (file: string, staged: boolean) => void;
+  onBack?: () => void;
 }
 
 const hunkButton = 'px-2 py-0.5 rounded text-[10px] font-semibold border transition disabled:opacity-40';
@@ -40,7 +43,9 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
   onExplain,
   onResolveConflict,
   onBlame,
+  onFileHistory,
   onExternalDiff,
+  onBack,
 }) => {
   const [ignoreWhitespace, setIgnoreWhitespace] = usePreference('ignoreWhitespace');
   // A selection belongs to one loaded diff. Any reload (a save in your editor,
@@ -52,6 +57,7 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
   const lines = selection.key === diffKey ? selection.lines : new Map<number, Set<number>>();
   const selectedCount = [...lines.values()].reduce((n, s) => n + s.size, 0);
   const [busy, setBusy] = useState(false);
+  const [context, setContext] = useState<{ x: number; y: number; hunk: number; line?: number } | null>(null);
   // With whitespace hidden, git shows changed lines as context, and patches built from that do not apply.
   const canPatch = Boolean(diff) && !conflicted && !ignoreWhitespace && !diff?.isBinary;
 
@@ -96,16 +102,34 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
     discard: 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border-rose-500/30',
   };
   const label: Record<PatchAction, string> = { stage: 'Stage', unstage: 'Unstage', discard: 'Discard' };
+  const openMenu = (event: React.MouseEvent, hunk: number, line?: number) => {
+    event.preventDefault(); event.stopPropagation();
+    setContext({ x: event.clientX, y: event.clientY, hunk, line });
+  };
+  const menuItems: PatchMenuItem[] = [];
+  if (context && diff) {
+    const line = context.line === undefined ? undefined : diff.hunks[context.hunk]?.lines[context.line];
+    const lineSelection: LineSelection | null = line && line.type !== 'context' && context.line !== undefined
+      ? lines.get(context.hunk)?.has(context.line) ? lines : new Map([[context.hunk, new Set([context.line])]])
+      : null;
+    for (const action of sideActions) {
+      menuItems.push({ label: `${label[action]} hunk`, danger: action === 'discard', run: () => void apply(action, wholeHunk(context.hunk)) });
+      if (lineSelection) menuItems.push({ label: `${label[action]} ${selectedCount > 0 && lines.get(context.hunk)?.has(context.line!) ? 'selected lines' : 'this line'}`, danger: action === 'discard', run: () => void apply(action, lineSelection) });
+    }
+  }
 
   const toolbarButton = 'flex items-center gap-1 px-2 py-1 rounded border text-[11px] font-medium transition';
 
   if (!diff && whitespaceOnly) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 text-xs p-6 text-center">
-        This file only has whitespace changes, which are hidden.
-        <button onClick={() => setIgnoreWhitespace(false)} className="px-3 py-1.5 rounded bg-[#202735] border border-[#2a3447] hover:bg-[#2d384c] text-slate-200">
-          Show whitespace changes
-        </button>
+      <div className="flex-1 min-h-0 flex flex-col">
+        {onBack && <button onClick={onBack} className="self-start m-2 px-2 py-1 text-xs text-slate-300 hover:text-white">← Back to graph</button>}
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 text-xs p-6 text-center">
+          This file only has whitespace changes, which are hidden.
+          <button onClick={() => setIgnoreWhitespace(false)} className="px-3 py-1.5 rounded bg-[#202735] border border-[#2a3447] hover:bg-[#2d384c] text-slate-200">
+            Show whitespace changes
+          </button>
+        </div>
       </div>
     );
   }
@@ -114,6 +138,7 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
     <div className="relative flex-1 min-h-0 flex flex-col">
       <DiffView
         diff={diff}
+        onBack={onBack}
         emptyLabel="Select a changed file to see its diff."
         title={
           <>
@@ -150,6 +175,7 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
               <button onClick={() => onBlame(file)} title="Blame" className={`${toolbarButton} bg-[#202735] border-[#2a3447] text-slate-300 hover:bg-[#2d384c]`}>
                 <Clock className="w-3.5 h-3.5 text-teal-400" />
               </button>
+              <button onClick={() => onFileHistory(file)} title="File history" aria-label="File history" className={`${toolbarButton} bg-[#202735] border-[#2a3447] text-slate-300 hover:bg-[#2d384c]`}><History className="w-3.5 h-3.5 text-teal-400" /></button>
               <button onClick={() => onExternalDiff(file, staged)} title="Open in your diff tool" className={`${toolbarButton} bg-[#202735] border-[#2a3447] text-slate-300 hover:bg-[#2d384c]`}>
                 <ExternalLink className="w-3.5 h-3.5 text-teal-400" />
               </button>
@@ -168,6 +194,8 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
         }
         selection={lines}
         onToggleLine={canPatch ? toggleLine : undefined}
+        onLineContextMenu={canPatch ? openMenu : undefined}
+        onHunkContextMenu={canPatch ? (event, hunk) => openMenu(event, hunk) : undefined}
         banner={
           banner || (ignoreWhitespace && diff && !conflicted) ? (
             <>
@@ -185,8 +213,8 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
             ? undefined
             : (_, index) =>
                 sideActions.map((action) => (
-                  <button key={action} disabled={busy} onClick={() => apply(action, wholeHunk(index))} className={`${hunkButton} ${tone[action]}`}>
-                    {label[action]} hunk
+                  <button key={action} disabled={busy} title={`${label[action]} hunk`} onClick={() => apply(action, wholeHunk(index))} className={`${hunkButton} inline-flex items-center gap-1 ${tone[action]}`}>
+                    {action === 'stage' ? <Plus className="w-3 h-3" /> : action === 'unstage' ? <Minus className="w-3 h-3" /> : <RotateCcw className="w-3 h-3" />}{label[action]} hunk
                   </button>
                 ))
         }
@@ -206,6 +234,7 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
           </button>
         </div>
       )}
+      <PatchContextMenu position={context} items={menuItems} onClose={() => setContext(null)} />
     </div>
   );
 };

@@ -1,7 +1,7 @@
 import type { BlameLine, Commit, FileCommitHistory } from '../shared/types/git';
 import { git, gitSucceeds } from './git';
 import { changedFiles, format, parseDiff, records } from './gitParse';
-import { inRepo } from './http';
+import { inRepo, UserError } from './http';
 
 export interface ReflogEntry {
   hash: string;
@@ -90,11 +90,15 @@ export const historyHandlers = {
     parseDiff(await git(repo, ['diff', '--end-of-options', base, target, '--', file]))
   ),
 
-  blame: inRepo(async (repo, { file }: { file: string }) => blame(await git(repo, ['blame', '--line-porcelain', '--', file]))),
+  blame: inRepo(async (repo, { file, revision }: { file: string; revision?: string }) => {
+    if (revision && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(revision)) throw new UserError('Invalid commit ID.');
+    return blame(await git(repo, ['blame', '--line-porcelain', ...(revision ? [revision] : []), '--', file]));
+  }),
 
-  fileHistory: inRepo(async (repo, { file }: { file: string }): Promise<FileCommitHistory[]> => {
+  fileHistory: inRepo(async (repo, { file, revision }: { file: string; revision?: string }): Promise<FileCommitHistory[]> => {
+    if (revision && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(revision)) throw new UserError('Invalid commit ID.');
     // --name-only adds the file's path in each commit, which --follow tracks across renames.
-    const out = await git(repo, ['log', '--follow', '--date=short', '--name-only', '--format=%x1e%H%x1f%h%x1f%an%x1f%ad%x1f%s', '--', file]);
+    const out = await git(repo, ['log', '--follow', '--date=short', '--name-only', '--format=%x1e%H%x1f%h%x1f%an%x1f%ad%x1f%s', ...(revision ? ['--end-of-options', revision] : []), '--', file]);
     return out
       .split('\x1e')
       .filter((chunk) => chunk.trim())

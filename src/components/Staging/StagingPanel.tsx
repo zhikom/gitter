@@ -252,6 +252,8 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
                       {renderAgentIndicators(file.path)}
                     </div>
 
+                    <div className="flex flex-shrink-0 items-center gap-2 pl-2">
+                      {file.insertions !== undefined && <span className="font-mono text-[10px] tabular-nums"><span className="text-emerald-400">+{file.insertions}</span> <span className="text-rose-400">−{file.deletions ?? 0}</span></span>}
                     <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition">
                       <button
                         onClick={(e) => {
@@ -263,6 +265,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
                       >
                         <Minus className="w-3 h-3" />
                       </button>
+                    </div>
                     </div>
                   </div>
                 );
@@ -363,6 +366,8 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
                       {renderAgentIndicators(file.path)}
                     </div>
 
+                    <div className="flex flex-shrink-0 items-center gap-2 pl-2">
+                      {file.insertions !== undefined && <span className="font-mono text-[10px] tabular-nums"><span className="text-emerald-400">+{file.insertions}</span> <span className="text-rose-400">−{file.deletions ?? 0}</span></span>}
                     <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition">
                       <button
                         onClick={(e) => {
@@ -384,6 +389,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
                       >
                         <Plus className="w-3 h-3" />
                       </button>
+                    </div>
                     </div>
                   </div>
                 );

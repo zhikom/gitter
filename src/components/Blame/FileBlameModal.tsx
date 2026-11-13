@@ -9,20 +9,21 @@ import { Button, Modal } from '../ui/Modal';
 interface FileBlameModalProps {
   file: string;
   repo: string;
+  revision?: string;
   onClose: () => void;
   onOpenCommit: (hash: string) => void;
   onOpenHistory: (file: string) => void;
 }
 
 /** Who last changed each line, with a bar that is brighter for newer lines. */
-export const FileBlameModal: React.FC<FileBlameModalProps> = ({ file, repo, onClose, onOpenCommit, onOpenHistory }) => {
+export const FileBlameModal: React.FC<FileBlameModalProps> = ({ file, repo, revision, onClose, onOpenCommit, onOpenHistory }) => {
   const [lines, setLines] = useState<BlameLine[] | null>(null);
   const [tabSize] = usePreference('tabSize');
 
   useEffect(() => {
     let current = true;
     api
-      .blame({ repo, file })
+      .blame({ repo, file, revision })
       .then((loaded) => current && setLines(loaded))
       .catch((e) => {
         if (current) setLines([]);
@@ -31,7 +32,7 @@ export const FileBlameModal: React.FC<FileBlameModalProps> = ({ file, repo, onCl
     return () => {
       current = false;
     };
-  }, [repo, file]);
+  }, [repo, file, revision]);
 
   return (
     <Modal
@@ -39,7 +40,7 @@ export const FileBlameModal: React.FC<FileBlameModalProps> = ({ file, repo, onCl
       tall
       icon={<FileCode className="w-4 h-4" />}
       title={<span className="font-mono">{file}</span>}
-      subtitle={lines ? `${lines.length} lines as the file is now; lines not committed yet show 0000000` : 'Loading…'}
+      subtitle={lines ? revision ? `${lines.length} lines at ${revision.slice(0, 7)}` : `${lines.length} lines as the file is now; lines not committed yet show 0000000` : 'Loading…'}
       onClose={onClose}
       actions={
         <Button onClick={() => onOpenHistory(file)}>

@@ -55,6 +55,17 @@ function choosesEverything(file: FileDiff, selection: LineSelection): boolean {
   });
 }
 
+// Git's patch format uses C-quoted paths. Quote whitespace and special
+// characters so a selected hunk still targets the exact filename shown.
+function patchPath(path: string): string {
+  if (!/[\s"\\\x00-\x1f\x7f]/u.test(path)) return path;
+  const escaped = path.replace(/["\\\x00-\x1f\x7f]/g, (ch) => {
+    if (ch === '"' || ch === '\\') return `\\${ch}`;
+    return `\\${ch.charCodeAt(0).toString(8).padStart(3, '0')}`;
+  });
+  return `"${escaped}"`;
+}
+
 /** The patch for the chosen lines of one file, or null when no changed line is chosen. */
 export function buildPatch(file: FileDiff, selection: LineSelection, direction: PatchDirection): string | null {
   const hunks = file.hunks
@@ -70,10 +81,10 @@ export function buildPatch(file: FileDiff, selection: LineSelection, direction: 
   const deletes = file.isDeleted && (direction === 'reverse' || everything);
   const mode = file.mode ?? '100644';
   return [
-    `diff --git a/${oldPath} b/${file.path}`,
+    `diff --git ${patchPath(`a/${oldPath}`)} ${patchPath(`b/${file.path}`)}`,
     ...(creates ? [`new file mode ${mode}`] : deletes ? [`deleted file mode ${mode}`] : []),
-    `--- ${creates ? '/dev/null' : `a/${oldPath}`}`,
-    `+++ ${deletes ? '/dev/null' : `b/${file.path}`}`,
+    `--- ${creates ? '/dev/null' : patchPath(`a/${oldPath}`)}`,
+    `+++ ${deletes ? '/dev/null' : patchPath(`b/${file.path}`)}`,
     ...hunks,
     '',
   ].join('\n');

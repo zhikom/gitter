@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { git, gitSucceeds } from './git';
-import { parseDiff, parseStatus, STATUS_ARGS, toFileStatuses } from './gitParse';
+import { parseDiff, parseNumstat, parseStatus, STATUS_ARGS, toFileStatuses } from './gitParse';
 import { inRepo, UserError } from './http';
 import { openDiffTool } from './osIntegration';
 import { gitterSettings } from './settings';
@@ -19,7 +19,7 @@ async function isTracked(repo: string, file: string): Promise<boolean> {
 function insideRepo(repo: string, file: string): string {
   const full = path.resolve(repo, file);
   const relative = path.relative(repo, full);
-  if (relative.startsWith('..') || path.isAbsolute(relative)) throw new UserError(`${file} is outside the repository.`);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new UserError(`${file} is outside the repository.`);
   return full;
 }
 
@@ -42,7 +42,18 @@ async function applyPatch(repo: string, patch: string, flags: string[]): Promise
 }
 
 export const changeHandlers = {
-  fileStatuses: inRepo(async (repo) => toFileStatuses(parseStatus(await git(repo, STATUS_ARGS)))),
+  fileStatuses: inRepo(async (repo) => {
+    const [status, workingCounts, stagedCounts] = await Promise.all([
+      git(repo, STATUS_ARGS), git(repo, ['diff', '--numstat', '-z']), git(repo, ['diff', '--cached', '--numstat', '-z']),
+    ]);
+    const counts = (output: string) => new Map(parseNumstat(output).map((file) => [file.path, file]));
+    const working = counts(workingCounts);
+    const staged = counts(stagedCounts);
+    return toFileStatuses(parseStatus(status)).map((file) => {
+      const value = (file.staged ? staged : working).get(file.path);
+      return value ? { ...file, insertions: value.additions, deletions: value.deletions } : file;
+    });
+  }),
 
   workingDiff: inRepo((repo, { file, staged = false, ignoreWhitespace = false }: { file: string; staged?: boolean; ignoreWhitespace?: boolean }) =>
     workingDiff(repo, file, staged, ignoreWhitespace)
@@ -74,6 +85,23 @@ export const changeHandlers = {
   stagePatch: inRepo((repo, { patch }: { patch: string }) => applyPatch(repo, patch, ['--cached'])),
   unstagePatch: inRepo((repo, { patch }: { patch: string }) => applyPatch(repo, patch, ['--cached', '--reverse'])),
   discardPatch: inRepo((repo, { patch }: { patch: string }) => applyPatch(repo, patch, ['--reverse'])),
+
+  /** Apply a historical change (or its inverse) to the working tree only. */
+  applyCommitPatch: inRepo((repo, { patch, reverse = false }: { patch: string; reverse?: boolean }) =>
+    applyPatch(repo, patch, reverse ? ['--reverse'] : [])
+  ),
+
+  /** Restore selected files to a commit's version in the index and working tree. */
+  restoreCommitFiles: inRepo(async (repo, { hash, files }: { hash: string; files: string[] }) => {
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(hash)) throw new UserError('Invalid commit ID.');
+    if (!Array.isArray(files) || files.length === 0) throw new UserError('Select at least one file.');
+    for (const file of files) {
+      if (typeof file !== 'string' || !file || path.isAbsolute(file) || file === '.') throw new UserError('Invalid repository file path.');
+      insideRepo(repo, file);
+    }
+    const commit = (await git(repo, ['rev-parse', '--verify', '--end-of-options', `${hash}^{commit}`])).trim();
+    await git(repo, ['restore', `--source=${commit}`, '--staged', '--worktree', '--', ...files]);
+  }),
 
   commit: inRepo((repo, { summary, description = '', amend = false }: { summary: string; description?: string; amend?: boolean }) => {
     if (!summary.trim()) throw new UserError('A commit needs a summary.');

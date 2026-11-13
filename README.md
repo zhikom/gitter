@@ -19,8 +19,12 @@ written by AI coding agents.
 - Commit graph of all branches, tags and remotes, with search, drag a commit
   onto a branch to cherry-pick it, and a context menu for checkout, branch,
   tag, revert, reset, interactive rebase and comparing two commits.
+- Select a commit to inspect its files in the side panel; select a file to
+  review its diff in the main workspace. The file menu can restore selected
+  files from that commit or apply and reverse its changes in the working tree.
 - Working tree: stage, unstage or discard whole files, hunks or single lines;
-  unified or side-by-side diffs; blame; file history.
+  unified or side-by-side diffs; per-file and per-hunk change counts; blame;
+  file history.
 - Branches, tags, remotes, stashes (pick which files to stash, or keep the
   changes), worktrees, submodules, gitflow, pull requests through the GitHub CLI.
 - Undo the last action (`Ctrl+Z`), and a reflog to get back anything else.

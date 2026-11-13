@@ -238,7 +238,7 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
         </div>
 
         {/* Amend checkbox & Commit button with dropdown options */}
-        <div className="flex items-center justify-between pt-1 relative">
+        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2 pt-1 relative">
           <div className="flex items-center space-x-3">
             <label className="flex items-center space-x-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer select-none">
               <input
@@ -286,18 +286,18 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
           </div>
 
           {/* Split button with primary action and options dropdown */}
-          <div className="relative inline-flex rounded shadow-sm">
+          <div className="relative inline-flex min-w-0 max-w-full rounded shadow-sm">
             <button
               type="submit"
               disabled={!canCommit}
-              className={`px-3 py-1.5 rounded-l text-xs font-semibold flex items-center space-x-1.5 transition ${
+              className={`min-w-0 max-w-full px-3 py-1.5 rounded-l text-xs font-semibold flex items-center space-x-1.5 transition ${
                 canCommit
                   ? 'bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-white shadow-lg shadow-teal-500/20 cursor-pointer'
                   : 'bg-[#202735] text-slate-500 border border-[#2a3447] cursor-not-allowed'
               }`}
             >
               <Check className="w-3.5 h-3.5" />
-              <span>{getCommitButtonLabel()}</span>
+              <span className="truncate">{getCommitButtonLabel()}</span>
             </button>
 
             <button

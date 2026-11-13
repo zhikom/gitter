@@ -103,7 +103,12 @@ export function parseNumstat(output: string): FileChangeCount[] {
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i].replace(/^\n/, '');
     if (!part) continue;
-    const [adds, dels, path] = part.split('\t');
+    const first = part.indexOf('\t');
+    const second = part.indexOf('\t', first + 1);
+    if (first < 0 || second < 0) continue;
+    const adds = part.slice(0, first);
+    const dels = part.slice(first + 1, second);
+    const path = part.slice(second + 1);
     const counts = { additions: Number(adds) || 0, deletions: Number(dels) || 0 };
     // A rename has an empty path here, then the old and new paths as fields.
     if (path === '') {
@@ -155,8 +160,36 @@ export function changedFiles(nameStatus: string, numstat: string): ChangedFile[]
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
+/** Git quotes unusual paths using C escapes, including UTF-8 bytes in octal. */
+function unquoteGitPath(value: string): string {
+  if (!value.startsWith('"')) return value;
+  const bytes: number[] = [];
+  for (let i = 1; i < value.length; i++) {
+    const ch = value[i];
+    if (ch === '"') break;
+    if (ch !== '\\') {
+      const codepoint = value.codePointAt(i)!;
+      const text = String.fromCodePoint(codepoint);
+      bytes.push(...Buffer.from(text, 'utf8'));
+      if (text.length === 2) i++;
+      continue;
+    }
+    const next = value[++i];
+    if (next === undefined) break;
+    if (/[0-7]/.test(next)) {
+      let octal = next;
+      while (octal.length < 3 && i + 1 < value.length && /[0-7]/.test(value[i + 1])) octal += value[++i];
+      bytes.push(parseInt(octal, 8));
+    } else {
+      const escapes: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13 };
+      bytes.push(escapes[next] ?? next.charCodeAt(0));
+    }
+  }
+  return Buffer.from(bytes).toString('utf8');
+}
+
 function diffPath(field: string, prefix: string): string | undefined {
-  const value = field.replace(/\t.*$/, '');
+  const value = unquoteGitPath(field.replace(/\t.*$/, ''));
   if (value === '/dev/null') return undefined;
   return value.startsWith(prefix) ? value.slice(prefix.length) : value;
 }
@@ -218,8 +251,8 @@ function parseFileDiff(text: string): FileDiff {
         isDeleted = true;
         mode = line.slice('deleted file mode '.length);
       }
-      else if (line.startsWith('rename from ')) oldPath = line.slice('rename from '.length);
-      else if (line.startsWith('rename to ')) newPath = line.slice('rename to '.length);
+      else if (line.startsWith('rename from ')) oldPath = unquoteGitPath(line.slice('rename from '.length));
+      else if (line.startsWith('rename to ')) newPath = unquoteGitPath(line.slice('rename to '.length));
       continue;
     }
     raw.push(line);
@@ -237,7 +270,12 @@ function parseFileDiff(text: string): FileDiff {
   // `diff --git a/P b/P` with equal paths splits evenly even when P has spaces.
   if (!oldPath && !newPath) {
     const rest = lines[0].slice('diff --git '.length);
-    newPath = rest.slice(2, (rest.length - 1) / 2);
+    if (rest.startsWith('"')) {
+      // Both paths are the same for binary/mode-only changes without rename headers.
+      newPath = unquoteGitPath(rest).replace(/^a\//, '');
+    } else {
+      newPath = rest.slice(2, (rest.length - 1) / 2);
+    }
   }
   const path = (newPath ?? oldPath)!;
   return {

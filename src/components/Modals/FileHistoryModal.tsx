@@ -9,12 +9,13 @@ import { Button, Modal } from '../ui/Modal';
 interface FileHistoryModalProps {
   file: string;
   repo: string;
+  revision?: string;
   onClose: () => void;
   onOpenCommit: (hash: string) => void;
 }
 
 /** Every commit that changed a file, following renames, with each one's change to it. */
-export const FileHistoryModal: React.FC<FileHistoryModalProps> = ({ file, repo, onClose, onOpenCommit }) => {
+export const FileHistoryModal: React.FC<FileHistoryModalProps> = ({ file, repo, revision, onClose, onOpenCommit }) => {
   const [history, setHistory] = useState<FileCommitHistory[] | null>(null);
   const [selected, setSelected] = useState<FileCommitHistory | null>(null);
   const [diff, setDiff] = useState<FileDiff | undefined>();
@@ -23,7 +24,7 @@ export const FileHistoryModal: React.FC<FileHistoryModalProps> = ({ file, repo, 
   useEffect(() => {
     let current = true;
     api
-      .fileHistory({ repo, file })
+      .fileHistory({ repo, file, revision })
       .then((revisions) => {
         if (!current) return;
         setHistory(revisions);
@@ -36,7 +37,7 @@ export const FileHistoryModal: React.FC<FileHistoryModalProps> = ({ file, repo, 
     return () => {
       current = false;
     };
-  }, [repo, file]);
+  }, [repo, file, revision]);
 
   useEffect(() => {
     let current = true;
@@ -56,7 +57,7 @@ export const FileHistoryModal: React.FC<FileHistoryModalProps> = ({ file, repo, 
   const shown = (history ?? []).filter((h) => !needle || `${h.summary} ${h.author} ${h.shortHash}`.toLowerCase().includes(needle));
 
   return (
-    <Modal width="xl" tall icon={<History className="w-4 h-4" />} title="File history" subtitle={file} onClose={onClose}>
+    <Modal width="xl" tall icon={<History className="w-4 h-4" />} title="File history" subtitle={revision ? `${file} · through ${revision.slice(0, 7)}` : file} onClose={onClose}>
       <div className="flex-1 min-h-0 flex">
         <div className="w-80 flex-shrink-0 flex flex-col border-r border-[#2a3447] bg-[#181d26]">
           <input

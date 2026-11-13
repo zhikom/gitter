@@ -80,6 +80,8 @@ describe('working tree', () => {
     const files = await api.fileStatuses({ repo });
     assert.ok(files.some((f) => f.path === 'with space ü.txt' && f.status === 'untracked'));
     assert.ok(files.some((f) => f.path === 'staged.txt' && f.staged && f.status === 'added'));
+    assert.deepEqual(files.filter((f) => f.path === 'a.txt').map((f) => [f.insertions, f.deletions]), [[1, 1]]);
+    assert.deepEqual(files.filter((f) => f.path === 'staged.txt').map((f) => [f.insertions, f.deletions]), [[1, 0]]);
   });
 
   test('an untracked file diffs as all-added lines, with no phantom trailing line', async () => {
@@ -196,6 +198,94 @@ describe('line staging', () => {
     const [diff] = await api.workingDiff({ repo, file: 'a.txt' });
     await api.stagePatch({ repo, patch: buildPatch(diff, wholeHunk(0), 'forward')! });
     assert.equal(await staged(repo), 'one\ntwo\nend');
+  });
+
+  test('a hunk in a quoted filename stages only that literal file', async () => {
+    const repo = await newRepo();
+    const file = 'a "quoted" Δ\tname.txt';
+    write(repo, file, 'before\n');
+    await git(repo, ['add', '--', file]);
+    await git(repo, ['commit', '-qm', 'add quoted file']);
+    write(repo, file, 'after\n');
+    const status = (await api.fileStatuses({ repo })).find((item) => item.path === file);
+    assert.deepEqual([status?.insertions, status?.deletions], [1, 1]);
+    const [diff] = await api.workingDiff({ repo, file });
+    assert.equal(diff.path, file);
+    await api.stagePatch({ repo, patch: buildPatch(diff, wholeHunk(0), 'forward')! });
+    assert.equal(await git(repo, ['show', `:${file}`]), 'after\n');
+  });
+});
+
+describe('commit file actions', () => {
+  test('blame and file history can be limited to the selected commit', async () => {
+    const repo = await newRepo();
+    const original = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+    write(repo, 'a.txt', 'later\n');
+    await git(repo, ['commit', '-qam', 'later change']);
+    const lines = await api.blame({ repo, file: 'a.txt', revision: original });
+    assert.deepEqual(lines.map((line) => line.code), ['one', 'two']);
+    const history = await api.fileHistory({ repo, file: 'a.txt', revision: original });
+    assert.deepEqual(history.map((entry) => entry.summary), ['init']);
+  });
+  test('applies and reverses one historical hunk without staging other work', async () => {
+    const repo = await newRepo();
+    const file = 'quoted "change".txt';
+    const original = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+    write(repo, file, `${original.join('\n')}\n`);
+    await git(repo, ['add', '--', file]);
+    await git(repo, ['commit', '-qm', 'base file']);
+    const changed = [...original];
+    changed[1] = 'first change';
+    changed[18] = 'second change';
+    write(repo, file, `${changed.join('\n')}\n`);
+    await git(repo, ['commit', '-qam', 'two changes']);
+    const hash = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+    const [diff] = await api.commitDiff({ repo, hash });
+    assert.equal(diff.path, file);
+    assert.equal(diff.hunks.length, 2);
+    write(repo, 'other.txt', 'already staged\n');
+    await git(repo, ['add', '--', 'other.txt']);
+    await api.applyCommitPatch({ repo, patch: buildPatch(diff, wholeHunk(0), 'reverse')!, reverse: true });
+    assert.equal(read(repo, file), `${[original[0], original[1], ...changed.slice(2)].join('\n')}\n`);
+    assert.equal(await git(repo, ['show', ':other.txt']), 'already staged\n');
+    await api.applyCommitPatch({ repo, patch: buildPatch(diff, wholeHunk(0), 'forward')! });
+    assert.equal(read(repo, file), `${changed.join('\n')}\n`);
+    write(repo, file, 'unrelated local content\n');
+    await assert.rejects(api.applyCommitPatch({ repo, patch: buildPatch(diff, wholeHunk(0), 'reverse')!, reverse: true }));
+    assert.equal(read(repo, file), 'unrelated local content\n');
+  });
+
+  test('can reverse and reapply selected lines within a historical hunk', async () => {
+    const repo = await newRepo();
+    write(repo, 'a.txt', 'ONE\ntwo\nTHREE\nfour\n');
+    await git(repo, ['commit', '-qam', 'two edits']);
+    const hash = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+    const [diff] = await api.commitDiff({ repo, hash });
+    const hunk = diff.hunks[0];
+    const chosen = new Map([[0, new Set(hunk.lines.flatMap((line, index) => ['one', 'ONE'].includes(line.text) ? [index] : []))]]);
+    await api.applyCommitPatch({ repo, patch: buildPatch(diff, chosen, 'reverse')!, reverse: true });
+    assert.equal(read(repo, 'a.txt'), 'one\ntwo\nTHREE\nfour\n');
+    await api.applyCommitPatch({ repo, patch: buildPatch(diff, chosen, 'forward')! });
+    assert.equal(read(repo, 'a.txt'), 'ONE\ntwo\nTHREE\nfour\n');
+  });
+
+  test('restores selected files from a commit into the worktree and index', async () => {
+    const repo = await newRepo();
+    const original = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+    write(repo, 'a.txt', 'later\n');
+    write(repo, 'added.txt', 'added later\n');
+    await git(repo, ['add', '-A']);
+    await git(repo, ['commit', '-qm', 'later']);
+    write(repo, 'a.txt', 'uncommitted\n');
+    write(repo, 'other.txt', 'unrelated\n');
+    await git(repo, ['add', '--', 'other.txt']);
+    await api.restoreCommitFiles({ repo, hash: original, files: ['a.txt', 'added.txt'] });
+    assert.equal(read(repo, 'a.txt'), 'one\ntwo\n');
+    assert.equal(await git(repo, ['show', ':a.txt']), 'one\ntwo\n');
+    assert.ok(!fs.existsSync(path.join(repo, 'added.txt')));
+    assert.equal(await git(repo, ['show', ':other.txt']), 'unrelated\n');
+    await assert.rejects(api.restoreCommitFiles({ repo, hash: original, files: ['../outside'] }), /outside/);
+    await assert.rejects(api.restoreCommitFiles({ repo, hash: '--bad', files: ['a.txt'] }), /Invalid commit/);
   });
 });
 
