@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-13
+
+### History and appearance
+
+- Trace a selected line or range through committed file history, including
+  renames, and preview the change at each revision. Open the full commit from
+  the history view. Selection history uses committed source; uncommitted-only
+  lines have no history yet.
+- Compare a file revision with the current working tree, including staged and
+  unstaged changes, directly from file history.
+- Choose Gitter dark, a Codex-inspired dark theme, or a Claude-inspired warm
+  light theme with matching typography in Settings → General → Appearance.
+- Give the diff more room in smaller windows and expand the graph when opening
+  an older commit from file or selection history.
+- Add an illustrated user guide, linked from the README and Settings → About.
+
+### Downloads
+
+- Windows x64 and macOS ARM64 (Apple Silicon) installers are available. The
+  Windows installer is unsigned; the Mac app is ad-hoc signed but not
+  notarized, so the operating system may show a security warning.
+
 ## [1.6.1] - 2026-11-13
 
 ### Bitbucket connection

@@ -511,7 +511,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className={`group flex items-center justify-between px-3 py-1.5 text-xs cursor-pointer transition select-none ${
                     isCurrent
                       ? 'bg-teal-500/15 text-teal-300 font-semibold border-l-2 border-teal-400'
-                      : selectedBranch === branch.name ? 'bg-[#263245] text-white' : 'hover:bg-[#202735] text-slate-300'
+                      : selectedBranch === branch.name ? 'bg-[#263245] text-slate-100' : 'hover:bg-[#202735] text-slate-300'
                   } ${isDragOver ? 'ring-2 ring-teal-400 bg-teal-500/20' : ''}`}
                 >
                   <div className="flex items-center space-x-2 truncate">
@@ -602,7 +602,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onDoubleClick={() => onCheckoutBranch(branch.name)}
                   onContextMenu={(e) => handleBranchContextMenu(e, branch)}
                   title={`Double click to checkout ${branch.name}`}
-                  className={`group flex items-center justify-between px-3 py-1.5 text-xs cursor-pointer hover:bg-[#202735] text-slate-400 hover:text-slate-200 transition ${selectedBranch === branch.name ? 'bg-[#263245] text-white' : ''}`}
+                  className={`group flex items-center justify-between px-3 py-1.5 text-xs cursor-pointer hover:bg-[#202735] text-slate-400 hover:text-slate-200 transition ${selectedBranch === branch.name ? 'bg-[#263245] text-slate-100' : ''}`}
                 >
                   <div className="flex items-center space-x-2 truncate">
                     <div className="w-3.5 h-3.5 flex items-center justify-center">

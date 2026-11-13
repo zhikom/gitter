@@ -164,6 +164,11 @@ export interface FileCommitHistory {
   path: string;
 }
 
+export interface SelectionHistoryRevision extends FileCommitHistory {
+  /** Git's patch for the selected lines as they evolved at this revision. */
+  diff?: FileDiff;
+}
+
 export interface Worktree {
   path: string;
   head: string;

@@ -314,6 +314,86 @@ describe('line staging', () => {
 });
 
 describe('commit file actions', () => {
+  test('selection history follows the chosen committed lines and ignores unrelated changes', async () => {
+    const repo = await newRepo();
+    write(repo, 'a.txt', 'top\ntarget v1\nbottom\n');
+    await git(repo, ['commit', '-qam', 'add target']);
+    write(repo, 'a.txt', 'top\ntarget v2\nbottom\n');
+    await git(repo, ['commit', '-qam', 'change target']);
+    const targetRevision = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+    write(repo, 'a.txt', 'different top\ntarget v2\nbottom\n');
+    await git(repo, ['commit', '-qam', 'unrelated change']);
+    write(repo, 'a.txt', 'uncommitted top\nuncommitted target\nbottom\n');
+    const source = await api.selectionSource({ repo, file: 'a.txt' });
+    assert.deepEqual(source.lines, ['different top', 'target v2', 'bottom']);
+    const history = await api.selectionHistory({ repo, file: 'a.txt', revision: source.revision, start: 2, end: 2 });
+    assert.deepEqual(history.map((entry) => entry.summary).slice(0, 2), ['change target', 'add target']);
+    assert.ok(history[0].diff?.hunks.some((hunk) => hunk.lines.some((line) => line.text === 'target v2')));
+    const earlier = await api.selectionSource({ repo, file: 'a.txt', revision: targetRevision });
+    assert.equal(earlier.lines[0], 'top');
+    await assert.rejects(() => api.selectionHistory({ repo, file: 'a.txt', revision: source.revision, start: 2, end: 50 }), /do not exist/);
+    await assert.rejects(() => api.selectionSource({ repo, file: '../outside' }), /inside the repository/);
+    await assert.rejects(() => api.selectionSource({ repo, file: 'a.txt', revision: '--all' }), /Invalid commit/);
+  });
+
+  test('selection history traces lines across a file rename', async () => {
+    const repo = await newRepo();
+    await git(repo, ['mv', 'a.txt', 'renamed file.txt']);
+    await git(repo, ['commit', '-qm', 'rename file']);
+    write(repo, 'renamed file.txt', 'one\nchanged\n');
+    await git(repo, ['commit', '-qam', 'change selected line']);
+    const source = await api.selectionSource({ repo, file: 'renamed file.txt' });
+    const history = await api.selectionHistory({ repo, file: 'renamed file.txt', revision: source.revision, start: 2, end: 2 });
+    assert.deepEqual(history.map((entry) => entry.summary), ['change selected line', 'init']);
+    assert.equal(history[1].diff?.path, 'a.txt');
+  });
+
+  test('selection history treats unusual filenames literally and rejects invalid ranges', async () => {
+    const repo = await newRepo();
+    const file = 'draft [1] & $ notes.txt';
+    write(repo, file, 'first\nsecond\n');
+    await git(repo, ['add', '--', file]);
+    await git(repo, ['commit', '-qm', 'add literal file']);
+    write(repo, file, 'first\nchanged\n');
+    await git(repo, ['commit', '-qam', 'edit literal file']);
+    const source = await api.selectionSource({ repo, file });
+    const history = await api.selectionHistory({ repo, file, revision: source.revision, start: 2, end: 2 });
+    assert.deepEqual(history.map((entry) => entry.summary), ['edit literal file', 'add literal file']);
+    assert.equal(history[0].diff?.path, file);
+    await assert.rejects(() => api.selectionHistory({ repo, file, revision: source.revision, start: -1, end: 2 }), /valid range/);
+    await assert.rejects(() => api.selectionHistory({ repo, file, revision: source.revision, start: 2.5, end: 3 }), /valid range/);
+  });
+
+  test('file history compares a revision with staged and unstaged working changes', async () => {
+    const repo = await newRepo();
+    const hash = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+    assert.deepEqual(await api.compareFileWithWorking({ repo, hash, file: 'a.txt', historicalPath: 'a.txt' }), []);
+    write(repo, 'a.txt', 'one\nstaged\n');
+    await git(repo, ['add', '--', 'a.txt']);
+    write(repo, 'a.txt', 'one\nworking\n');
+    const [diff] = await api.compareFileWithWorking({ repo, hash, file: 'a.txt', historicalPath: 'a.txt' });
+    assert.ok(diff.hunks.some((hunk) => hunk.lines.some((line) => line.type === 'add' && line.text === 'working')));
+    assert.equal((await git(repo, ['show', ':a.txt'])), 'one\nstaged\n');
+    assert.equal(read(repo, 'a.txt'), 'one\nworking\n');
+    await assert.rejects(() => api.compareFileWithWorking({ repo, hash: '--all', file: 'a.txt', historicalPath: 'a.txt' }), /Invalid commit/);
+  });
+
+  test('file comparison recognizes a rename since the selected revision', async () => {
+    const repo = await newRepo();
+    write(repo, 'a.txt', Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join('\n') + '\n');
+    await git(repo, ['commit', '-qam', 'add more lines']);
+    const hash = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+    await git(repo, ['mv', 'a.txt', 'renamed.txt']);
+    await git(repo, ['commit', '-qm', 'rename']);
+    const content = read(repo, 'renamed.txt').replace('line 8', 'changed line 8');
+    write(repo, 'renamed.txt', content);
+    const diffs = await api.compareFileWithWorking({ repo, hash, file: 'renamed.txt', historicalPath: 'a.txt' });
+    assert.equal(diffs.length, 1);
+    assert.equal(diffs[0].oldPath, 'a.txt');
+    assert.equal(diffs[0].path, 'renamed.txt');
+    assert.ok(diffs[0].hunks.some((hunk) => hunk.lines.some((line) => line.text === 'changed line 8')));
+  });
+
   test('blame and file history can be limited to the selected commit', async () => {
     const repo = await newRepo();
     const original = (await git(repo, ['rev-parse', 'HEAD'])).trim();

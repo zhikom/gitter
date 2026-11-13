@@ -296,7 +296,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                 title={isWip ? 'Uncommitted changes' : `Commit ${commit.shortHash} by ${commit.author.name} (Drag onto a branch to cherry-pick)`}
                 className={`flex items-center text-xs border-b border-[#1b212c] cursor-pointer transition select-none ${
                   isSelected
-                    ? 'bg-[#263245] text-white'
+                    ? 'bg-[#263245] text-slate-100'
                     : 'hover:bg-[#1b212c] text-slate-300'
                 }`}
               >
@@ -374,8 +374,8 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                           cx={nodeX}
                           cy={nodeY}
                           r={nodeRadius + 1}
-                          fill="#14181f"
-                          stroke="#18b487"
+                          fill="var(--graph-bg, #14181f)"
+                          stroke="var(--graph-accent, #18b487)"
                           strokeWidth="2.5"
                           strokeDasharray="3 2"
                         />
@@ -383,7 +383,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                           cx={nodeX}
                           cy={nodeY}
                           r={nodeRadius - 2}
-                          fill="#18b487"
+                          fill="var(--graph-accent, #18b487)"
                           className="animate-pulse"
                         />
                       </g>
@@ -394,7 +394,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                           cy={nodeY}
                           r={nodeRadius}
                           fill={node.color}
-                          stroke="#14181f"
+                          stroke="var(--graph-bg, #14181f)"
                           strokeWidth="1.5"
                         />
                         {isSelected && (

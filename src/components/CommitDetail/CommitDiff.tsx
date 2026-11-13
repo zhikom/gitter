@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Clock, History, Minus, Plus } from 'lucide-react';
+import { Clock, History, ListFilter, Minus, Plus } from 'lucide-react';
 import type { Commit, FileDiff } from '../../../shared/types/git';
 import { buildPatch, wholeHunk, type LineSelection } from '../../../shared/patch';
 import { getPreference } from '../../preferences';
@@ -14,10 +14,11 @@ interface Props {
   onApply: (patch: string, reverse: boolean) => Promise<void>;
   onBlame: (file: string) => void;
   onHistory: (file: string) => void;
+  onSelectionHistory: (file: string, revision: string) => void;
 }
 
 /** A historical file's diff; applying or reversing a hunk only changes WIP. */
-export const CommitDiff: React.FC<Props> = ({ commit, diff, onBack, onApply, onBlame, onHistory }) => {
+export const CommitDiff: React.FC<Props> = ({ commit, diff, onBack, onApply, onBlame, onHistory, onSelectionHistory }) => {
   const [selection, setSelection] = useState<{ key: string; lines: Map<number, Set<number>> }>({ key: '', lines: new Map() });
   const [busy, setBusy] = useState(false);
   const [context, setContext] = useState<{ x: number; y: number; hunk: number; line?: number } | null>(null);
@@ -74,6 +75,7 @@ export const CommitDiff: React.FC<Props> = ({ commit, diff, onBack, onApply, onB
         toolbar={diff && <>
           <button onClick={() => onBlame(diff.path)} title="Blame" aria-label="Blame" className="p-1 text-slate-400 hover:text-teal-300"><Clock className="w-4 h-4" /></button>
           <button onClick={() => onHistory(diff.path)} title="File history" aria-label="File history" className="p-1 text-slate-400 hover:text-teal-300"><History className="w-4 h-4" /></button>
+          <button onClick={() => onSelectionHistory(diff.oldPath && diff.isDeleted ? diff.oldPath : diff.path, diff.isDeleted ? commit.parents[0] : commit.hash)} disabled={diff.isDeleted && !commit.parents[0]} title="History for selection" aria-label="History for selection" className="p-1 text-slate-400 hover:text-teal-300 disabled:opacity-40"><ListFilter className="w-4 h-4" /></button>
         </>}
         banner={diff?.oldPath ? <div className="border-b border-amber-500/20 bg-amber-500/5 px-3 py-1.5 text-[11px] text-amber-200">Partial actions are unavailable for renamed files. Use the file menu to restore a version.</div> : undefined}
         selection={lines}

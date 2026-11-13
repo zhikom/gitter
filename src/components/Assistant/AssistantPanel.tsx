@@ -223,7 +223,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({ repo, repoState,
           aria-label="Message"
           className="flex-1 bg-black/30 rounded-lg px-3 py-2 text-xs text-slate-100 ring-1 ring-inset ring-white/10 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-400/60"
         />
-        <button type="submit" disabled={!input.trim() || thinking} aria-label="Send" className="p-2 rounded-lg bg-teal-500 hover:bg-teal-400 text-slate-950 disabled:opacity-40">
+        <button type="submit" disabled={!input.trim() || thinking} aria-label="Send" className="p-2 rounded-lg bg-teal-500 hover:bg-teal-400 text-white disabled:opacity-40">
           <Send className="w-3.5 h-3.5" />
         </button>
       </form>

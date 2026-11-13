@@ -24,7 +24,7 @@ written by AI coding agents.
   files from that commit or apply and reverse its changes in the working tree.
 - Working tree: stage, unstage or discard whole files, hunks or single lines;
   unified or side-by-side diffs; per-file and per-hunk change counts; blame;
-  file history.
+  file history, and history for selected lines.
 - Branches, tags, remotes, stashes (pick which files to stash, or keep the
   changes), worktrees, submodules, gitflow, and GitHub or Bitbucket pull requests.
 - Undo the last action (`Ctrl+Z`), and a reflog to get back anything else.
@@ -46,6 +46,7 @@ written by AI coding agents.
   after restart. Copy a public SSH key and open either provider's
   SSH-key page from Settings when you need to add it.
 - Single-click a branch to reveal its tip in the graph; double-click to check it out.
+- Choose Gitter dark, Codex-inspired dark, or Claude-inspired light in Settings.
 
 **AI agents**
 - Start an agent in its own branch and worktree (`agent/<harness>-<task>`), or
@@ -72,7 +73,10 @@ startup and can install them (Settings → General).
 
 Gitter uses the `git` on your `PATH`, with your own credentials, hooks and
 signing setup. GitHub pull requests need the [GitHub CLI](https://cli.github.com/)
-signed in; Bitbucket pull requests need a connected Bitbucket session.
+signed in; Bitbucket pull requests need a connected Bitbucket account.
+
+For a tour of the workspace and step-by-step workflows, see the
+[visual user guide](docs/USER_GUIDE.md).
 
 ## Keyboard shortcuts
 

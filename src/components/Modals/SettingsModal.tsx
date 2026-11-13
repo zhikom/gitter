@@ -70,6 +70,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab =
                 Gitter <span className="font-mono text-slate-100">{CURRENT_VERSION}</span>
               </p>
               <Button onClick={onCheckForUpdates}>Check for updates</Button>
+              <Button onClick={() => void api.openUrl({ url: 'https://github.com/zhikom/gitter/blob/main/docs/USER_GUIDE.md' }).catch((error) => toast.error(`Could not open the guide: ${error.message}`))}>Open visual user guide</Button>
             </div>
           )}
         </div>
@@ -115,6 +116,9 @@ function Choice<K extends keyof Preferences>({ name, label, options }: { name: K
 
 const GeneralSettings: React.FC = () => (
   <>
+    <Section title="Appearance">
+      <ThemePicker />
+    </Section>
     <Section title="Repositories">
       <RepositoryFolderSettings />
     </Section>
@@ -138,6 +142,24 @@ const GeneralSettings: React.FC = () => (
     </Section>
   </>
 );
+
+const ThemePicker: React.FC = () => {
+  const [theme, setTheme] = usePreference('theme');
+  const choices: Array<{ id: Preferences['theme']; name: string; description: string; surface: string; panel: string; text: string; accent: string }> = [
+    { id: 'classic', name: 'Gitter dark', description: 'The original look', surface: '#14181f', panel: '#202735', text: '#e2e8f0', accent: '#14b8a6' },
+    { id: 'codex', name: 'Codex', description: 'Neutral dark', surface: '#1c1c1c', panel: '#303030', text: '#f1f1ef', accent: '#8baee8' },
+    { id: 'claude', name: 'Claude', description: 'Warm light', surface: '#faf9f5', panel: '#e8e4da', text: '#2b2722', accent: '#a44a2d' },
+  ];
+  return <div role="group" aria-label="Theme" className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+    {choices.map((choice) => <button key={choice.id} type="button" aria-pressed={theme === choice.id} onClick={() => setTheme(choice.id)} className={`rounded-lg border p-2 text-left transition ${theme === choice.id ? 'border-teal-500 ring-1 ring-teal-500/40' : 'border-[#2a3447] hover:border-teal-500/50'}`}>
+      <div aria-hidden="true" className="h-12 rounded flex overflow-hidden border border-black/10" style={{ background: choice.surface, color: choice.text }}>
+        <div className="w-1/3 p-1.5" style={{ background: choice.panel }}><div className="w-full h-1 rounded" style={{ background: choice.accent }} /><div className="w-3/4 h-1 rounded mt-1 opacity-40" style={{ background: choice.text }} /></div>
+        <div className="p-1.5 flex-1"><div className="text-[10px] leading-3" style={{ fontFamily: choice.id === 'claude' ? 'Georgia, serif' : 'system-ui, sans-serif' }}>Aa</div><div className="w-3/4 h-1 rounded mt-1 opacity-25" style={{ background: choice.text }} /></div>
+      </div>
+      <span className="block mt-2 text-xs font-semibold text-slate-200">{choice.name}</span><span className="block text-[10px] text-slate-500">{choice.description}</span>
+    </button>)}
+  </div>;
+};
 
 const RepositoryFolderSettings: React.FC = () => {
   const [folder, setFolder] = usePreference('cloneFolder');

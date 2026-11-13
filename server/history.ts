@@ -1,4 +1,5 @@
-import type { BlameLine, Commit, FileCommitHistory } from '../shared/types/git';
+import path from 'node:path';
+import type { BlameLine, Commit, FileCommitHistory, SelectionHistoryRevision } from '../shared/types/git';
 import { git, gitSucceeds } from './git';
 import { changedFiles, format, parseDiff, records } from './gitParse';
 import { inRepo, UserError } from './http';
@@ -67,6 +68,29 @@ function blame(output: string): BlameLine[] {
   return lines.map(({ time, ...line }) => ({ ...line, agePercent: Math.max(0.1, (time - oldest) / range) }));
 }
 
+/** A literal, repository-relative file path; never allow a revision expression or traversal. */
+function historyPath(file: unknown): string {
+  if (typeof file !== 'string' || !file || file.includes('\0') || path.isAbsolute(file) || path.win32.isAbsolute(file) || file.split(/[\\/]/).some((part) => part === '..' || part === '.')) {
+    throw new UserError('Choose a file inside the repository.');
+  }
+  return file;
+}
+
+async function committedFile(repo: string, file: string, revision?: string): Promise<{ revision: string; lines: string[] }> {
+  historyPath(file);
+  if (revision && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(revision)) throw new UserError('Invalid commit ID.');
+  const hash = (await git(repo, ['rev-parse', '--verify', '--end-of-options', `${revision || 'HEAD'}^{commit}`])).trim();
+  const object = `${hash}:${file}`;
+  const size = Number((await git(repo, ['cat-file', '-s', object])).trim());
+  if (!Number.isFinite(size) || size > 2_000_000) throw new UserError('Selection history supports files up to 2 MB.');
+  const text = await git(repo, ['show', '--end-of-options', object]);
+  if (text.includes('\0')) throw new UserError('Selection history is available for text files.');
+  const lines = text ? text.split('\n') : [];
+  if (text.endsWith('\n')) lines.pop();
+  if (lines.length > 20_000) throw new UserError('Selection history supports files with up to 20,000 lines.');
+  return { revision: hash, lines };
+}
+
 export const historyHandlers = {
   commits: inRepo((repo, { limit = 300 }: { limit?: number }) => commits(repo, limit)),
 
@@ -118,9 +142,34 @@ export const historyHandlers = {
       });
   }),
 
+  /** Show committed source so a line selection has unambiguous revision coordinates. */
+  selectionSource: inRepo(async (repo, { file, revision }: { file: string; revision?: string }) => committedFile(repo, file, revision)),
+
+  /** Trace the chosen lines back from exactly the revision displayed in the picker. */
+  selectionHistory: inRepo(async (repo, { file, revision, start, end }: { file: string; revision: string; start: number; end: number }): Promise<SelectionHistoryRevision[]> => {
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 1 || end < start) throw new UserError('Select a valid range of lines.');
+    const source = await committedFile(repo, file, revision);
+    if (end > source.lines.length) throw new UserError('The selected lines do not exist in that revision.');
+    const out = await git(repo, ['log', '--date=short', '--format=%x1e%H%x1f%h%x1f%an%x1f%ad%x1f%s', `-L${start},${end}:${file}`, '--end-of-options', source.revision]);
+    return out.split('\x1e').filter((chunk) => chunk.trim()).map((chunk) => {
+      const newline = chunk.indexOf('\n');
+      const [hash, shortHash, author, date, summary] = chunk.slice(0, newline).split('\x1f');
+      const diff = parseDiff(chunk.slice(newline + 1))[0];
+      return { hash, shortHash, author, date, summary, path: diff?.path ?? file, diff };
+    });
+  }),
+
   fileCommitDiff: inRepo(async (repo, { hash, file }: { hash: string; file: string }) =>
     parseDiff(await git(repo, ['show', '--format=', '--end-of-options', hash, '--', file]))
   ),
+
+  /** Compare a historical file to staged and unstaged changes in the working tree. */
+  compareFileWithWorking: inRepo(async (repo, { hash, file, historicalPath }: { hash: string; file: string; historicalPath: string }) => {
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(hash)) throw new UserError('Invalid commit ID.');
+    historyPath(file); historyPath(historicalPath);
+    const paths = [...new Set([historicalPath, file])];
+    return parseDiff(await git(repo, ['diff', '--find-renames', '--end-of-options', hash, '--', ...paths]));
+  }),
 
   reflog: inRepo(async (repo, { limit = 50 }: { limit?: number }): Promise<ReflogEntry[]> => {
     const out = await git(repo, ['reflog', `-n${limit}`, format('%H', '%gD', '%gs', '%ci')]);

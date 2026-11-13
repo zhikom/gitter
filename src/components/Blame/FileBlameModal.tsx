@@ -13,10 +13,11 @@ interface FileBlameModalProps {
   onClose: () => void;
   onOpenCommit: (hash: string) => void;
   onOpenHistory: (file: string) => void;
+  onSelectionHistory: () => void;
 }
 
 /** Who last changed each line, with a bar that is brighter for newer lines. */
-export const FileBlameModal: React.FC<FileBlameModalProps> = ({ file, repo, revision, onClose, onOpenCommit, onOpenHistory }) => {
+export const FileBlameModal: React.FC<FileBlameModalProps> = ({ file, repo, revision, onClose, onOpenCommit, onOpenHistory, onSelectionHistory }) => {
   const [lines, setLines] = useState<BlameLine[] | null>(null);
   const [tabSize] = usePreference('tabSize');
 
@@ -43,10 +44,10 @@ export const FileBlameModal: React.FC<FileBlameModalProps> = ({ file, repo, revi
       subtitle={lines ? revision ? `${lines.length} lines at ${revision.slice(0, 7)}` : `${lines.length} lines as the file is now; lines not committed yet show 0000000` : 'Loading…'}
       onClose={onClose}
       actions={
-        <Button onClick={() => onOpenHistory(file)}>
+        <><Button onClick={onSelectionHistory}>History for selection</Button><Button onClick={() => onOpenHistory(file)}>
           <History className="w-3.5 h-3.5" />
           History
-        </Button>
+        </Button></>
       }
     >
       <div style={{ tabSize }} className="flex-1 overflow-auto bg-[#14181f] font-mono text-xs select-text">

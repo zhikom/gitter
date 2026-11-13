@@ -1,3 +1,10 @@
+import colors from 'tailwindcss/colors';
+
+const themePalette = (name) => Object.fromEntries(Object.entries(colors[name]).map(([level, hex]) => {
+  const rgb = hex.slice(1).match(/../g).map((part) => parseInt(part, 16)).join(' ');
+  return [level, `rgb(var(--${name}-${level}, ${rgb}) / <alpha-value>)`];
+}));
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -8,6 +15,8 @@ export default {
   theme: {
     extend: {
       colors: {
+        slate: themePalette('slate'),
+        teal: themePalette('teal'),
         gk: {
           bg: '#14181f',
           surface: '#1b212c',

@@ -1,7 +1,7 @@
 // The selected working-tree file's diff with the staging layer on top: stage,
 // unstage or discard whole hunks or chosen lines.
 import React, { useState } from 'react';
-import { AlertTriangle, Clock, ExternalLink, History, Minus, Plus, RotateCcw, Sparkles } from 'lucide-react';
+import { AlertTriangle, Clock, ExternalLink, History, ListFilter, Minus, Plus, RotateCcw, Sparkles } from 'lucide-react';
 import type { FileDiff } from '../../../shared/types/git';
 import { buildPatch, wholeHunk, type LineSelection, type PatchDirection } from '../../../shared/patch';
 import { getPreference, usePreference } from '../../preferences';
@@ -26,6 +26,7 @@ interface WorkingDiffProps {
   onResolveConflict: (file: string) => void;
   onBlame: (file: string) => void;
   onFileHistory: (file: string) => void;
+  onSelectionHistory: (file: string) => void;
   onExternalDiff: (file: string, staged: boolean) => void;
   onBack?: () => void;
 }
@@ -44,6 +45,7 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
   onResolveConflict,
   onBlame,
   onFileHistory,
+  onSelectionHistory,
   onExternalDiff,
   onBack,
 }) => {
@@ -176,6 +178,7 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
                 <Clock className="w-3.5 h-3.5 text-teal-400" />
               </button>
               <button onClick={() => onFileHistory(file)} title="File history" aria-label="File history" className={`${toolbarButton} bg-[#202735] border-[#2a3447] text-slate-300 hover:bg-[#2d384c]`}><History className="w-3.5 h-3.5 text-teal-400" /></button>
+              <button onClick={() => onSelectionHistory(diff.oldPath ?? file)} title="History for selection" aria-label="History for selection" className={`${toolbarButton} bg-[#202735] border-[#2a3447] text-slate-300 hover:bg-[#2d384c]`}><ListFilter className="w-3.5 h-3.5 text-teal-400" /></button>
               <button onClick={() => onExternalDiff(file, staged)} title="Open in your diff tool" className={`${toolbarButton} bg-[#202735] border-[#2a3447] text-slate-300 hover:bg-[#2d384c]`}>
                 <ExternalLink className="w-3.5 h-3.5 text-teal-400" />
               </button>

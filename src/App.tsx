@@ -55,6 +55,7 @@ import { BranchActionModal } from './components/Modals/BranchActionModal';
 import { CommandPalette } from './components/Modals/CommandPalette';
 import { CreateBranchModal } from './components/Modals/CreateBranchModal';
 import { FileHistoryModal } from './components/Modals/FileHistoryModal';
+import { SelectionHistoryModal } from './components/Modals/SelectionHistoryModal';
 import { GitflowModal } from './components/Modals/GitflowModal';
 import { ReflogModal } from './components/Modals/ReflogModal';
 import { RepositoriesModal, type RepositoriesTab } from './components/Modals/RepositoriesModal';
@@ -99,6 +100,7 @@ type Dialog =
   | { kind: 'rebase'; base: string }
   | { kind: 'blame'; file: string; revision?: string }
   | { kind: 'file-history'; file: string; revision?: string }
+  | { kind: 'selection-history'; file: string; revision?: string }
   | { kind: 'conflict'; file: string }
   | { kind: 'explanation'; file: string; explanation: AIExplanation }
   | { kind: 'branch-drop'; source: string; target: string }
@@ -210,7 +212,8 @@ export const App: React.FC = () => {
   // Reserve enough room for a readable diff; side panels yield on small windows.
   const assistantOverlay = windowWidth < 1350;
   const effectiveSidebar = sidebarOpen ? Math.min(sidebarWidth, Math.max(160, Math.floor(windowWidth * (diffWorkspace ? 0.2 : 0.28)))) : 0;
-  const maxRight = Math.max(240, windowWidth - effectiveSidebar - (assistantOpen && !assistantOverlay ? 352 : 0) - (railOpen ? 56 : 0) - (diffWorkspace ? 400 : 260));
+  const minMain = diffWorkspace ? Math.min(640, Math.max(400, Math.floor(windowWidth * 0.5))) : 260;
+  const maxRight = Math.max(240, windowWidth - effectiveSidebar - (assistantOpen && !assistantOverlay ? 352 : 0) - (railOpen ? 56 : 0) - minMain);
   const effectiveRight = Math.min(rightWidth, maxRight);
 
   // --- Selection ---------------------------------------------------------------
@@ -242,6 +245,19 @@ export const App: React.FC = () => {
     setDiffWorkspace(null);
     setStagingOpen(true);
     setDialog(null);
+  };
+  const showHistoryCommit = async (hash: string) => {
+    const requestedRepo = repo;
+    const request = ++branchRequest.current;
+    try {
+      const commit = repository.commits.find((item) => item.hash === hash) ?? await repository.commitForBranch(hash);
+      if (repoRef.current !== requestedRepo || request !== branchRequest.current) return;
+      if (!commit) { toast.info(`${hash.slice(0, 7)} is not in the current graph.`); return; }
+      showCommit(commit);
+      setGraphReveal({ hash: commit.hash, sequence: request });
+    } catch (error: any) {
+      if (repoRef.current === requestedRepo && request === branchRequest.current) toast.error(`Could not open the commit: ${error.message}`);
+    }
   };
   const selectBranch = async (branch: Branch) => {
     const request = ++branchRequest.current;
@@ -730,6 +746,7 @@ export const App: React.FC = () => {
                 onResolveConflict={(file) => setDialog({ kind: 'conflict', file })}
                 onBlame={(file) => setDialog({ kind: 'blame', file })}
                 onFileHistory={(file) => setDialog({ kind: 'file-history', file })}
+                onSelectionHistory={(file) => setDialog({ kind: 'selection-history', file })}
                 onExternalDiff={(file, staged) => quietly(actions.externalDiff(file, staged))}
               />
             ) : diffWorkspace === 'commit' && selectedCommit && selectedCommitFile ? (
@@ -741,6 +758,7 @@ export const App: React.FC = () => {
                 onApply={actions.applyCommitPatch}
                 onBlame={(file) => setDialog({ kind: 'blame', file, revision: selectedCommit.hash })}
                 onHistory={(file) => setDialog({ kind: 'file-history', file, revision: selectedCommit.hash })}
+                onSelectionHistory={(file, revision) => setDialog({ kind: 'selection-history', file, revision })}
               />
             ) : <CommitGraph
               commits={repository.commits}
@@ -918,11 +936,8 @@ export const App: React.FC = () => {
             revision={dialog.revision}
             onClose={close}
             onOpenHistory={(file) => setDialog({ kind: 'file-history', file, revision: dialog.revision })}
-            onOpenCommit={(hash) => {
-              const commit = repository.commits.find((c) => c.hash === hash);
-              if (commit) showCommit(commit);
-              else toast.info(`${hash.slice(0, 7)} is not among the loaded commits.`);
-            }}
+            onSelectionHistory={() => setDialog({ kind: 'selection-history', file: dialog.file, revision: dialog.revision })}
+            onOpenCommit={(hash) => void showHistoryCommit(hash)}
           />
         );
       case 'file-history':
@@ -932,13 +947,12 @@ export const App: React.FC = () => {
             repo={repo}
             revision={dialog.revision}
             onClose={close}
-            onOpenCommit={(hash) => {
-              const commit = repository.commits.find((c) => c.hash === hash);
-              if (commit) showCommit(commit);
-              else toast.info(`${hash.slice(0, 7)} is not among the loaded commits.`);
-            }}
+            onSelectionHistory={(file, revision) => setDialog({ kind: 'selection-history', file, revision })}
+            onOpenCommit={(hash) => void showHistoryCommit(hash)}
           />
         );
+      case 'selection-history':
+        return <SelectionHistoryModal file={dialog.file} repo={repo} revision={dialog.revision} onClose={close} onOpenCommit={(hash) => void showHistoryCommit(hash)} />;
       case 'conflict':
         return <ThreeWayConflictResolverModal file={dialog.file} repo={repo} rebasing={Boolean(repoState?.isRebasing)} onClose={close} onResolved={afterChange} />;
       case 'explanation':

@@ -243,7 +243,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
                     onContextMenu={(e) => handleFileContextMenu(e, file)}
                     title={`Click to view diff. Double-click to unstage. Right-click for options. Drag to Unstaged below.`}
                     className={`group flex items-center justify-between px-3 py-1 text-xs cursor-pointer transition select-none ${
-                      isSelected ? 'bg-[#263245] text-white' : 'hover:bg-[#202735] text-slate-300'
+                      isSelected ? 'bg-[#263245] text-slate-100' : 'hover:bg-[#202735] text-slate-300'
                     }`}
                   >
                     <div className="flex items-center space-x-2 truncate">
@@ -357,7 +357,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
                     onContextMenu={(e) => handleFileContextMenu(e, file)}
                     title={`Click to view diff. Double-click to stage. Right-click for options. Drag to Staged above.`}
                     className={`group flex items-center justify-between px-3 py-1 text-xs cursor-pointer transition select-none ${
-                      isSelected ? 'bg-[#263245] text-white' : 'hover:bg-[#202735] text-slate-300'
+                      isSelected ? 'bg-[#263245] text-slate-100' : 'hover:bg-[#202735] text-slate-300'
                     }`}
                   >
                     <div className="flex items-center space-x-2 truncate">

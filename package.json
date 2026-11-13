@@ -1,7 +1,7 @@
 {
   "name": "gitter",
   "productName": "Gitter",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "description": "High-performance GitKraken alternative with visual commit graph and deep AI agent integration",
   "type": "module",
   "scripts": {

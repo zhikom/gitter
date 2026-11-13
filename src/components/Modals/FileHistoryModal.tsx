@@ -12,14 +12,18 @@ interface FileHistoryModalProps {
   revision?: string;
   onClose: () => void;
   onOpenCommit: (hash: string) => void;
+  onSelectionHistory: (file: string, revision?: string) => void;
 }
 
 /** Every commit that changed a file, following renames, with each one's change to it. */
-export const FileHistoryModal: React.FC<FileHistoryModalProps> = ({ file, repo, revision, onClose, onOpenCommit }) => {
+export const FileHistoryModal: React.FC<FileHistoryModalProps> = ({ file, repo, revision, onClose, onOpenCommit, onSelectionHistory }) => {
   const [history, setHistory] = useState<FileCommitHistory[] | null>(null);
   const [selected, setSelected] = useState<FileCommitHistory | null>(null);
   const [diff, setDiff] = useState<FileDiff | undefined>();
   const [filter, setFilter] = useState('');
+  const [compareWorking, setCompareWorking] = useState(false);
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [diffError, setDiffError] = useState('');
 
   useEffect(() => {
     let current = true;
@@ -42,22 +46,27 @@ export const FileHistoryModal: React.FC<FileHistoryModalProps> = ({ file, repo, 
   useEffect(() => {
     let current = true;
     setDiff(undefined);
+    setDiffError('');
     if (selected) {
-      api
-        .fileCommitDiff({ repo, hash: selected.hash, file: selected.path })
-        .then((diffs) => current && setDiff(diffs[0]))
-        .catch((e) => toast.error(`Could not load the change: ${e.message}`));
+      setDiffLoading(true);
+      const request = compareWorking
+        ? api.compareFileWithWorking({ repo, hash: selected.hash, file, historicalPath: selected.path })
+        : api.fileCommitDiff({ repo, hash: selected.hash, file: selected.path });
+      request
+        .then((diffs) => current && setDiff(diffs.find((item) => item.path === file) ?? diffs[0]))
+        .catch((e) => { if (current) setDiffError(`Could not load the change: ${e.message}`); })
+        .finally(() => { if (current) setDiffLoading(false); });
     }
     return () => {
       current = false;
     };
-  }, [repo, file, selected]);
+  }, [repo, file, selected, compareWorking]);
 
   const needle = filter.toLowerCase();
   const shown = (history ?? []).filter((h) => !needle || `${h.summary} ${h.author} ${h.shortHash}`.toLowerCase().includes(needle));
 
   return (
-    <Modal width="xl" tall icon={<History className="w-4 h-4" />} title="File history" subtitle={revision ? `${file} · through ${revision.slice(0, 7)}` : file} onClose={onClose}>
+    <Modal width="xl" tall icon={<History className="w-4 h-4" />} title="File history" subtitle={revision ? `${file} · through ${revision.slice(0, 7)}` : file} onClose={onClose} actions={<><Button disabled={!selected} aria-pressed={compareWorking} onClick={() => setCompareWorking(!compareWorking)}>{compareWorking ? 'Show commit change' : 'Compare with working tree'}</Button><Button disabled={!selected} onClick={() => selected && onOpenCommit(selected.hash)}>Open commit</Button><Button onClick={() => onSelectionHistory(selected?.path ?? file, selected?.hash ?? revision)}>History for selection</Button></>}>
       <div className="flex-1 min-h-0 flex">
         <div className="w-80 flex-shrink-0 flex flex-col border-r border-[#2a3447] bg-[#181d26]">
           <input
@@ -92,9 +101,8 @@ export const FileHistoryModal: React.FC<FileHistoryModalProps> = ({ file, repo, 
         </div>
         <DiffView
           diff={diff}
-          emptyLabel={history?.length === 0 ? 'No commits change this file.' : 'Select a revision.'}
+          emptyLabel={diffLoading ? 'Loading changes…' : diffError || (history?.length === 0 ? 'No commits change this file.' : compareWorking && selected ? 'No differences against the working tree.' : 'Select a revision.')}
           title={selected && <span className="text-xs text-slate-300 truncate">{selected.summary}</span>}
-          toolbar={selected && <Button onClick={() => onOpenCommit(selected.hash)}>Open commit</Button>}
         />
       </div>
     </Modal>
