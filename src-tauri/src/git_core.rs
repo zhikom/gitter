@@ -72,8 +72,9 @@ fn clone_remote(remote: &str, destination: &Path) -> Result<(), String> {
 
 pub fn dispatch(operation: &str, input: &Value) -> Result<Value, String> {
     if operation == "cloneRepo" {
-        clone_remote(required(input, "url")?, &absolute_path(required(input, "folder")?)?)?;
-        return Ok(Value::Null);
+        let target = absolute_path(required(input, "folder")?)?;
+        clone_remote(required(input, "url")?, &target)?;
+        return Ok(json!(target.to_string_lossy().replace('\\', "/")));
     }
     let repo = absolute_path(required(input, "repo")?)?;
     let has_head = || git(&repo, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], None).is_ok();
@@ -136,7 +137,8 @@ mod tests {
         let target = root.join("destination");
         std::fs::create_dir_all(&source).unwrap();
         git(&source, &["init", "-q"], None).unwrap();
-        clone_remote(source.to_str().unwrap(), &target).unwrap();
+        let result = dispatch("cloneRepo", &json!({"url":source.to_str().unwrap(),"folder":target.to_str().unwrap()})).unwrap();
+        assert_eq!(result.as_str().unwrap(), target.to_string_lossy().replace('\\', "/"));
         assert!(target.join(".git").is_dir());
         assert!(clone_remote("https://user:secret@example.com/repo.git", &root.join("unsafe")).is_err());
         assert!(clone_remote("ext::unsafe", &root.join("unsafe")).is_err());

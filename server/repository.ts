@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { homedir } from 'os';
 import path from 'path';
 import type { RepositoryState } from '../shared/types/git';
 import { git } from './git';
@@ -106,8 +107,11 @@ export const repositoryHandlers = {
   },
 
   cloneRepo: async ({ url, folder }: { url: string; folder: string }) => {
-    await fs.promises.mkdir(path.dirname(path.resolve(folder)), { recursive: true });
-    await git(path.dirname(path.resolve(folder)), ['clone', '--end-of-options', url, path.resolve(folder)]);
+    const expanded = folder === '~' ? homedir() : /^~[\\/]/.test(folder) ? path.join(homedir(), folder.slice(2)) : folder;
+    const target = path.resolve(expanded);
+    await fs.promises.mkdir(path.dirname(target), { recursive: true });
+    await git(path.dirname(target), ['clone', '--end-of-options', url, target]);
+    return target.replace(/\\/g, '/');
   },
 
   revealInFileManager: inRepo((repo, { file }: { file?: string }) =>

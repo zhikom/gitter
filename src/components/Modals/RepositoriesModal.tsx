@@ -212,9 +212,9 @@ const CloneRepository: React.FC<{ onOpen: (path: string) => void; initialUrl: st
     e.preventDefault();
     setBusy(true);
     try {
-      await api.cloneRepo({ url: url.trim(), folder: target });
-      toast.success(`Cloned into ${target}.`);
-      onOpen(target);
+      const cloned = await api.cloneRepo({ url: url.trim(), folder: target });
+      toast.success(`Cloned into ${cloned}.`);
+      onOpen(cloned);
     } catch (err: any) {
       toast.error(`Clone failed: ${err.message}`);
     } finally {

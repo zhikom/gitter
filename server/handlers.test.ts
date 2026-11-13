@@ -48,6 +48,16 @@ test('suggests safe clone destinations for HTTPS and SSH remotes', () => {
   assert.equal(joinRepoFolder('C:\\Users\\example\\repos', 'repo'), 'C:\\Users\\example\\repos\\repo');
 });
 
+test('clone returns the actual destination so it can be opened', async () => {
+  const repo = await newRepo();
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'gitter-clone-'));
+  temps.push(parent);
+  const target = path.join(parent, 'checkout');
+  const cloned = await api.cloneRepo({ url: repo, folder: target });
+  assert.equal(cloned, target.replace(/\\/g, '/'));
+  assert.equal((await api.repoState({ repo: cloned })).currentBranch, 'main');
+});
+
 describe('working tree', () => {
   test('a filename containing pathspec metacharacters does not stage matching files', async () => {
     const repo = await newRepo();
