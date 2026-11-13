@@ -66,6 +66,9 @@ jobs:
           npm run build:sidecar
           cargo test --manifest-path src-tauri/Cargo.toml --lib
 
+      - name: Test file and selection history
+        run: node --test --import tsx --test-name-pattern="selection history|file history compares|file comparison recognizes" server/handlers.test.ts
+
       - name: Build installer
         uses: tauri-apps/tauri-action@v0
         env:
