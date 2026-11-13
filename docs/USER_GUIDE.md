@@ -47,6 +47,8 @@ private key.
 
 - Click a branch once to reveal its tip in the graph. Double-click it to check
   it out. Use the branch's right-click menu for more actions.
+- In **Remote Branches**, the `origin/` prefix is hidden for readability.
+  Branches from other remotes retain their remote name.
 - Click a commit to see its files, then click a file for its diff. The commit
   and file context menus include actions such as compare, revert, and restore.
 - To compare two commits, select one, then select the other while holding

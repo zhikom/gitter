@@ -22,7 +22,7 @@
   <g font-family="system-ui" fill="#aebbd0" font-size="13">
     <text x="32" y="156" font-weight="700">NAVIGATOR</text><rect x="31" y="169" width="215" height="30" rx="5" fill="#10141b" stroke="#344257"/><text x="43" y="189" fill="#78889c">Filter branches, tags…</text>
     <text x="32" y="230" fill="#c7d3e1">⌄  LOCAL BRANCHES</text><text x="50" y="260">feature/welcome</text><rect x="24" y="271" width="232" height="30" fill="#173c39"/><text x="50" y="291" fill="#82e2cf">✓  main</text>
-    <text x="32" y="334">⌄  REMOTE BRANCHES</text><text x="50" y="363">origin/main</text><text x="32" y="408">⌄  PULL REQUESTS</text><text x="50" y="437">#42  Improve welcome</text><text x="32" y="482">›  TAGS</text><text x="32" y="520">›  STASHES</text>
+    <text x="32" y="334">⌄  REMOTE BRANCHES</text><text x="50" y="363">main</text><text x="32" y="408">⌄  PULL REQUESTS</text><text x="50" y="437">#42  Improve welcome</text><text x="32" y="482">›  TAGS</text><text x="32" y="520">›  STASHES</text>
     <text x="294" y="156" font-weight="700">COMMIT GRAPH</text><text x="525" y="156" fill="#77889b">Search commits…</text>
     <text x="798" y="156" font-weight="700">WORKING TREE FILES</text><text x="798" y="195" fill="#8cddc3">STAGED  (1)</text><text x="818" y="225">M   README.md</text><text x="798" y="273" fill="#eabf75">UNSTAGED  (1)</text><text x="818" y="303">M   src/welcome.ts</text><text x="798" y="480" font-weight="700">COMMIT CHANGES</text>
   </g>

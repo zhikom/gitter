@@ -591,7 +591,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   key={branch.name}
                   role="button"
                   tabIndex={0}
-                  aria-label={`Select branch ${branch.name}`}
+                  aria-label={`Select remote branch ${branch.name.replace(/^origin\//, '')}`}
                   onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectBranch(branch); } }}
                   draggable={true}
                   onDragStart={(e) => {
@@ -608,7 +608,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div className="w-3.5 h-3.5 flex items-center justify-center">
                       <div className="w-1.5 h-1.5 rounded-full bg-blue-500/60" />
                     </div>
-                    <span className="truncate">{branch.name}</span>
+                    <span className="truncate">{branch.name.replace(/^origin\//, '')}</span>
                   </div>
                 </div>
               ))}

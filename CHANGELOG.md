@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-11-13
+
+### Navigation
+
+- Hide the `origin/` prefix in the remote-branches list while keeping the full
+  branch name for Git actions. Other remote names remain visible.
+
+### Downloads
+
+- Windows x64 and macOS ARM64 (Apple Silicon) installers are available. The
+  Windows installer is unsigned; the Mac app is ad-hoc signed but not
+  notarized, so the operating system may show a security warning.
+
 ## [1.7.0] - 2026-11-13
 
 ### History and appearance
