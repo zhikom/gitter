@@ -92,9 +92,15 @@ export const changeHandlers = {
 
   /** Opens the file in the configured diff tool against HEAD (if staged) or the index. */
   openExternalDiff: inRepo(async (repo, { file, staged = false }: { file: string; staged?: boolean }) => {
-    const base = path.join(os.tmpdir(), `gitter-${staged ? 'HEAD' : 'INDEX'}-${Date.now()}-${path.basename(file)}`);
-    const tracked = await isTracked(repo, file);
-    await fs.promises.writeFile(base, tracked ? await git(repo, ['show', `${staged ? 'HEAD' : ''}:${file}`]) : '', 'utf8');
-    await openDiffTool(base, insideRepo(repo, file), (await gitterSettings(repo)).diffTool);
+    // A version git stores, written to a temp file; a version that does not exist (a new file) is empty.
+    const snapshot = async (label: string, spec: string) => {
+      const target = path.join(os.tmpdir(), `gitter-${label}-${Date.now()}-${path.basename(file)}`);
+      await fs.promises.writeFile(target, await git(repo, ['show', spec]).catch(() => ''), 'utf8');
+      return target;
+    };
+    const tool = (await gitterSettings(repo)).diffTool;
+    // Staged changes are HEAD against the index; unstaged ones the index against the file on disk.
+    if (staged) await openDiffTool(await snapshot('HEAD', `HEAD:${file}`), await snapshot('staged', `:${file}`), tool);
+    else await openDiffTool(await snapshot('index', `:${file}`), insideRepo(repo, file), tool);
   }),
 };
