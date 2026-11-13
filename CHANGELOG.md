@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-13
+
+### Repositories and coding apps
+
+- Browse and search a connected Bitbucket Server or Data Center directly in
+  the clone dialog, with SSH and HTTPS clone URL choices and pagination.
+- Choose a clone destination from the configured default, previously used
+  clone folders, or the parent folders of recently opened repositories. The
+  most recent successful clone destination is filled in automatically.
+- Open a repository in a new Codex or Claude Code desktop session from the
+  repository menu, a repository tab, or the recent repositories list.
+- Copy an SSH public key from Settings and open a connected Bitbucket server's
+  SSH-key page to paste it. The browser may ask you to sign in separately.
+
+### Downloads
+
+- Windows x64 and macOS ARM64 (Apple Silicon) installers are available. The
+  Windows installer is unsigned; the Mac app is ad-hoc signed but not
+  notarized, so the operating system may show a security warning.
+
 ## [1.3.2] - 2026-11-13
 
 ### Commit and working-tree changes

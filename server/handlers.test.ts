@@ -10,10 +10,11 @@ import { createHandlers } from './handlers';
 import { combine, UserError } from './http';
 import { parseDiff } from './gitParse';
 import { consoleArgs } from './gitConsole';
+import { codingAppUrl } from './osIntegration';
 import { buildPatch, wholeHunk, type LineSelection } from '../shared/patch';
 import { mergeConflicts, parseConflicts } from '../shared/conflicts';
 import type { FileDiff } from '../shared/types/git';
-import { joinRepoFolder, repositoryNameFromUrl } from '../src/utils/repositoryPaths';
+import { joinRepoFolder, repositoryNameFromUrl, repositoryParent } from '../src/utils/repositoryPaths';
 
 const api = createHandlers({ onUpdateInstalling: () => {} });
 const temps: string[] = [];
@@ -46,6 +47,22 @@ test('suggests safe clone destinations for HTTPS and SSH remotes', () => {
   assert.equal(repositoryNameFromUrl('https://example.com/team/%2e%2e'), '');
   assert.equal(joinRepoFolder('/Users/example/repos/', 'repo'), '/Users/example/repos/repo');
   assert.equal(joinRepoFolder('C:\\Users\\example\\repos', 'repo'), 'C:\\Users\\example\\repos\\repo');
+  assert.equal(repositoryParent('/Users/example/repos/repo'), '/Users/example/repos');
+  assert.equal(repositoryParent('/repo'), '/');
+  assert.equal(repositoryParent('C:\\repos\\repo'), 'C:\\repos');
+  assert.equal(repositoryParent('C:\\repo'), 'C:\\');
+});
+
+test('coding app links keep special characters inside the repository path', () => {
+  const folder = path.join(os.tmpdir(), 'space & # project');
+  const codex = new URL(codingAppUrl('codex', folder));
+  const claude = new URL(codingAppUrl('claude', folder));
+  assert.equal(codex.protocol, 'codex:');
+  assert.equal(codex.searchParams.get('path'), folder);
+  assert.equal(claude.protocol, 'claude:');
+  assert.equal(claude.searchParams.get('folder'), folder);
+  assert.throws(() => codingAppUrl('codex', 'relative/path'));
+  assert.throws(() => codingAppUrl('other' as 'codex', folder));
 });
 
 test('clone returns the actual destination so it can be opened', async () => {

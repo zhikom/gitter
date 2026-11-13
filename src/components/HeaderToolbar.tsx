@@ -154,7 +154,7 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({ commands, repoStat
               <MenuItem key={id} command={cmd(id)} />
             ))}
             <div className="border-t border-[#2a3447] my-1" />
-            {['reveal', 'editor', 'terminal'].map((id) => (
+            {['reveal', 'editor', 'terminal', 'open-codex', 'open-claude'].map((id) => (
               <MenuItem key={id} command={cmd(id)} />
             ))}
           </Menu>

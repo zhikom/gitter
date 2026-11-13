@@ -34,11 +34,15 @@ written by AI coding agents.
   commit each group to its own branch without switching.
 - Several repositories open in tabs.
 - Clone over HTTPS or SSH into a configurable default folder (`~/repos` by
-  default), inspect SSH public keys and agent status, and reveal repositories
-  in Finder or Explorer.
+  default); reuse recent clone destinations, inspect and copy SSH public keys,
+  and reveal repositories in Finder or Explorer.
+- Open a repository in Codex or Claude Code from the repository menu or tab
+  menu, with the repository folder selected for a new coding session.
 - On macOS, connect Bitbucket Server / Data Center with a personal access token
   stored in Keychain to browse repositories and pull requests, create a pull
-  request within one repository, and start an HTTPS or SSH clone.
+  request within one repository, and search for repositories directly from
+  the HTTPS or SSH clone dialog. Copy a public SSH key and open the server's
+  SSH-key page from Settings when you need to add it to Bitbucket.
 
 **AI agents**
 - Start an agent in its own branch and worktree (`agent/<harness>-<task>`), or

@@ -7,6 +7,7 @@ import { Bot, FolderGit2, Globe, Info, KeyRound, Settings as SettingsIcon, Slide
 import { AI_PROVIDERS, type AiProvider } from '../../../shared/aiProviders';
 import { api, pickFolder } from '../../api/client';
 import { desktopApi, type SshPublicKey } from '../../api/desktop';
+import type { Integration } from '../../types/integration';
 import { usePreference, type Preferences } from '../../preferences';
 import { CURRENT_VERSION } from '../../services/updateService';
 import { toast } from '../../utils/toast';
@@ -153,19 +154,51 @@ const RepositoryFolderSettings: React.FC = () => {
 
 const SshSettings: React.FC = () => {
   const [keys, setKeys] = useState<SshPublicKey[]>([]);
+  const [connections, setConnections] = useState<Integration[]>([]);
+  const [connectionId, setConnectionId] = useState('');
   const [loading, setLoading] = useState(true);
   const [remote, setRemote] = useState('');
   const [result, setResult] = useState('');
   const [testing, setTesting] = useState(false);
-  useEffect(() => { desktopApi.listSshKeys().then(setKeys).catch((e) => setResult(String(e))).finally(() => setLoading(false)); }, []);
+  useEffect(() => {
+    let live = true;
+    desktopApi.listSshKeys().then((items) => { if (live) setKeys(items); }).catch((e) => { if (live) setResult(String(e)); }).finally(() => { if (live) setLoading(false); });
+    desktopApi.listIntegrations().then((items) => {
+      if (!live) return;
+      const bitbucket = items.filter((item) => item.kind === 'bitbucket_dc');
+      setConnections(bitbucket); setConnectionId(bitbucket[0]?.id ?? '');
+    }).catch(() => undefined);
+    return () => { live = false; };
+  }, []);
+  const connection = connections.find((item) => item.id === connectionId);
+  const copyKey = async (key: SshPublicKey, openBitbucket: boolean) => {
+    try {
+      await desktopApi.copySshPublicKey(key.publicKey);
+      if (openBitbucket && connection) {
+        try {
+          await api.openUrl({ url: `${connection.baseUrl.replace(/\/+$/, '')}/plugins/servlet/ssh/account/keys/add` });
+          toast.success('Public key copied. Paste it into Bitbucket.');
+        } catch (e) { toast.error(`Public key copied, but Bitbucket could not be opened: ${String(e)}`); }
+      } else toast.success('Public key copied.');
+    } catch (e) { toast.error(`Could not copy the public key: ${String(e)}`); }
+  };
   return (
     <div className="space-y-3 text-xs text-slate-300">
       <p>Git uses your system SSH configuration and agent. Gitter reads public keys only.</p>
       {loading && <p>Loading public keys…</p>}
-      {!loading && keys.length === 0 && <p>No public keys were found in ~/.ssh.</p>}
+      {!loading && keys.length === 0 && <p>No public keys were found in ~/.ssh. Create an SSH key, then refresh this list.</p>}
+      {!loading && <Button type="button" onClick={async () => {
+        setLoading(true); setResult('');
+        try { setKeys(await desktopApi.listSshKeys()); }
+        catch (e) { setResult(String(e)); }
+        finally { setLoading(false); }
+      }}>Refresh keys</Button>}
+      {connections.length > 1 && <Field label="Bitbucket connection"><select aria-label="Bitbucket connection for SSH keys" value={connectionId} onChange={(event) => setConnectionId(event.target.value)} className={inputClass}>{connections.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></Field>}
+      {connection && keys.length > 0 && <p className="text-slate-500">Copy a public key and open {connection.label}'s SSH keys page to paste it. Your browser may ask you to sign in.</p>}
       {keys.map((key) => <div key={key.path} className="p-3 rounded bg-[#14181f] border border-[#2a3447] break-all">
         <div className="font-semibold">{key.path}</div><div>{key.fingerprint}</div>
         <div className="text-slate-500">{key.privateKeyExists ? 'Private key present' : 'No matching private key'} · {key.loadedInAgent ? 'Loaded in SSH agent' : 'Not listed by SSH agent'}</div>
+        <div className="mt-2 flex flex-wrap gap-2"><Button type="button" onClick={() => void copyKey(key, false)}>Copy public key</Button>{connection && <Button type="button" onClick={() => void copyKey(key, true)}>Copy and open Bitbucket</Button>}</div>
       </div>)}
       <Field label="Test an SSH repository" hint="Uses known hosts without accepting new host keys.">
         <input value={remote} onChange={(e) => setRemote(e.target.value)} placeholder="git@example.com:project/repository.git" className={`${inputClass} font-mono`} />

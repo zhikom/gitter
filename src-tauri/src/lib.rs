@@ -57,8 +57,8 @@ async fn save_git_https_credential(app: AppHandle, id: String, username: String)
 }
 
 #[tauri::command]
-async fn bitbucket_repositories(app: AppHandle, id: String, start: u64) -> Result<serde_json::Value, String> {
-    integrations::bitbucket_repositories(&integration_settings_path(&app)?, &id, start).await
+async fn bitbucket_repositories(app: AppHandle, id: String, start: u64, search: Option<String>) -> Result<serde_json::Value, String> {
+    integrations::bitbucket_repositories(&integration_settings_path(&app)?, &id, start, search.as_deref().unwrap_or("")).await
 }
 
 #[tauri::command]
@@ -74,6 +74,11 @@ async fn create_bitbucket_pull_request(app: AppHandle, id: String, project: Stri
 #[tauri::command]
 async fn list_ssh_keys() -> Result<Vec<ssh_native::SshPublicKey>, String> {
     tauri::async_runtime::spawn_blocking(ssh_native::list_public_keys).await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn copy_ssh_public_key(public_key: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || ssh_native::copy_public_key(&public_key)).await.map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -96,7 +101,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_integrations, connect_integration, disconnect_integration, save_git_https_credential,
             bitbucket_repositories, bitbucket_pull_requests, create_bitbucket_pull_request,
-            list_ssh_keys, test_ssh_remote, native_git_request
+            list_ssh_keys, copy_ssh_public_key, test_ssh_remote, native_git_request
         ])
         .setup(|app| {
             let handle = app.handle().clone();

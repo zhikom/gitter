@@ -221,6 +221,24 @@ export async function openUrl(url: string): Promise<void> {
   else await launch('open', [url]);
 }
 
+/** Supported desktop deep links open an unsent coding session in this folder. */
+export function codingAppUrl(app: 'codex' | 'claude', directory: string): string {
+  if (!path.isAbsolute(directory)) throw new UserError('Choose an absolute repository path.');
+  if (app !== 'codex' && app !== 'claude') throw new UserError('Unknown coding app.');
+  const url = new URL(app === 'codex' ? 'codex://threads/new' : 'claude://code/new');
+  url.searchParams.set(app === 'codex' ? 'path' : 'folder', directory);
+  return url.toString();
+}
+
+export async function openCodingApp(directory: string, app: 'codex' | 'claude'): Promise<void> {
+  const url = codingAppUrl(app, directory);
+  if (!fs.existsSync(directory) || !fs.statSync(directory).isDirectory()) throw new UserError('The repository folder no longer exists.');
+  const result = platform() === 'win32'
+    ? await run('rundll32.exe', ['url.dll,FileProtocolHandler', url])
+    : await run('open', [url]);
+  if (result.code !== 0) throw new UserError(`Could not open ${app === 'codex' ? 'Codex' : 'Claude Code'}. Is the desktop app installed?`);
+}
+
 /** Opens the file manager with the target selected. */
 export async function revealInFileManager(target: string): Promise<void> {
   if (platform() === 'win32') {

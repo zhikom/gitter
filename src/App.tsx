@@ -86,7 +86,7 @@ import { toast } from './utils/toast';
 type Dialog =
   | { kind: 'repositories'; tab?: RepositoriesTab; cloneUrl?: string }
   | { kind: 'palette' }
-  | { kind: 'settings' }
+  | { kind: 'settings'; tab?: 'integrations' }
   | { kind: 'update' }
   | { kind: 'create-branch'; startPoint: string }
   | { kind: 'stash' }
@@ -545,6 +545,8 @@ export const App: React.FC = () => {
     { id: 'stage-all', title: 'Stage all changes', category: 'Changes', enabled: hasRepo && !repoState?.isClean, run: () => quietly(actions.stageAll()) },
     { id: 'reveal', title: 'Show in file manager', category: 'Repository', icon: FolderOpen, enabled: hasRepo, run: () => quietly(run('Could not open the folder', () => api.revealInFileManager({ repo }), { refresh: false })) },
     { id: 'editor', title: 'Open in editor', category: 'Repository', icon: Code2, enabled: hasRepo, run: () => quietly(run('Could not open the editor', () => api.openInEditor({ repo }), { refresh: false })) },
+    { id: 'open-codex', title: 'Open in Codex', category: 'Repository', icon: Bot, enabled: hasRepo, run: () => quietly(run('Could not open Codex', () => api.openCodingApp({ repo, app: 'codex' }), { refresh: false })) },
+    { id: 'open-claude', title: 'Open in Claude Code', category: 'Repository', icon: Bot, enabled: hasRepo, run: () => quietly(run('Could not open Claude Code', () => api.openCodingApp({ repo, app: 'claude' }), { refresh: false })) },
     { id: 'terminal', title: 'Open terminal', category: 'Repository', icon: Terminal, enabled: hasRepo, run: () => quietly(run('Could not open a terminal', () => api.openTerminal({ repo }), { refresh: false })) },
     { id: 'toggle-sidebar', title: sidebarOpen ? 'Hide sidebar' : 'Show sidebar', category: 'View', icon: PanelLeft, shortcut: 'Mod+B', run: () => setSidebarOpen(!sidebarOpen) },
     { id: 'toggle-staging', title: stagingOpen ? 'Hide working tree' : 'Show working tree', category: 'View', icon: PanelRight, shortcut: 'Mod+J', run: () => setStagingOpen(!stagingOpen) },
@@ -602,6 +604,7 @@ export const App: React.FC = () => {
           setRepo(keep);
         }}
         onRevealInExplorer={(path) => quietly(run('Could not open the folder', () => api.revealInFileManager({ repo: path }), { refresh: false }))}
+        onOpenCodingApp={(path, app) => quietly(run(`Could not open ${app === 'codex' ? 'Codex' : 'Claude Code'}`, () => api.openCodingApp({ repo: path, app }), { refresh: false }))}
         onNewTab={() => setDialog({ kind: 'repositories' })}
       />
       <HeaderToolbar
@@ -828,7 +831,7 @@ export const App: React.FC = () => {
     const afterChange = () => void repository.refresh();
     switch (dialog.kind) {
       case 'repositories':
-        return <RepositoriesModal initialTab={dialog.tab} initialCloneUrl={dialog.cloneUrl} onClose={close} onOpen={(path) => void openRepo(path)} />;
+        return <RepositoriesModal initialTab={dialog.tab} initialCloneUrl={dialog.cloneUrl} onClose={close} onOpen={(path) => void openRepo(path)} onConnectBitbucket={() => setDialog({ kind: 'settings', tab: 'integrations' })} />;
       case 'palette':
         return (
           <CommandPalette
@@ -844,7 +847,7 @@ export const App: React.FC = () => {
           />
         );
       case 'settings':
-        return <SettingsModal repo={repo} onClose={close} onCheckForUpdates={() => setDialog({ kind: 'update' })} onCloneRepository={(url) => setDialog({ kind: 'repositories', tab: 'clone', cloneUrl: url })} />;
+        return <SettingsModal repo={repo} initialTab={dialog.tab} onClose={close} onCheckForUpdates={() => setDialog({ kind: 'update' })} onCloneRepository={(url) => setDialog({ kind: 'repositories', tab: 'clone', cloneUrl: url })} />;
       case 'update':
         return <UpdateModal initial={update} onClose={close} />;
       case 'create-branch':

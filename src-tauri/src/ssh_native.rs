@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::path::Path;
+use std::io::Write;
 use std::process::{Command, Stdio};
 
 #[derive(Serialize)]
@@ -15,6 +16,28 @@ pub struct SshPublicKey {
 fn key_identity(line: &str) -> Option<String> {
     let mut fields = line.split_whitespace();
     Some(format!("{} {}", fields.next()?, fields.next()?))
+}
+
+fn validate_public_key(key: &str) -> Result<&str, String> {
+    let key = key.trim();
+    let algorithm = key.split_whitespace().next().unwrap_or("");
+    if key.len() > 64 * 1024 || key.contains(['\r', '\n', '\0']) || key_identity(key).is_none()
+        || !(algorithm.starts_with("ssh-") || algorithm.starts_with("ecdsa-") || algorithm.starts_with("sk-")) {
+        return Err("Select a valid SSH public key".into());
+    }
+    Ok(key)
+}
+
+pub fn copy_public_key(key: &str) -> Result<(), String> {
+    let key = validate_public_key(key)?;
+    let clipboard = if cfg!(target_os = "macos") { "pbcopy" } else if cfg!(windows) { "clip.exe" } else {
+        return Err("Copying SSH keys is available on macOS and Windows".into());
+    };
+    let mut child = Command::new(clipboard).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null())
+        .spawn().map_err(|error| format!("Could not open the clipboard: {error}"))?;
+    child.stdin.take().ok_or("Could not open the clipboard")?.write_all(key.as_bytes()).map_err(|error| error.to_string())?;
+    if !child.wait().map_err(|error| error.to_string())?.success() { return Err("Could not copy the public key".into()); }
+    Ok(())
 }
 
 pub fn list_public_keys() -> Result<Vec<SshPublicKey>, String> {
@@ -80,5 +103,17 @@ pub fn test_remote(remote: &str) -> Result<String, String> {
     } else {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
         Err(if detail.is_empty() { "SSH connection failed.".into() } else { detail })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clipboard_accepts_public_keys_but_not_private_key_blocks() {
+        assert_eq!(validate_public_key("ssh-ed25519 AAAAB3 comment\n").unwrap(), "ssh-ed25519 AAAAB3 comment");
+        assert!(validate_public_key("-----BEGIN OPENSSH PRIVATE KEY-----\nsecret").is_err());
+        assert!(validate_public_key("ssh-ed25519 AAA\nextra").is_err());
     }
 }

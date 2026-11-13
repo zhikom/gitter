@@ -5,8 +5,9 @@ import { DownloadCloud, ExternalLink, FolderOpen, FolderPlus, FolderSearch, Hist
 import { api, pickFolder } from '../../api/client';
 import { usePreference } from '../../preferences';
 import { toast } from '../../utils/toast';
-import { joinRepoFolder, repositoryNameFromUrl } from '../../utils/repositoryPaths';
+import { joinRepoFolder, repositoryNameFromUrl, repositoryParent } from '../../utils/repositoryPaths';
 import { Button, Field, inputClass, Modal } from '../ui/Modal';
+import { BitbucketClonePicker } from './BitbucketClonePicker';
 
 export type RepositoriesTab = 'recent' | 'scan' | 'clone' | 'create';
 
@@ -14,6 +15,7 @@ interface RepositoriesModalProps {
   initialTab?: RepositoriesTab;
   initialCloneUrl?: string;
   onClose: () => void;
+  onConnectBitbucket: () => void;
   /** Opens the repository at `path` in a tab. */
   onOpen: (path: string) => void;
 }
@@ -31,7 +33,7 @@ async function browse(title: string): Promise<string | null> {
   }
 }
 
-export const RepositoriesModal: React.FC<RepositoriesModalProps> = ({ initialTab = 'recent', initialCloneUrl = '', onClose, onOpen }) => {
+export const RepositoriesModal: React.FC<RepositoriesModalProps> = ({ initialTab = 'recent', initialCloneUrl = '', onClose, onOpen, onConnectBitbucket }) => {
   const [tab, setTab] = useState<RepositoriesTab>(initialTab);
   const open = (path: string) => {
     onOpen(path);
@@ -84,7 +86,7 @@ export const RepositoriesModal: React.FC<RepositoriesModalProps> = ({ initialTab
       <div className="flex-1 min-h-0 overflow-y-auto p-4">
         {tab === 'recent' && <RecentRepositories onOpen={open} onScan={() => setTab('scan')} />}
         {tab === 'scan' && <ScanFolder onOpen={open} />}
-        {tab === 'clone' && <CloneRepository onOpen={open} initialUrl={initialCloneUrl} />}
+        {tab === 'clone' && <CloneRepository onOpen={open} initialUrl={initialCloneUrl} onConnectBitbucket={onConnectBitbucket} />}
         {tab === 'create' && <CreateRepository onOpen={open} />}
       </div>
     </Modal>
@@ -128,6 +130,8 @@ const RecentRepositories: React.FC<{ onOpen: (path: string) => void; onScan: () 
             <button title="Open in your editor" className={iconButton} onClick={() => quietly(api.openInEditor({ repo: path }))}>
               <ExternalLink className="w-3.5 h-3.5" />
             </button>
+            <button title="Open in Codex" aria-label={`Open ${path} in Codex`} className={`${iconButton} text-[10px]`} onClick={() => quietly(api.openCodingApp({ repo: path, app: 'codex' }))}>Codex</button>
+            <button title="Open in Claude Code" aria-label={`Open ${path} in Claude Code`} className={`${iconButton} text-[10px]`} onClick={() => quietly(api.openCodingApp({ repo: path, app: 'claude' }))}>Claude</button>
             <button title="Remove from this list" aria-label={`Forget ${path}`} className={iconButton} onClick={() => setRecent(recent.filter((p) => p !== path))}>
               <X className="w-3.5 h-3.5" />
             </button>
@@ -194,15 +198,19 @@ const ScanFolder: React.FC<{ onOpen: (path: string) => void }> = ({ onOpen }) =>
   );
 };
 
-const CloneRepository: React.FC<{ onOpen: (path: string) => void; initialUrl: string }> = ({ onOpen, initialUrl }) => {
+const CloneRepository: React.FC<{ onOpen: (path: string) => void; initialUrl: string; onConnectBitbucket: () => void }> = ({ onOpen, initialUrl, onConnectBitbucket }) => {
   const [url, setUrl] = useState(initialUrl);
   const [defaultFolder] = usePreference('cloneFolder');
-  const [parent, setParent] = useState(defaultFolder);
+  const [recentFolders, setRecentFolders] = usePreference('recentCloneFolders');
+  const [recentRepos] = usePreference('recentRepos');
+  const [systemDefault, setSystemDefault] = useState('');
+  const [parent, setParent] = useState(recentFolders[0] || defaultFolder);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (!defaultFolder) api.defaultRepoFolder().then((folder) => setParent((current) => current || folder)).catch((e) => toast.error(e.message));
-  }, [defaultFolder]);
+    api.defaultRepoFolder().then((folder) => { setSystemDefault(folder); setParent((current) => current || defaultFolder || folder); }).catch((e) => toast.error(e.message));
+  }, []);
+  const suggestedFolders = [...new Set([defaultFolder || systemDefault, ...recentFolders, ...recentRepos.map(repositoryParent)].filter(Boolean))];
   const guessed = repositoryNameFromUrl(url);
   const chosenName = name.trim() || guessed;
   const validName = chosenName && chosenName !== '.' && chosenName !== '..' && !/[\\/\0]/.test(chosenName);
@@ -213,6 +221,8 @@ const CloneRepository: React.FC<{ onOpen: (path: string) => void; initialUrl: st
     setBusy(true);
     try {
       const cloned = await api.cloneRepo({ url: url.trim(), folder: target });
+      const destination = repositoryParent(cloned) || parent.trim();
+      setRecentFolders((current) => [destination, ...current.filter((folder) => folder !== destination)].slice(0, 12));
       toast.success(`Cloned into ${cloned}.`);
       onOpen(cloned);
     } catch (err: any) {
@@ -224,6 +234,7 @@ const CloneRepository: React.FC<{ onOpen: (path: string) => void; initialUrl: st
 
   return (
     <form onSubmit={clone} className="space-y-3 max-w-xl">
+      <BitbucketClonePicker selectedUrl={url} onSelect={(selected) => { setUrl(selected); setName(''); }} onConnect={onConnectBitbucket} />
       <Field label="URL" hint="HTTPS or SSH; private repositories use your git credentials">
         <input autoFocus value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://github.com/owner/project.git" className={`${inputClass} font-mono`} />
       </Field>
@@ -240,14 +251,20 @@ const CloneRepository: React.FC<{ onOpen: (path: string) => void; initialUrl: st
             Browse…
           </Button>
         </div>
+        {suggestedFolders.length > 0 && <select aria-label="Choose a recent clone folder" value="" onChange={(event) => { if (event.target.value) setParent(event.target.value); }} className={`${inputClass} mt-2`}>
+          <option value="">Choose default or recent folder…</option>
+          {suggestedFolders.map((folder) => <option key={folder} value={folder}>{folder === (defaultFolder || systemDefault) ? `Default: ${folder}` : folder}</option>)}
+        </select>}
       </Field>
       <Field label="Name" hint={target && `Clones to ${target}`}>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder={guessed || 'project'} className={`${inputClass} font-mono`} />
       </Field>
-      <Button type="submit" tone="primary" busy={busy} disabled={!url.trim() || !target}>
-        <DownloadCloud className="w-3.5 h-3.5" />
-        {busy ? 'Cloning…' : 'Clone'}
-      </Button>
+      <div className="sticky -bottom-4 bg-[#1b212c] py-3">
+        <Button type="submit" tone="primary" busy={busy} disabled={!url.trim() || !target}>
+          <DownloadCloud className="w-3.5 h-3.5" />
+          {busy ? 'Cloning…' : 'Clone'}
+        </Button>
+      </div>
     </form>
   );
 };

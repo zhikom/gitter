@@ -7,6 +7,7 @@ import {
   GitBranch,
   Copy,
   FolderOpen,
+  Bot,
 } from 'lucide-react';
 
 export interface RepoTab {
@@ -23,6 +24,7 @@ interface RepoTabBarProps {
   onCloseTab: (path: string) => void;
   onCloseOtherTabs?: (path: string) => void;
   onRevealInExplorer?: (path: string) => void;
+  onOpenCodingApp?: (path: string, app: 'codex' | 'claude') => void;
   onNewTab: () => void;
 }
 
@@ -39,6 +41,7 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
   onCloseTab,
   onCloseOtherTabs,
   onRevealInExplorer,
+  onOpenCodingApp,
   onNewTab,
 }) => {
   const [contextMenu, setContextMenu] = useState<TabContextMenu | null>(null);
@@ -151,7 +154,7 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
       {contextMenu && (
         <div
           data-context-menu
-          style={menuPosition(contextMenu.x, contextMenu.y, 200, 160)}
+          style={menuPosition(contextMenu.x, contextMenu.y, 200, 230)}
           className="fixed bg-[#1b212c] border border-[#2a3447] rounded-md shadow-2xl py-1 z-50 text-xs text-slate-200 min-w-[180px]"
           onClick={(e) => e.stopPropagation()}
         >
@@ -182,6 +185,13 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
               <span>Reveal in File Explorer</span>
             </button>
           )}
+
+          {onOpenCodingApp && (['codex', 'claude'] as const).map((app) => (
+            <button key={app} onClick={() => { onOpenCodingApp(contextMenu.tab.path, app); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2">
+              <Bot className="w-3.5 h-3.5 text-teal-400" />
+              <span>Open in {app === 'codex' ? 'Codex' : 'Claude Code'}</span>
+            </button>
+          ))}
 
           {tabs.length > 1 && (
             <>

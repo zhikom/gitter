@@ -256,11 +256,12 @@ pub fn disconnect(path: &Path, id: &str) -> Result<(), String> {
     write_config(path, &entries)
 }
 
-pub async fn bitbucket_repositories(path: &Path, id: &str, start: u64) -> Result<Value, String> {
+pub async fn bitbucket_repositories(path: &Path, id: &str, start: u64, search: &str) -> Result<Value, String> {
     let integration = find(path, id, "bitbucket_dc")?;
     let token = read_secret(id)?;
     let mut url = endpoint(&integration.base_url, &integration.kind, &["rest", "api", "1.0", "repos"])?;
     url.query_pairs_mut().append_pair("limit", "50").append_pair("start", &start.to_string());
+    if !search.trim().is_empty() { url.query_pairs_mut().append_pair("name", search.trim()); }
     let value = request_json(&client()?, Method::GET, url, &token, None).await?;
     let repos = value.get("values").and_then(Value::as_array).ok_or("The server did not return repositories")?;
     let repos: Vec<Value> = repos.iter().map(|repo| {
@@ -426,6 +427,7 @@ mod tests {
         let (base, server) = mock_server(vec![
             ("/bitbucket/rest/api/1.0/projects", "{\"values\":[]}"),
             ("/bitbucket/rest/api/1.0/repos?", "{\"values\":[{\"name\":\"Example\",\"slug\":\"example\",\"project\":{\"key\":\"PRJ\"},\"links\":{\"clone\":[{\"name\":\"ssh\",\"href\":\"git@example.com:PRJ/example.git\"}]}}],\"isLastPage\":true}"),
+            ("/bitbucket/rest/api/1.0/repos?limit=50&start=50&name=Exam+ple", "{\"values\":[],\"isLastPage\":true}"),
             ("/bitbucket/rest/api/1.0/projects/PRJ/repos/example/pull-requests?", "{\"values\":[{\"id\":7,\"title\":\"Review\",\"state\":\"OPEN\",\"author\":{\"user\":{\"displayName\":\"Alex\"}},\"fromRef\":{\"displayId\":\"feature\"},\"toRef\":{\"displayId\":\"main\"}}],\"isLastPage\":true}"),
             ("POST /bitbucket/rest/api/1.0/projects/PRJ/repos/example/pull-requests", "{\"id\":8,\"title\":\"Ship it\",\"state\":\"OPEN\",\"fromRef\":{\"displayId\":\"feature/PRJ-42\"},\"toRef\":{\"displayId\":\"main\"}}"),
         ]);
@@ -433,9 +435,11 @@ mod tests {
         let config = directory.join("settings.json");
         let connection = connect(&config, "bitbucket_dc", &base, "Test", "fake-token").await.unwrap();
         assert!(!std::fs::read_to_string(&config).unwrap().contains("fake-token"));
-        let repos = bitbucket_repositories(&config, &connection.id, 0).await.unwrap();
+        let repos = bitbucket_repositories(&config, &connection.id, 0, "").await.unwrap();
         assert_eq!(repos["values"][0]["projectKey"], "PRJ");
         assert_eq!(repos["values"][0]["sshUrl"], "git@example.com:PRJ/example.git");
+        let filtered = bitbucket_repositories(&config, &connection.id, 50, "Exam ple").await.unwrap();
+        assert!(filtered["values"].as_array().unwrap().is_empty());
         let pulls = bitbucket_pull_requests(&config, &connection.id, "PRJ", "example", 0).await.unwrap();
         assert_eq!(pulls["values"][0]["id"], 7);
         assert_eq!(pulls["values"][0]["source"], "feature");

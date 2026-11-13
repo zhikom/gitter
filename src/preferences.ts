@@ -40,6 +40,7 @@ export interface Preferences {
   recentRepos: string[];
   scanFolder: string;
   cloneFolder: string;
+  recentCloneFolders: string[];
 }
 
 const DEFAULTS: Preferences = {
@@ -65,6 +66,7 @@ const DEFAULTS: Preferences = {
   recentRepos: [],
   scanFolder: '',
   cloneFolder: '',
+  recentCloneFolders: [],
 };
 
 const STORAGE_KEYS: Record<keyof Preferences, string> = {
@@ -91,6 +93,7 @@ const STORAGE_KEYS: Record<keyof Preferences, string> = {
   recentRepos: 'gitter_recent_repos',
   scanFolder: 'gitter_scan_parent_folder',
   cloneFolder: 'gitter_default_repo_folder',
+  recentCloneFolders: 'gitter_recent_clone_folders',
 };
 
 const oneOf =
