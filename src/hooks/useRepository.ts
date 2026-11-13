@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
+import { desktopApi } from '../api/desktop';
+import { isTauri } from '@tauri-apps/api/core';
 import type { Branch, Commit, FileStatus, PullRequest, Remote, RepositoryState, Stash, Submodule, Tag, Worktree } from '../../shared/types/git';
 import { toast } from '../utils/toast';
+import { loadBitbucketPullRequests, matchBitbucketRemote, type BitbucketTarget } from '../utils/bitbucketRemote';
 
 export interface RepositoryData {
   state: RepositoryState | null;
@@ -43,6 +46,7 @@ export interface Repository extends RepositoryData {
   problem: string | null;
   refresh: (options?: { pullRequests?: boolean }) => Promise<void>;
   commitForBranch: (hash: string) => Promise<Commit | null>;
+  pullRequestStatus: { supported: boolean; loading: boolean; message: string; needsConnection: boolean; bitbucket: BitbucketTarget | null; github: boolean };
   /**
    * Runs one user action: reports a failure as "<label>: <reason>" and rethrows
    * it (so dialogs can stay open), and reloads the repository either way,
@@ -62,6 +66,7 @@ export function useRepository(repo: string): Repository {
   const latestRefresh = useRef(0);
   const historyLimit = useRef(500);
   const [pullRequestTick, setPullRequestTick] = useState(0);
+  const [pullRequestStatus, setPullRequestStatus] = useState<Repository['pullRequestStatus']>({ supported: false, loading: false, message: '', needsConnection: false, bitbucket: null, github: false });
   const pullRequestsLoadedAt = useRef(0);
 
   /** `pullRequests`: reload them now, not just when the last load is a minute old. */
@@ -105,20 +110,49 @@ export function useRepository(repo: string): Repository {
     return commits.find((commit) => commit.hash === hash) ?? null;
   }, [repo, data.commits]);
 
-  // Pull requests come from the GitHub CLI, so only repositories with a GitHub remote ask.
+  // Load each supported provider independently; report failures rather than hiding them as an empty list.
   const hasGitHubRemote = data.remotes.some((r) => /github\.com[/:]/i.test(r.fetchUrl));
+  const remotesKey = JSON.stringify(data.remotes.map((remote) => [remote.name, remote.fetchUrl]));
   useEffect(() => {
-    if (!repo || !hasGitHubRemote) {
-      setData((prev) => (prev.pullRequests.length ? { ...prev, pullRequests: [] } : prev));
-      return;
+    let live = true;
+    if (!repo || data.remotes.length === 0) {
+      setPullRequestStatus({ supported: false, loading: false, message: '', needsConnection: false, bitbucket: null, github: false });
+      setData((prev) => prev.pullRequests.length ? { ...prev, pullRequests: [] } : prev);
+      return () => { live = false; };
     }
-    void api.githubStatus().catch(() => undefined);
     pullRequestsLoadedAt.current = Date.now();
-    api
-      .pullRequests({ repo })
-      .then((pullRequests) => current.current === repo && setData((prev) => ({ ...prev, pullRequests })))
-      .catch(() => current.current === repo && setData((prev) => ({ ...prev, pullRequests: [] })));
-  }, [repo, hasGitHubRemote, pullRequestTick]);
+    setPullRequestStatus((previous) => ({ ...previous, loading: true, message: '' }));
+    void (async () => {
+      const connections = isTauri() ? await desktopApi.listIntegrations() : [];
+      const targets = data.remotes.map((remote) => matchBitbucketRemote(remote, connections)).filter((target): target is BitbucketTarget => Boolean(target));
+      const unique = targets.filter((target, index) => targets.findIndex((item) => item.connection.id === target.connection.id && item.projectKey.toLowerCase() === target.projectKey.toLowerCase() && item.slug.toLowerCase() === target.slug.toLowerCase()) === index);
+      const looksLikeBitbucket = data.remotes.some((remote) => /(?:^|[@/:.])bitbucket[.:-]/i.test(remote.fetchUrl));
+      const needsConnection = unique.some((target) => !target.connection.authenticated) || (looksLikeBitbucket && unique.length === 0);
+      const supported = hasGitHubRemote || unique.length > 0 || looksLikeBitbucket;
+      const errors: string[] = [];
+      if (looksLikeBitbucket && unique.length === 0) errors.push('Connect this Bitbucket server in Settings to see pull requests.');
+      const requests: Promise<PullRequest[]>[] = [];
+      if (hasGitHubRemote) {
+        void api.githubStatus().catch(() => undefined);
+        requests.push(api.pullRequests({ repo }));
+      }
+      for (const target of unique) {
+        if (!target.connection.authenticated) { errors.push(`Connect ${target.connection.label} for this session to see pull requests.`); continue; }
+        requests.push(loadBitbucketPullRequests(target, (start) => desktopApi.getBitbucketPullRequests(target.connection.id, target.projectKey, target.slug, start)));
+      }
+      const results = await Promise.allSettled(requests);
+      const pulls = results.flatMap((result) => {
+        if (result.status === 'fulfilled') return result.value;
+        errors.push(`Could not load pull requests: ${String(result.reason?.message || result.reason)}`); return [];
+      });
+      if (!live || current.current !== repo) return;
+      setData((prev) => ({ ...prev, pullRequests: pulls }));
+      setPullRequestStatus({ supported, loading: false, message: errors.join(' '), needsConnection, bitbucket: unique[0] ?? null, github: hasGitHubRemote });
+    })().catch((error) => {
+      if (live && current.current === repo) setPullRequestStatus({ supported: true, loading: false, message: `Could not load pull requests: ${String(error?.message || error)}`, needsConnection: false, bitbucket: null, github: hasGitHubRemote });
+    });
+    return () => { live = false; };
+  }, [repo, remotesKey, hasGitHubRemote, pullRequestTick]);
 
   useEffect(() => {
     setData(EMPTY);
@@ -137,7 +171,9 @@ export function useRepository(repo: string): Repository {
       void refresh();
     };
     window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
+    const onIntegrationsChanged = () => void refresh({ pullRequests: true });
+    window.addEventListener('gitter:integrations-changed', onIntegrationsChanged);
+    return () => { window.removeEventListener('focus', onFocus); window.removeEventListener('gitter:integrations-changed', onIntegrationsChanged); };
   }, [refresh]);
 
   const run = useCallback(
@@ -159,5 +195,5 @@ export function useRepository(repo: string): Repository {
     [refresh]
   );
 
-  return { ...data, busy: running > 0, problem, refresh, commitForBranch, run };
+  return { ...data, busy: running > 0, problem, refresh, commitForBranch, run, pullRequestStatus };
 }

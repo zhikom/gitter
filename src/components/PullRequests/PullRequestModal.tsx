@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { ArrowRight, ExternalLink, GitBranch, GitPullRequest, Sparkles } from 'lucide-react';
 import type { PullRequest } from '../../../shared/types/git';
 import { api } from '../../api/client';
+import { desktopApi } from '../../api/desktop';
+import type { BitbucketTarget } from '../../utils/bitbucketRemote';
 import { toast } from '../../utils/toast';
 import { Button, Field, inputClass, Modal } from '../ui/Modal';
 
@@ -11,24 +13,28 @@ interface ViewProps {
   repo: string;
   pr: PullRequest;
   onClose: () => void;
-  onCheckout: (number: number) => Promise<void>;
+  onCheckout: (pr: PullRequest) => Promise<void>;
+  canCheckout?: boolean;
 }
 
-export const PullRequestModal: React.FC<ViewProps> = ({ repo, pr, onClose, onCheckout }) => {
+export const PullRequestModal: React.FC<ViewProps> = ({ repo, pr, onClose, onCheckout, canCheckout = true }) => {
   const [details, setDetails] = useState<PullRequest>(pr);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api
-      .pullRequest({ repo, number: pr.number })
-      .then(setDetails)
+    const provider = pr.provider;
+    const request = provider ? desktopApi.getBitbucketPullRequest(provider.connectionId, provider.projectKey, provider.slug, pr.number).then((value): PullRequest => ({
+      ...pr, title: value.title, body: value.description || '', author: { login: value.author || 'unknown' },
+      headRefName: value.source, baseRefName: value.target, isDraft: Boolean(value.draft), url: value.url || pr.url,
+    })) : api.pullRequest({ repo, number: pr.number });
+    request.then(setDetails)
       .catch((e) => toast.error(`Could not load #${pr.number}: ${e.message}`));
-  }, [repo, pr.number]);
+  }, [repo, pr.number, pr.provider?.connectionId, pr.provider?.projectKey, pr.provider?.slug]);
 
   const checkout = async () => {
     setBusy(true);
     try {
-      await onCheckout(details.number);
+      await onCheckout(details);
       onClose();
     } catch {
       // Reported by the action.
@@ -46,11 +52,11 @@ export const PullRequestModal: React.FC<ViewProps> = ({ repo, pr, onClose, onChe
       onClose={onClose}
       actions={
         <>
-          <Button onClick={checkout} busy={busy}>
+          <Button onClick={checkout} busy={busy} disabled={!canCheckout} title={canCheckout ? undefined : 'Fetch the source branch first, or open the pull request in Bitbucket.'}>
             Check out
           </Button>
           <Button tone="primary" onClick={() => openInBrowser(details.url)}>
-            GitHub
+            {details.provider ? 'Bitbucket' : 'GitHub'}
             <ExternalLink className="w-3.5 h-3.5" />
           </Button>
         </>
@@ -81,9 +87,10 @@ interface CreateProps {
   defaultBase: string;
   onClose: () => void;
   onCreated: () => void;
+  bitbucket?: BitbucketTarget | null;
 }
 
-export const CreatePullRequestModal: React.FC<CreateProps> = ({ repo, head, defaultBase, onClose, onCreated }) => {
+export const CreatePullRequestModal: React.FC<CreateProps> = ({ repo, head, defaultBase, onClose, onCreated, bitbucket }) => {
   const [base, setBase] = useState(defaultBase);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
@@ -112,8 +119,10 @@ export const CreatePullRequestModal: React.FC<CreateProps> = ({ repo, head, defa
     e.preventDefault();
     setSubmitting(true);
     try {
-      const created = await api.createPullRequest({ repo, title: title.trim(), body: body.trim(), head, base: base.trim(), draft });
-      toast.success(`Opened pull request #${created.number}.`);
+      const number = bitbucket
+        ? (await desktopApi.createBitbucketPullRequest(bitbucket.connection.id, bitbucket.projectKey, bitbucket.slug, { title: title.trim(), description: body.trim(), source: head, target: base.trim() })).id
+        : (await api.createPullRequest({ repo, title: title.trim(), body: body.trim(), head, base: base.trim(), draft })).number;
+      toast.success(`Opened pull request #${number}.`);
       onCreated();
       onClose();
     } catch (err: any) {
@@ -124,7 +133,7 @@ export const CreatePullRequestModal: React.FC<CreateProps> = ({ repo, head, defa
   };
 
   return (
-    <Modal width="lg" icon={<GitPullRequest className="w-4 h-4" />} title="New pull request" subtitle="Push the branch first; GitHub needs it" onClose={onClose}>
+    <Modal width="lg" icon={<GitPullRequest className="w-4 h-4" />} title="New pull request" subtitle={`Push the branch first; ${bitbucket ? 'Bitbucket' : 'GitHub'} needs it`} onClose={onClose}>
       <form onSubmit={submit} className="p-4 space-y-3">
         <div className="flex items-center gap-3 p-3 bg-[#14181f] border border-[#2a3447] rounded text-xs font-mono">
           <span className="flex items-center gap-1.5 text-teal-300">
@@ -144,10 +153,10 @@ export const CreatePullRequestModal: React.FC<CreateProps> = ({ repo, head, defa
         <Field label="Description (Markdown)">
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={10} className={`${inputClass} font-mono resize-y`} />
         </Field>
-        <label className="flex items-center gap-2 text-xs text-slate-300">
+        {!bitbucket && <label className="flex items-center gap-2 text-xs text-slate-300">
           <input type="checkbox" checked={draft} onChange={(e) => setDraft(e.target.checked)} />
           Open as a draft
-        </label>
+        </label>}
         <div className="flex justify-end gap-2 pt-3 border-t border-[#2a3447]">
           <Button type="button" tone="quiet" onClick={onClose}>
             Cancel

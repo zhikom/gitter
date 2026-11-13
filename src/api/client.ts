@@ -67,6 +67,14 @@ export async function pickFolder(title = 'Select folder'): Promise<string | null
   return api.pickFolder({ title });
 }
 
+/** Select an installed application or executable in the desktop app. */
+export async function pickApplication(): Promise<string | null> {
+  if (!isTauri()) throw new Error('Application selection is available in the desktop app.');
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const picked = await open({ directory: false, multiple: false, title: 'Choose an application or executable' });
+  return typeof picked === 'string' ? picked.replace(/\\/g, '/') : null;
+}
+
 /**
  * Follows the repository's agent snapshot as the backend pushes it, reconnecting
  * after a dropped connection. Returns the function that stops following.

@@ -191,6 +191,7 @@ export interface RebaseCommitItem {
 }
 
 export interface PullRequest {
+  provider?: { kind: 'bitbucket_dc'; connectionId: string; projectKey: string; slug: string; remoteName: string; sourceProjectKey?: string; sourceRepositorySlug?: string };
   number: number;
   title: string;
   body?: string;

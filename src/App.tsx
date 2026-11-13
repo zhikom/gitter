@@ -26,7 +26,6 @@ import {
   Search,
   Settings,
   Sparkles,
-  Terminal,
   Undo2,
   Workflow,
 } from 'lucide-react';
@@ -59,6 +58,7 @@ import { FileHistoryModal } from './components/Modals/FileHistoryModal';
 import { GitflowModal } from './components/Modals/GitflowModal';
 import { ReflogModal } from './components/Modals/ReflogModal';
 import { RepositoriesModal, type RepositoriesTab } from './components/Modals/RepositoriesModal';
+import { OpenInModal } from './components/Modals/OpenInModal';
 import { SettingsModal } from './components/Modals/SettingsModal';
 import { StashInspectorModal } from './components/Modals/StashInspectorModal';
 import { StashModal, type StashSaveOptions } from './components/Modals/StashModal';
@@ -86,7 +86,8 @@ import { toast } from './utils/toast';
 type Dialog =
   | { kind: 'repositories'; tab?: RepositoriesTab; cloneUrl?: string; githubCreate?: boolean }
   | { kind: 'palette' }
-  | { kind: 'settings'; tab?: 'integrations' }
+  | { kind: 'settings'; tab?: 'integrations' | 'open-in' }
+  | { kind: 'open-in'; path: string }
   | { kind: 'update' }
   | { kind: 'create-branch'; startPoint: string }
   | { kind: 'stash' }
@@ -253,6 +254,14 @@ export const App: React.FC = () => {
     } catch (error: any) {
       if (request === branchRequest.current) toast.error(`Could not find ${branch.name} in the graph: ${error.message}`);
     }
+  };
+  const createPullRequest = (head?: string) => {
+    const bitbucket = repository.pullRequestStatus.bitbucket;
+    if (repository.pullRequestStatus.needsConnection && (!repository.pullRequestStatus.github || bitbucket?.remoteName === 'origin')) {
+      setDialog({ kind: 'settings', tab: 'integrations' });
+      return;
+    }
+    setDialog({ kind: 'create-pull-request', head });
   };
   const showWorkingChanges = () => {
     setSelectedCommit(null);
@@ -557,15 +566,13 @@ export const App: React.FC = () => {
     { id: 'worktrees', title: 'Worktrees', category: 'Repository', icon: Layers, enabled: hasRepo, run: () => setDialog({ kind: 'worktrees' }) },
     { id: 'gitflow', title: 'Gitflow', category: 'Branches', icon: Workflow, enabled: hasRepo, run: () => setDialog({ kind: 'gitflow' }) },
     { id: 'new-branch', title: 'New branch', category: 'Branches', icon: GitBranch, shortcut: 'Mod+Shift+N', enabled: hasRepo, run: () => setDialog({ kind: 'create-branch', startPoint: repoState?.currentBranch || 'HEAD' }) },
-    { id: 'pull-request', title: 'New pull request', category: 'Branches', icon: GitPullRequest, enabled: hasRepo && !repoState?.isDetached, run: () => setDialog({ kind: 'create-pull-request' }) },
+    { id: 'pull-request', title: 'New pull request', category: 'Branches', icon: GitPullRequest, enabled: hasRepo && !repoState?.isDetached && repository.pullRequestStatus.supported && !repository.pullRequestStatus.loading, run: () => createPullRequest() },
     { id: 'stash', title: 'Stash changes', category: 'Changes', icon: Archive, shortcut: 'Mod+Shift+S', enabled: hasRepo && !repoState?.isClean, run: () => setDialog({ kind: 'stash' }) },
     { id: 'pop-stash', title: 'Pop latest stash', category: 'Changes', icon: Archive, enabled: repository.stashes.length > 0, run: () => quietly(actions.popStash(0)) },
     { id: 'stage-all', title: 'Stage all changes', category: 'Changes', enabled: hasRepo && !repoState?.isClean, run: () => quietly(actions.stageAll()) },
     { id: 'reveal', title: 'Show in file manager', category: 'Repository', icon: FolderOpen, enabled: hasRepo, run: () => quietly(run('Could not open the folder', () => api.revealInFileManager({ repo }), { refresh: false })) },
     { id: 'editor', title: 'Open in editor', category: 'Repository', icon: Code2, enabled: hasRepo, run: () => quietly(run('Could not open the editor', () => api.openInEditor({ repo }), { refresh: false })) },
-    { id: 'open-codex', title: 'Open in Codex', category: 'Repository', icon: Bot, enabled: hasRepo, run: () => quietly(run('Could not open Codex', () => api.openCodingApp({ repo, app: 'codex' }), { refresh: false })) },
-    { id: 'open-claude', title: 'Open in Claude Code', category: 'Repository', icon: Bot, enabled: hasRepo, run: () => quietly(run('Could not open Claude Code', () => api.openCodingApp({ repo, app: 'claude' }), { refresh: false })) },
-    { id: 'terminal', title: 'Open terminal', category: 'Repository', icon: Terminal, enabled: hasRepo, run: () => quietly(run('Could not open a terminal', () => api.openTerminal({ repo }), { refresh: false })) },
+    { id: 'open-in', title: 'Open in…', category: 'Repository', icon: Code2, enabled: hasRepo, run: () => setDialog({ kind: 'open-in', path: repo }) },
     { id: 'toggle-sidebar', title: sidebarOpen ? 'Hide sidebar' : 'Show sidebar', category: 'View', icon: PanelLeft, shortcut: 'Mod+B', run: () => setSidebarOpen(!sidebarOpen) },
     { id: 'toggle-staging', title: stagingOpen ? 'Hide working tree' : 'Show working tree', category: 'View', icon: PanelRight, shortcut: 'Mod+J', run: () => setStagingOpen(!stagingOpen) },
     { id: 'lanes', title: laneMode ? 'Stage normally' : 'Group changes into lanes', category: 'View', icon: Layers, enabled: hasRepo, run: () => setLaneMode(!laneMode) },
@@ -622,7 +629,7 @@ export const App: React.FC = () => {
           setRepo(keep);
         }}
         onRevealInExplorer={(path) => quietly(run('Could not open the folder', () => api.revealInFileManager({ repo: path }), { refresh: false }))}
-        onOpenCodingApp={(path, app) => quietly(run(`Could not open ${app === 'codex' ? 'Codex' : 'Claude Code'}`, () => api.openCodingApp({ repo: path, app }), { refresh: false }))}
+        onOpenIn={(path) => setDialog({ kind: 'open-in', path })}
         onNewTab={() => setDialog({ kind: 'repositories' })}
       />
       <HeaderToolbar
@@ -671,6 +678,9 @@ export const App: React.FC = () => {
                 tags={repository.tags}
                 stashes={repository.stashes}
                 pullRequests={repository.pullRequests}
+                pullRequestStatus={repository.pullRequestStatus}
+                onConnectPullRequests={() => setDialog({ kind: 'settings', tab: 'integrations' })}
+                onRefreshPullRequests={() => void repository.refresh({ pullRequests: true })}
                 worktrees={repository.worktrees}
                 submodules={repository.submodules}
                 currentBranch={repoState?.currentBranch ?? ''}
@@ -694,7 +704,7 @@ export const App: React.FC = () => {
                 onCreateBranch={() => setDialog({ kind: 'create-branch', startPoint: repoState?.currentBranch || 'HEAD' })}
                 onCreateTag={() => void actions.createTag()}
                 onViewPr={(pr) => setDialog({ kind: 'pull-request', pr })}
-                onCreatePr={(head) => setDialog({ kind: 'create-pull-request', head })}
+                onCreatePr={repository.pullRequestStatus.supported && !repository.pullRequestStatus.loading ? createPullRequest : undefined}
                 onOpenWorktrees={() => setDialog({ kind: 'worktrees' })}
                 onSwitchWorktree={(path) => void openRepo(path)}
                 onOpenGitflow={() => setDialog({ kind: 'gitflow' })}
@@ -855,7 +865,7 @@ export const App: React.FC = () => {
     const afterChange = () => void repository.refresh();
     switch (dialog.kind) {
       case 'repositories':
-        return <RepositoriesModal initialTab={dialog.tab} initialCloneUrl={dialog.cloneUrl} initialGitHubCreate={dialog.githubCreate} onClose={close} onOpen={(path) => void openRepo(path)} onConnectBitbucket={() => setDialog({ kind: 'settings', tab: 'integrations' })} />;
+        return <RepositoriesModal initialTab={dialog.tab} initialCloneUrl={dialog.cloneUrl} initialGitHubCreate={dialog.githubCreate} onClose={close} onOpen={(path) => void openRepo(path)} onOpenIn={(path) => setDialog({ kind: 'open-in', path })} onConnectBitbucket={() => setDialog({ kind: 'settings', tab: 'integrations' })} />;
       case 'palette':
         return (
           <CommandPalette
@@ -872,6 +882,8 @@ export const App: React.FC = () => {
         );
       case 'settings':
         return <SettingsModal repo={repo} initialTab={dialog.tab} onClose={close} onCheckForUpdates={() => setDialog({ kind: 'update' })} onCloneRepository={(url) => setDialog({ kind: 'repositories', tab: 'clone', cloneUrl: url })} onCreateGitHub={() => setDialog({ kind: 'repositories', tab: 'create', githubCreate: true })} />;
+      case 'open-in':
+        return <OpenInModal repo={dialog.path} onClose={close} onConfigure={() => setDialog({ kind: 'settings', tab: 'open-in' })} />;
       case 'update':
         return <UpdateModal initial={update} onClose={close} />;
       case 'create-branch':
@@ -937,14 +949,19 @@ export const App: React.FC = () => {
         );
       case 'branch-drop':
         return <BranchActionModal source={dialog.source} target={dialog.target} onClose={close} onMerge={(s, t) => quietly(actions.merge(s, t))} onRebase={(s, t) => quietly(actions.rebase(s, t))} />;
-      case 'pull-request':
-        return <PullRequestModal repo={repo} pr={dialog.pr} onClose={close} onCheckout={actions.checkoutPullRequest} />;
+      case 'pull-request': {
+        const provider = dialog.pr.provider;
+        const sameSource = provider && provider.sourceProjectKey?.toLowerCase() === provider.projectKey.toLowerCase() && provider.sourceRepositorySlug?.toLowerCase() === provider.slug.toLowerCase();
+        const branch = sameSource ? repository.branches.find((item) => item.name === `${provider.remoteName}/${dialog.pr.headRefName}` && item.isRemote) ?? repository.branches.find((item) => item.name === dialog.pr.headRefName && !item.isRemote) : undefined;
+        return <PullRequestModal repo={repo} pr={dialog.pr} onClose={close} canCheckout={!provider || Boolean(branch)} onCheckout={(pr) => provider ? actions.checkout(branch!.name).then(() => undefined) : actions.checkoutPullRequest(pr.number)} />;
+      }
       case 'create-pull-request':
         return (
           <CreatePullRequestModal
             repo={repo}
             head={dialog.head ?? repoState?.currentBranch ?? ''}
             defaultBase={defaultBase}
+            bitbucket={repository.pullRequestStatus.bitbucket && (!repository.pullRequestStatus.github || repository.pullRequestStatus.bitbucket.remoteName === 'origin') ? repository.pullRequestStatus.bitbucket : null}
             onClose={close}
             onCreated={() => void repository.refresh({ pullRequests: true })}
           />

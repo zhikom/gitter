@@ -26,7 +26,7 @@ written by AI coding agents.
   unified or side-by-side diffs; per-file and per-hunk change counts; blame;
   file history.
 - Branches, tags, remotes, stashes (pick which files to stash, or keep the
-  changes), worktrees, submodules, gitflow, pull requests through the GitHub CLI.
+  changes), worktrees, submodules, gitflow, and GitHub or Bitbucket pull requests.
 - Undo the last action (`Ctrl+Z`), and a reflog to get back anything else.
 - Conflict resolution: pick yours, theirs or both per conflict, or edit the
   result.
@@ -36,8 +36,8 @@ written by AI coding agents.
 - Clone over HTTPS or SSH into a configurable default folder (`~/repos` by
   default); reuse recent clone destinations, generate, inspect, and copy SSH
   public keys, and reveal repositories in Finder or Explorer.
-- Open a repository in Codex or Claude Code from the repository menu or tab
-  menu, with the repository folder selected for a new coding session.
+- Open a repository in VS Code, Rider, Codex, Claude Code, Terminal, or a
+  configured application or command. Choose and arrange apps in Settings → Open in.
 - Connect GitHub using an existing GitHub CLI login to browse, clone, and create
   repositories and work with pull requests. Clone over HTTPS or SSH.
 - Connect Bitbucket Server / Data Center with a personal access token to browse
@@ -71,13 +71,14 @@ operating system may show a security warning. Gitter checks for new releases at
 startup and can install them (Settings → General).
 
 Gitter uses the `git` on your `PATH`, with your own credentials, hooks and
-signing setup. Pull requests need the [GitHub CLI](https://cli.github.com/)
-signed in.
+signing setup. GitHub pull requests need the [GitHub CLI](https://cli.github.com/)
+signed in; Bitbucket pull requests need a connected Bitbucket session.
 
 ## Keyboard shortcuts
 
 `Mod` is `Ctrl` on Windows and `Cmd` on macOS. The command palette (`Mod+P`)
-lists every command with its shortcut.
+lists commands with their shortcuts. Choose **Check out branch or tag** to
+search the available branches and tags.
 
 | Shortcut | Action |
 |---|---|

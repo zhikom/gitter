@@ -25,6 +25,12 @@ export interface BitbucketPullRequest {
   source: string;
   target: string;
   url?: string | null;
+  description?: string;
+  draft?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+  sourceProjectKey?: string;
+  sourceRepositorySlug?: string;
 }
 
 export interface BitbucketPage<T> {

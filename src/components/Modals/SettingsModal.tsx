@@ -13,8 +13,9 @@ import { CURRENT_VERSION } from '../../services/updateService';
 import { toast } from '../../utils/toast';
 import { Button, Field, inputClass, Modal } from '../ui/Modal';
 import { IntegrationsPanel } from './IntegrationsPanel';
+import { OpenInSettings } from './OpenInSettings';
 
-type Tab = 'general' | 'repository' | 'ssh' | 'integrations' | 'ai' | 'about';
+type Tab = 'general' | 'repository' | 'ssh' | 'integrations' | 'open-in' | 'ai' | 'about';
 type RepoSettings = Awaited<ReturnType<typeof api.repoSettings>>['settings'];
 
 interface SettingsModalProps {
@@ -33,6 +34,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab =
     { id: 'repository', label: 'This repository', icon: <FolderGit2 className="w-3.5 h-3.5" />, hidden: !repo },
     { id: 'ssh', label: 'SSH keys', icon: <KeyRound className="w-3.5 h-3.5" /> },
     { id: 'integrations', label: 'Integrations', icon: <Globe className="w-3.5 h-3.5" /> },
+    { id: 'open-in', label: 'Open in', icon: <FolderGit2 className="w-3.5 h-3.5" /> },
     { id: 'ai', label: 'AI', icon: <Bot className="w-3.5 h-3.5" /> },
     { id: 'about', label: 'About', icon: <Info className="w-3.5 h-3.5" /> },
   ];
@@ -60,6 +62,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab =
           {tab === 'repository' && repo && <RepositorySettings repo={repo} />}
           {tab === 'ssh' && <SshSettings />}
           {tab === 'integrations' && <IntegrationsPanel onCloneRepository={onCloneRepository} onCreateGitHub={onCreateGitHub} />}
+          {tab === 'open-in' && <OpenInSettings />}
           {tab === 'ai' && <AiSettingsForm />}
           {tab === 'about' && (
             <div className="space-y-3 text-xs text-slate-300">

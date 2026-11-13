@@ -5,6 +5,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { UserError } from './errors';
+import type { OpenInApp } from '../shared/types/openIn';
 
 type Platform = 'win32' | 'darwin';
 
@@ -237,6 +238,38 @@ export async function openCodingApp(directory: string, app: 'codex' | 'claude'):
     ? await run('rundll32.exe', ['url.dll,FileProtocolHandler', url])
     : await run('open', [url]);
   if (result.code !== 0) throw new UserError(`Could not open ${app === 'codex' ? 'Codex' : 'Claude Code'}. Is the desktop app installed?`);
+}
+
+/** Keep each argument separate and insert the folder without invoking a shell. */
+export function openInArguments(app: OpenInApp, directory: string): string[] {
+  if (!path.isAbsolute(directory) || !app || typeof app.target !== 'string' || app.target.includes('\0') || !Array.isArray(app.args) || app.args.length > 32 || app.args.some((arg) => typeof arg !== 'string' || arg.length > 4096 || arg.includes('\0'))) {
+    throw new UserError('Invalid application configuration.');
+  }
+  const hasPath = app.args.some((arg) => arg.includes('{path}'));
+  const args = app.args.map((arg) => arg.replaceAll('{path}', directory));
+  if (!hasPath) args.push(directory);
+  return args;
+}
+
+export async function openInApplication(directory: string, app: OpenInApp): Promise<void> {
+  const args = openInArguments(app, directory);
+  if (!fs.existsSync(directory) || !fs.statSync(directory).isDirectory()) throw new UserError('The repository folder no longer exists.');
+  if (app.kind === 'codex' || app.kind === 'claude') return openCodingApp(directory, app.kind);
+  if (app.kind === 'terminal') return openTerminal(directory);
+  if (!['vscode', 'rider', 'application', 'command'].includes(app.kind)) throw new UserError('Unknown application.');
+  const system = platform();
+  const preset = app.kind === 'vscode' ? (system === 'darwin' ? 'Visual Studio Code' : 'code') : app.kind === 'rider' ? (system === 'darwin' ? 'Rider' : 'rider64.exe') : '';
+  const target = app.target.trim() || preset;
+  if (!target) throw new UserError('Set the application or executable in Settings → Open in.');
+  if (system === 'darwin' && app.kind !== 'command') {
+    const openArgs = app.args.length && app.args.some((arg) => arg.includes('{path}')) ? ['-a', target, '--args', ...args] : ['-a', target, directory, ...(app.args.length ? ['--args', ...app.args] : [])];
+    const result = await run('open', openArgs);
+    if (result.code !== 0) throw new UserError(`Could not open ${app.name || target}. Check its application name or path in Settings → Open in.`);
+  } else {
+    if (!(await installed(target))) throw new UserError(`Could not find ${target}. Check its path in Settings → Open in.`);
+    if (system === 'win32' && [target, ...args].some((arg) => /["\r\n%]/.test(arg))) throw new UserError('Windows command paths and arguments cannot contain quotes or percent signs.');
+    await launchTool(target, args);
+  }
 }
 
 /** Opens the file manager with the target selected. */

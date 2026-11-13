@@ -154,7 +154,7 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({ commands, repoStat
               <MenuItem key={id} command={cmd(id)} />
             ))}
             <div className="border-t border-[#2a3447] my-1" />
-            {['reveal', 'editor', 'terminal', 'open-codex', 'open-claude'].map((id) => (
+            {['reveal', 'open-in'].map((id) => (
               <MenuItem key={id} command={cmd(id)} />
             ))}
           </Menu>
@@ -190,6 +190,7 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({ commands, repoStat
           className: `${base} rounded-full ${open.assistant ? 'bg-teal-600 text-white' : 'bg-[#202735] border border-teal-500/30 text-teal-300 hover:bg-[#2d384c]'}`,
           pressed: open.assistant,
         })}
+        {repoState && action({ id: 'open-in', className: icon })}
         <button onClick={cmd('palette')?.run} title={cmd('palette') && tooltip(cmd('palette')!)} aria-label="Command palette" className={plain}>
           <Search className="w-3.5 h-3.5 text-teal-400" />
         </button>

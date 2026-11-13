@@ -3,6 +3,7 @@
 // what the app does. Storage keys are the ones earlier versions used, so
 // existing choices carry over.
 import { useCallback, useSyncExternalStore } from 'react';
+import { DEFAULT_OPEN_IN_APPS, type OpenInApp, type OpenInKind } from '../shared/types/openIn';
 
 export interface RepoTab {
   path: string;
@@ -41,6 +42,7 @@ export interface Preferences {
   scanFolder: string;
   cloneFolder: string;
   recentCloneFolders: string[];
+  openInApps: OpenInApp[];
 }
 
 const DEFAULTS: Preferences = {
@@ -67,6 +69,7 @@ const DEFAULTS: Preferences = {
   scanFolder: '',
   cloneFolder: '',
   recentCloneFolders: [],
+  openInApps: DEFAULT_OPEN_IN_APPS,
 };
 
 const STORAGE_KEYS: Record<keyof Preferences, string> = {
@@ -94,6 +97,7 @@ const STORAGE_KEYS: Record<keyof Preferences, string> = {
   scanFolder: 'gitter_scan_parent_folder',
   cloneFolder: 'gitter_default_repo_folder',
   recentCloneFolders: 'gitter_recent_clone_folders',
+  openInApps: 'gitter_open_in_apps',
 };
 
 const oneOf =
@@ -105,6 +109,12 @@ const strings = (v: unknown) => (Array.isArray(v) && v.every((s) => typeof s ===
 // Stored values are checked on the way in: a value of the wrong shape, written
 // by an earlier version or edited by hand, falls back to the default.
 const NORMALIZE: { [K in keyof Preferences]?: (value: unknown) => Preferences[K] | undefined } = {
+  openInApps: (value) => {
+    if (!Array.isArray(value)) return undefined;
+    const kinds: OpenInKind[] = ['vscode', 'rider', 'codex', 'claude', 'terminal', 'application', 'command'];
+    return value.filter((item) => item && typeof item.id === 'string' && typeof item.name === 'string' && kinds.includes(item.kind) && typeof item.target === 'string' && Array.isArray(item.args) && item.args.every((arg: unknown) => typeof arg === 'string'))
+      .map((item) => ({ id: item.id, name: item.name, kind: item.kind, target: item.target, args: item.args, enabled: item.enabled !== false }));
+  },
   diffView: oneOf('unified', 'split'),
   graphDensity: oneOf('compact', 'normal', 'comfortable'),
   // Earlier versions kept objects ({ path, name, … }) per recent repository.

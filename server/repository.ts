@@ -7,6 +7,7 @@ import { format, isConflict, parseStatus, records, STATUS_ARGS } from './gitPars
 import { inRepo, UserError } from './http';
 import * as os from './osIntegration';
 import { worktreeGitDir } from './repoStore';
+import type { OpenInApp } from '../shared/types/openIn';
 
 export interface ScannedRepo {
   name: string;
@@ -124,6 +125,8 @@ export const repositoryHandlers = {
   openInEditor: inRepo((repo, { file }: { file?: string }) => os.openInEditor(file ? path.join(repo, file) : repo)),
 
   openCodingApp: inRepo((repo, { app }: { app: 'codex' | 'claude' }) => os.openCodingApp(repo, app)),
+
+  openInApplication: inRepo((repo, { app }: { app: OpenInApp }) => os.openInApplication(repo, app)),
 
   openTerminal: inRepo((repo) => os.openTerminal(repo)),
 };

@@ -18,6 +18,7 @@ interface RepositoriesModalProps {
   initialGitHubCreate?: boolean;
   onClose: () => void;
   onConnectBitbucket: () => void;
+  onOpenIn: (path: string) => void;
   /** Opens the repository at `path` in a tab. */
   onOpen: (path: string) => void;
 }
@@ -35,7 +36,7 @@ async function browse(title: string): Promise<string | null> {
   }
 }
 
-export const RepositoriesModal: React.FC<RepositoriesModalProps> = ({ initialTab = 'recent', initialCloneUrl = '', initialGitHubCreate = false, onClose, onOpen, onConnectBitbucket }) => {
+export const RepositoriesModal: React.FC<RepositoriesModalProps> = ({ initialTab = 'recent', initialCloneUrl = '', initialGitHubCreate = false, onClose, onOpen, onConnectBitbucket, onOpenIn }) => {
   const [tab, setTab] = useState<RepositoriesTab>(initialTab);
   const [cloneUrl, setCloneUrl] = useState(initialCloneUrl);
   const open = (path: string) => {
@@ -87,7 +88,7 @@ export const RepositoriesModal: React.FC<RepositoriesModalProps> = ({ initialTab
         ))}
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto p-4">
-        {tab === 'recent' && <RecentRepositories onOpen={open} onScan={() => setTab('scan')} />}
+        {tab === 'recent' && <RecentRepositories onOpen={open} onOpenIn={onOpenIn} onScan={() => setTab('scan')} />}
         {tab === 'scan' && <ScanFolder onOpen={open} />}
         {tab === 'clone' && <CloneRepository onOpen={open} initialUrl={cloneUrl} onConnectBitbucket={onConnectBitbucket} />}
         {tab === 'create' && <CreateRepository initialGitHub={initialGitHubCreate} onOpen={open} onClone={(url) => { setCloneUrl(url); setTab('clone'); }} />}
@@ -96,7 +97,7 @@ export const RepositoriesModal: React.FC<RepositoriesModalProps> = ({ initialTab
   );
 };
 
-const RecentRepositories: React.FC<{ onOpen: (path: string) => void; onScan: () => void }> = ({ onOpen, onScan }) => {
+const RecentRepositories: React.FC<{ onOpen: (path: string) => void; onOpenIn: (path: string) => void; onScan: () => void }> = ({ onOpen, onOpenIn, onScan }) => {
   const [recent, setRecent] = usePreference('recentRepos');
   const [filter, setFilter] = useState('');
   const shown = recent.filter((p) => p.toLowerCase().includes(filter.toLowerCase()));
@@ -133,8 +134,7 @@ const RecentRepositories: React.FC<{ onOpen: (path: string) => void; onScan: () 
             <button title="Open in your editor" className={iconButton} onClick={() => quietly(api.openInEditor({ repo: path }))}>
               <ExternalLink className="w-3.5 h-3.5" />
             </button>
-            <button title="Open in Codex" aria-label={`Open ${path} in Codex`} className={`${iconButton} text-[10px]`} onClick={() => quietly(api.openCodingApp({ repo: path, app: 'codex' }))}>Codex</button>
-            <button title="Open in Claude Code" aria-label={`Open ${path} in Claude Code`} className={`${iconButton} text-[10px]`} onClick={() => quietly(api.openCodingApp({ repo: path, app: 'claude' }))}>Claude</button>
+            <button title="Open in…" aria-label={`Open ${path} in an application`} className={`${iconButton} text-[10px]`} onClick={() => onOpenIn(path)}>Open in…</button>
             <button title="Remove from this list" aria-label={`Forget ${path}`} className={iconButton} onClick={() => setRecent(recent.filter((p) => p !== path))}>
               <X className="w-3.5 h-3.5" />
             </button>

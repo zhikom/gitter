@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-13
+
+### Pull requests and navigation
+
+- Show open Bitbucket Server / Data Center pull requests, including drafts, in
+  the repository sidebar and open their details or Bitbucket page. Indicate
+  when a session token is needed or the server cannot be reached.
+- Keep branches and tags behind one **Check out branch or tag** command in
+  the command palette, with a searchable list after selecting it.
+- Add a configurable **Open in…** menu for VS Code, Rider, Codex, Claude Code,
+  Terminal, and custom applications or commands.
+
+### Downloads
+
+- Windows x64 and macOS ARM64 (Apple Silicon) installers are available. The
+  Windows installer is unsigned; the Mac app is ad-hoc signed but not
+  notarized, so the operating system may show a security warning.
+
 ## [1.5.0] - 2026-11-13
 
 ### GitHub and navigation

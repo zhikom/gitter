@@ -227,7 +227,12 @@ pub async fn bitbucket_pull_requests(path: &Path, id: &str, project: &str, slug:
     url.query_pairs_mut().append_pair("state", "OPEN").append_pair("limit", "50").append_pair("start", &start.to_string());
     let value = request_json(&client()?, Method::GET, url, &token, None).await?;
     let pulls = value.get("values").and_then(Value::as_array).ok_or("The server did not return pull requests")?;
-    let pulls: Vec<Value> = pulls.iter().map(|pull| json!({
+    let pulls: Vec<Value> = pulls.iter().map(map_bitbucket_pull_request).collect();
+    Ok(json!({ "values": pulls, "nextPageStart": value.get("nextPageStart"), "isLastPage": value.get("isLastPage").and_then(Value::as_bool).unwrap_or(true) }))
+}
+
+fn map_bitbucket_pull_request(pull: &Value) -> Value {
+    json!({
         "id": pull.get("id"),
         "title": pull.get("title").and_then(Value::as_str).unwrap_or(""),
         "state": pull.get("state").and_then(Value::as_str).unwrap_or(""),
@@ -235,8 +240,22 @@ pub async fn bitbucket_pull_requests(path: &Path, id: &str, project: &str, slug:
         "source": pull.pointer("/fromRef/displayId").and_then(Value::as_str).unwrap_or(""),
         "target": pull.pointer("/toRef/displayId").and_then(Value::as_str).unwrap_or(""),
         "url": pull.pointer("/links/self/0/href").and_then(Value::as_str),
-    })).collect();
-    Ok(json!({ "values": pulls, "nextPageStart": value.get("nextPageStart"), "isLastPage": value.get("isLastPage").and_then(Value::as_bool).unwrap_or(true) }))
+        "description": pull.get("description").and_then(Value::as_str).unwrap_or(""),
+        "draft": pull.get("draft").and_then(Value::as_bool).unwrap_or(false),
+        "createdAt": pull.get("createdDate").and_then(Value::as_u64),
+        "updatedAt": pull.get("updatedDate").and_then(Value::as_u64),
+        "sourceProjectKey": pull.pointer("/fromRef/repository/project/key").and_then(Value::as_str),
+        "sourceRepositorySlug": pull.pointer("/fromRef/repository/slug").and_then(Value::as_str),
+    })
+}
+
+pub async fn bitbucket_pull_request(path: &Path, id: &str, project: &str, slug: &str, number: u64) -> Result<Value, String> {
+    if number == 0 || project.is_empty() || slug.is_empty() { return Err("A repository and pull request number are required".into()); }
+    let integration = find(path, id, "bitbucket_dc")?;
+    let token = read_secret(id)?;
+    let url = endpoint(&integration.base_url, &integration.kind, &["rest", "api", "1.0", "projects", project, "repos", slug, "pull-requests", &number.to_string()])?;
+    let pull = request_json(&client()?, Method::GET, url, &token, None).await?;
+    Ok(map_bitbucket_pull_request(&pull))
 }
 
 #[derive(Deserialize)]
@@ -358,7 +377,8 @@ mod tests {
             ("/bitbucket/rest/api/1.0/projects", "{\"values\":[]}"),
             ("/bitbucket/rest/api/1.0/repos?", "{\"values\":[{\"name\":\"Example\",\"slug\":\"example\",\"project\":{\"key\":\"PRJ\"},\"links\":{\"clone\":[{\"name\":\"ssh\",\"href\":\"git@example.com:PRJ/example.git\"}]}}],\"isLastPage\":true}"),
             ("/bitbucket/rest/api/1.0/repos?limit=50&start=50&name=Exam+ple", "{\"values\":[],\"isLastPage\":true}"),
-            ("/bitbucket/rest/api/1.0/projects/PRJ/repos/example/pull-requests?", "{\"values\":[{\"id\":7,\"title\":\"Review\",\"state\":\"OPEN\",\"author\":{\"user\":{\"displayName\":\"Alex\"}},\"fromRef\":{\"displayId\":\"feature\"},\"toRef\":{\"displayId\":\"main\"}}],\"isLastPage\":true}"),
+            ("/bitbucket/rest/api/1.0/projects/PRJ/repos/example/pull-requests?", "{\"values\":[{\"id\":7,\"title\":\"Review\",\"state\":\"OPEN\",\"draft\":true,\"author\":{\"user\":{\"displayName\":\"Alex\"}},\"fromRef\":{\"displayId\":\"feature\",\"repository\":{\"slug\":\"example\",\"project\":{\"key\":\"PRJ\"}}},\"toRef\":{\"displayId\":\"main\"}}],\"isLastPage\":true}"),
+            ("/bitbucket/rest/api/1.0/projects/PRJ/repos/example/pull-requests/7", "{\"id\":7,\"title\":\"Review\",\"description\":\"Details\",\"state\":\"OPEN\",\"draft\":true,\"fromRef\":{\"displayId\":\"feature\"},\"toRef\":{\"displayId\":\"main\"}}"),
             ("POST /bitbucket/rest/api/1.0/projects/PRJ/repos/example/pull-requests", "{\"id\":8,\"title\":\"Ship it\",\"state\":\"OPEN\",\"fromRef\":{\"displayId\":\"feature/PRJ-42\"},\"toRef\":{\"displayId\":\"main\"}}"),
         ]);
         let directory = std::env::temp_dir().join(format!("gitter-integration-test-{}", Uuid::new_v4()));
@@ -379,6 +399,9 @@ mod tests {
         let pulls = bitbucket_pull_requests(&config, &connection.id, "PRJ", "example", 0).await.unwrap();
         assert_eq!(pulls["values"][0]["id"], 7);
         assert_eq!(pulls["values"][0]["source"], "feature");
+        assert_eq!(pulls["values"][0]["draft"], true);
+        assert_eq!(pulls["values"][0]["sourceProjectKey"], "PRJ");
+        assert_eq!(bitbucket_pull_request(&config, &connection.id, "PRJ", "example", 7).await.unwrap()["description"], "Details");
         let input = NewPullRequest { title: "Ship it".into(), description: "Ready for review".into(), source: "feature/PRJ-42".into(), target: "main".into() };
         let created = create_bitbucket_pull_request(&config, &connection.id, "PRJ", "example", &input).await.unwrap();
         assert_eq!(created["id"], 8);

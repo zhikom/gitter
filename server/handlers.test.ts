@@ -11,7 +11,8 @@ import { createHandlers } from './handlers';
 import { combine, UserError } from './http';
 import { parseDiff } from './gitParse';
 import { consoleArgs } from './gitConsole';
-import { codingAppUrl } from './osIntegration';
+import { codingAppUrl, openInArguments } from './osIntegration';
+import { bitbucketPrToPullRequest, loadBitbucketPullRequests, matchBitbucketRemote } from '../src/utils/bitbucketRemote';
 import { buildPatch, wholeHunk, type LineSelection } from '../shared/patch';
 import { mergeConflicts, parseConflicts } from '../shared/conflicts';
 import type { FileDiff } from '../shared/types/git';
@@ -64,6 +65,43 @@ test('coding app links keep special characters inside the repository path', () =
   assert.equal(claude.searchParams.get('folder'), folder);
   assert.throws(() => codingAppUrl('codex', 'relative/path'));
   assert.throws(() => codingAppUrl('other' as 'codex', folder));
+});
+
+test('matches Bitbucket SSH and HTTPS remotes to the right server and preserves draft PRs', () => {
+  const connection = { id: 'connection', kind: 'bitbucket_dc' as const, baseUrl: 'https://bitbucket.example.test/context/', label: 'Work', authenticated: true };
+  const remote = (fetchUrl: string) => ({ name: 'origin', fetchUrl, pushUrl: fetchUrl });
+  for (const url of ['ssh://git@bitbucket.example.test:7999/MT/repo.git', 'git@bitbucket.example.test:MT/repo.git', 'https://bitbucket.example.test/context/scm/MT/repo.git']) {
+    const match = matchBitbucketRemote(remote(url), [connection]);
+    assert.equal(match?.projectKey, 'MT');
+    assert.equal(match?.slug, 'repo');
+    const pr = bitbucketPrToPullRequest({ id: 30, title: 'Draft', state: 'OPEN', draft: true, author: 'Alice', source: 'feature', target: 'main' }, match!);
+    assert.equal(pr.isDraft, true);
+    assert.equal(pr.provider?.connectionId, 'connection');
+  }
+  assert.equal(matchBitbucketRemote(remote('https://bitbucket.example.test.attacker.invalid/context/scm/MT/repo.git'), [connection]), null);
+  assert.equal(matchBitbucketRemote(remote('https://bitbucket.example.test/other/scm/MT/repo.git'), [connection]), null);
+  assert.equal(matchBitbucketRemote(remote('https://bitbucket.example.test/context/scm/MT/a%2Fb.git'), [connection]), null);
+});
+
+test('loads every Bitbucket pull request page and reports invalid pagination', async () => {
+  const target = { connection: { id: 'work', kind: 'bitbucket_dc' as const, baseUrl: 'https://bitbucket.example.test/', label: 'Work', authenticated: true }, projectKey: 'MT', slug: 'repo', remoteName: 'origin' };
+  const item = (id: number) => ({ id, title: `PR ${id}`, state: 'OPEN', author: 'Alice', source: 'feature', target: 'main' });
+  const starts: number[] = [];
+  const prs = await loadBitbucketPullRequests(target, async (start) => {
+    starts.push(start);
+    return start === 0 ? { values: [item(1)], isLastPage: false, nextPageStart: 50 } : { values: [item(2)], isLastPage: true };
+  });
+  assert.deepEqual(starts, [0, 50]);
+  assert.deepEqual(prs.map((pr) => pr.number), [1, 2]);
+  await assert.rejects(() => loadBitbucketPullRequests(target, async () => ({ values: [], isLastPage: false, nextPageStart: 0 })), /invalid next page/);
+});
+
+test('configured application arguments keep the repository path as one literal argument', () => {
+  const folder = path.join(os.tmpdir(), 'space & $(literal)');
+  const app = { id: 'custom', name: 'Custom', kind: 'command' as const, enabled: true, target: 'editor', args: ['--folder={path}', '--new-window'] };
+  assert.deepEqual(openInArguments(app, folder), [`--folder=${folder}`, '--new-window']);
+  assert.deepEqual(openInArguments({ ...app, args: ['--new-window'] }, folder), ['--new-window', folder]);
+  assert.throws(() => openInArguments({ ...app, args: ['bad\0arg'] }, folder));
 });
 
 test('clone returns the actual destination so it can be opened', async () => {

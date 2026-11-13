@@ -67,6 +67,11 @@ async fn bitbucket_pull_requests(app: AppHandle, id: String, project: String, sl
 }
 
 #[tauri::command]
+async fn bitbucket_pull_request(app: AppHandle, id: String, project: String, slug: String, number: u64) -> Result<serde_json::Value, String> {
+    integrations::bitbucket_pull_request(&integration_settings_path(&app)?, &id, &project, &slug, number).await
+}
+
+#[tauri::command]
 async fn create_bitbucket_pull_request(app: AppHandle, id: String, project: String, slug: String, pull_request: integrations::NewPullRequest) -> Result<serde_json::Value, String> {
     integrations::create_bitbucket_pull_request(&integration_settings_path(&app)?, &id, &project, &slug, &pull_request).await
 }
@@ -106,7 +111,7 @@ pub fn run() {
         .manage(Backend::default())
         .invoke_handler(tauri::generate_handler![
             list_integrations, connect_integration, reconnect_integration, disconnect_integration,
-            bitbucket_repositories, bitbucket_pull_requests, create_bitbucket_pull_request,
+            bitbucket_repositories, bitbucket_pull_requests, bitbucket_pull_request, create_bitbucket_pull_request,
             list_ssh_keys, copy_ssh_public_key, generate_ssh_key, test_ssh_remote, native_git_request
         ])
         .setup(|app| {

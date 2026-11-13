@@ -45,6 +45,9 @@ interface SidebarProps {
   tags: Tag[];
   stashes: Stash[];
   pullRequests?: PullRequest[];
+  pullRequestStatus?: { supported: boolean; loading: boolean; message: string; needsConnection: boolean };
+  onConnectPullRequests?: () => void;
+  onRefreshPullRequests?: () => void;
   worktrees?: Worktree[];
   submodules?: Submodule[];
   currentBranch: string;
@@ -87,6 +90,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   tags,
   stashes,
   pullRequests = [],
+  pullRequestStatus,
+  onConnectPullRequests,
+  onRefreshPullRequests,
   worktrees = [],
   submodules = [],
   currentBranch,
@@ -140,7 +146,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     localBranches: true,
     remoteBranches: true,
     gitflow: true,
-    pullRequests: pullRequests.length > 0,
+    pullRequests: pullRequests.length > 0 || Boolean(pullRequestStatus?.supported || pullRequestStatus?.loading),
     tags: true,
     stashes: true,
     remotes: false,
@@ -656,7 +662,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
-      {/* PULL REQUESTS (GITHUB) */}
+      {/* PULL REQUESTS */}
       {sectionConfig.pullRequests && (
         <div className="border-b border-[#222a3a]">
         <div
@@ -685,12 +691,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {expandPrs && (
           <div className="pb-1">
-            {pullRequests.length === 0 ? (
+            {pullRequestStatus?.loading && <div className="px-5 py-1 text-xs text-slate-500">Loading pull requests…</div>}
+            {pullRequestStatus?.message && <div className="px-5 py-1 text-xs text-amber-300 break-words">{pullRequestStatus.message} {pullRequestStatus.needsConnection && <button type="button" className="text-teal-300 underline" onClick={onConnectPullRequests}>Settings</button>} {!pullRequestStatus.needsConnection && <button type="button" className="text-teal-300 underline" onClick={onRefreshPullRequests}>Retry</button>}</div>}
+            {!pullRequestStatus?.loading && !pullRequestStatus?.message && pullRequests.length === 0 ? (
               <div className="px-5 py-1 text-xs text-slate-600 italic">No pull requests</div>
             ) : (
               pullRequests.map((pr) => (
                 <div
-                  key={pr.number}
+                  key={`${pr.provider?.connectionId ?? 'github'}:${pr.provider?.projectKey ?? ''}:${pr.provider?.slug ?? ''}:${pr.number}`}
                   onClick={() => onViewPr && onViewPr(pr)}
                   className="group flex items-center justify-between px-3 py-1.5 text-xs cursor-pointer hover:bg-[#202735] text-slate-300 transition"
                 >
@@ -699,7 +707,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <span className="truncate">{pr.title}</span>
                   </div>
                   <span className="text-[9px] font-bold px-1 rounded bg-purple-500/20 text-purple-300 flex-shrink-0">
-                    {pr.state}
+                    {pr.isDraft ? 'DRAFT' : pr.state}
                   </span>
                 </div>
               ))
