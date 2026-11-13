@@ -1,7 +1,7 @@
 import { Commit, GraphNode, GraphRoute } from '../../shared/types/git';
 
 export const LANE_COLORS = [
-  '#18b487', // GitKraken Teal
+  '#18b487', // Teal
   '#3b82f6', // Vivid Blue
   '#a855f7', // Purple
   '#f97316', // Orange
@@ -18,10 +18,11 @@ export function getLaneColor(lane: number): string {
 }
 
 /**
- * Calculates topological lanes and routes for visual commit graph,
- * producing GitKraken-quality commit lanes, merge curves, and branch splits.
+ * Assigns each commit (newest first) a lane, and records the lines from it to
+ * its parents and the lanes passing by. With `wipParent` (the checked-out
+ * commit), a row for uncommitted changes goes on top, attached to it.
  */
-export function layoutCommitGraph(commits: Commit[], hasWip: boolean = false): GraphNode[] {
+export function layoutCommitGraph(commits: Commit[], wipParent?: string): GraphNode[] {
   if (commits.length === 0) return [];
 
   const nodes: GraphNode[] = [];
@@ -31,11 +32,11 @@ export function layoutCommitGraph(commits: Commit[], hasWip: boolean = false): G
 
   // If there are uncommitted changes, add a WIP pseudo-commit
   const commitList = [...commits];
-  if (hasWip) {
+  if (wipParent !== undefined) {
     const wipCommit: Commit = {
       hash: 'wip',
       shortHash: 'WIP',
-      parents: commitList.length > 0 ? [commitList[0].hash] : [],
+      parents: wipParent ? [wipParent] : [],
       author: { name: 'You (Uncommitted Changes)', email: '' },
       date: 'Just now',
       timestamp: Date.now(),
@@ -54,6 +55,7 @@ export function layoutCommitGraph(commits: Commit[], hasWip: boolean = false): G
     
     // Find if this commit is already expected in an active lane
     let lane = activeLanes.indexOf(commit.hash);
+    const incoming = lane !== -1;
     if (lane === -1) {
       // Find the first empty lane or add a new lane
       lane = activeLanes.indexOf(null);
@@ -139,6 +141,7 @@ export function layoutCommitGraph(commits: Commit[], hasWip: boolean = false): G
     const node: GraphNode = {
       commit,
       lane,
+      incoming,
       color,
       routes,
       passingLanes,

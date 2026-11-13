@@ -75,8 +75,10 @@ export const historyHandlers = {
     parseDiff(await git(repo, ['show', '--format=', '--diff-merges=first-parent', '--end-of-options', hash]))
   ),
 
-  compareCommits: inRepo(async (repo, { base, target }: { base: string; target: string }) => {
-    const range = ['--end-of-options', base, target];
+  /** `fromForkPoint`: compare from where `target` left `base` (what a pull request would show). */
+  compareCommits: inRepo(async (repo, { base, target, fromForkPoint = false }: { base: string; target: string; fromForkPoint?: boolean }) => {
+    const from = fromForkPoint ? (await git(repo, ['merge-base', '--end-of-options', base, target])).trim() : base;
+    const range = ['--end-of-options', from, target];
     const [names, counts] = await Promise.all([
       git(repo, ['diff', '--name-status', '-z', ...range]),
       git(repo, ['diff', '--numstat', '-z', ...range]),
@@ -91,8 +93,16 @@ export const historyHandlers = {
   blame: inRepo(async (repo, { file }: { file: string }) => blame(await git(repo, ['blame', '--line-porcelain', '--', file]))),
 
   fileHistory: inRepo(async (repo, { file }: { file: string }): Promise<FileCommitHistory[]> => {
-    const out = await git(repo, ['log', '--follow', '--date=short', format('%H', '%h', '%an', '%ad', '%s'), '--', file]);
-    return records(out).map(([hash, shortHash, author, date, summary]) => ({ hash, shortHash, author, date, summary }));
+    // --name-only adds the file's path in each commit, which --follow tracks across renames.
+    const out = await git(repo, ['log', '--follow', '--date=short', '--name-only', '--format=%x1e%H%x1f%h%x1f%an%x1f%ad%x1f%s', '--', file]);
+    return out
+      .split('\x1e')
+      .filter((chunk) => chunk.trim())
+      .map((chunk) => {
+        const [header, ...names] = chunk.split('\n');
+        const [hash, shortHash, author, date, summary] = header.split('\x1f');
+        return { hash, shortHash, author, date, summary, path: names.filter(Boolean).pop() ?? file };
+      });
   }),
 
   fileCommitDiff: inRepo(async (repo, { hash, file }: { hash: string; file: string }) =>

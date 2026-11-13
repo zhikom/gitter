@@ -2,7 +2,7 @@
 // and the agent and assistant panels. Actions live in one command list (see
 // commands.ts); git work goes through useRepository's `run`, which reports
 // failures and reloads; at most one dialog is open at a time.
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import {
   AlertTriangle,
@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import type { AIExplanation, Commit, FileDiff, PullRequest, Stash } from '../shared/types/git';
 import type { UpdateInfo } from '../shared/types/update';
+import type { AgentFleetState } from '../shared/types/agentFleet';
 import { api, pickFolder } from './api/client';
 import { type Command, useShortcuts } from './commands';
 import { AgentLens } from './components/Agent/AgentLens';
@@ -40,7 +41,7 @@ import { AgentReviewInbox } from './components/Agent/AgentReviewInbox';
 import { AgentRunDrawer } from './components/Agent/AgentRunDrawer';
 import type { AttentionItem } from './components/Agent/agentUi';
 import { CollisionBar } from './components/Agent/CollisionBar';
-import { AssistantPanel } from './components/Assistant/AssistantPanel';
+import { AssistantPanel, type AssistantQuestion } from './components/Assistant/AssistantPanel';
 import { FileBlameModal } from './components/Blame/FileBlameModal';
 import { CommitComparisonModal } from './components/CommitComparison/CommitComparisonModal';
 import { CommitDetailModal } from './components/CommitDetail/CommitDetailModal';
@@ -100,13 +101,15 @@ type Dialog =
   | { kind: 'explanation'; file: string; explanation: AIExplanation }
   | { kind: 'branch-drop'; source: string; target: string }
   | { kind: 'pull-request'; pr: PullRequest }
-  | { kind: 'create-pull-request' }
-  | { kind: 'fleet' }
+  | { kind: 'create-pull-request'; head?: string }
+  | { kind: 'fleet'; tab?: 'spawn' }
   | { kind: 'inbox' }
   | { kind: 'agent-run'; agentId: string }
   | { kind: 'agent-lens'; agentId: string };
 
 const folderName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
+/** The fleet while the first agent snapshot is still loading. */
+const NO_AGENTS: AgentFleetState = { agents: [], collisions: [], staleIndexLock: false };
 const samePath = (a: string, b: string) => a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase();
 const MAX_RECENT = 30;
 
@@ -171,15 +174,24 @@ export const App: React.FC = () => {
   // A folder dropped on the desktop window opens as a repository.
   useEffect(() => {
     if (!isTauri()) return;
+    let stopped = false;
     let unlisten: (() => void) | undefined;
-    import('@tauri-apps/api/webview').then(({ getCurrentWebview }) =>
-      getCurrentWebview()
-        .onDragDropEvent((event) => {
+    import('@tauri-apps/api/webview')
+      .then(({ getCurrentWebview }) =>
+        getCurrentWebview().onDragDropEvent((event) => {
           if (event.payload.type === 'drop' && event.payload.paths[0]) void openRepo(event.payload.paths[0]);
         })
-        .then((stop) => (unlisten = stop))
-    );
-    return () => unlisten?.();
+      )
+      .then((stop) => {
+        // The effect may have been cleaned up before the listener was registered.
+        if (stopped) stop();
+        else unlisten = stop;
+      })
+      .catch(() => undefined); // dropping folders is a convenience; the window works without it
+    return () => {
+      stopped = true;
+      unlisten?.();
+    };
   }, [openRepo]);
 
   // --- Layout ------------------------------------------------------------------
@@ -204,9 +216,17 @@ export const App: React.FC = () => {
   // --- Selection ---------------------------------------------------------------
   const [selectedFile, setSelectedFile] = useState<{ path: string; staged: boolean } | null>(null);
   const [selectedCommit, setSelectedCommit] = useState<Commit | null>(null);
-  const [fileDiff, setFileDiff] = useState<FileDiff | undefined>();
   const [ignoreWhitespace] = usePreference('ignoreWhitespace');
+  // A loaded diff remembers what it is the diff of, so a newly selected file or
+  // side never shows (and acts on) the previous one's hunks while its own loads.
+  const diffKey = selectedFile ? [repo, selectedFile.path, selectedFile.staged, ignoreWhitespace].join('\0') : '';
+  const [loadedDiff, setLoadedDiff] = useState<{ key: string; diffs: FileDiff[] } | null>(null);
+  const currentDiffs = loadedDiff && loadedDiff.key === diffKey ? loadedDiff.diffs : null;
+  const fileDiff = currentDiffs?.[0];
   const [dialog, setDialog] = useState<Dialog | null>(null);
+  const [explaining, setExplaining] = useState(false);
+  const repoRef = useRef(repo);
+  repoRef.current = repo;
   const close = useCallback(() => setDialog(null), []);
 
   useEffect(() => {
@@ -226,24 +246,22 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     let current = true;
-    if (!selectedFile || !repo) {
-      setFileDiff(undefined);
-      return;
-    }
+    if (!selectedFile || !repo) return;
     api
       .workingDiff({ repo, file: selectedFile.path, staged: selectedFile.staged, ignoreWhitespace })
-      .then((diffs) => current && setFileDiff(diffs[0]))
+      .then((diffs) => current && setLoadedDiff({ key: diffKey, diffs }))
       .catch((e) => current && toast.error(`Could not load the diff: ${e.message}`));
     return () => {
       current = false;
     };
-  }, [repo, selectedFile, statuses, ignoreWhitespace]);
+    // statuses: a refresh may have changed the file, so its diff is read again.
+  }, [repo, selectedFile, statuses, ignoreWhitespace, diffKey]);
 
   // --- Agents ------------------------------------------------------------------
   const live = useAgentLive(repo);
   const agentActions = useAgentActions(repo, live.apply, live.refresh, repository.refresh);
   const [acknowledged, setAcknowledged] = useState<Set<string>>(new Set());
-  const [assistantSeed, setAssistantSeed] = useState('');
+  const [assistantSeed, setAssistantSeed] = useState<AssistantQuestion | null>(null);
   useEffect(() => setAcknowledged(new Set()), [repo]);
   const waiting = live.reviews.filter((r) => r.status === 'needs-review').length;
   const reviewFor = (agentId: string) => live.reviews.find((r) => r.agentId === agentId) ?? null;
@@ -254,8 +272,8 @@ export const App: React.FC = () => {
     else setDialog({ kind: 'fleet' });
   };
 
-  const askAssistant = (prompt: string) => {
-    setAssistantSeed(prompt);
+  const askAssistant = (question: AssistantQuestion) => {
+    setAssistantSeed(question);
     setAssistantOpen(true);
     setDialog(null);
   };
@@ -280,16 +298,34 @@ export const App: React.FC = () => {
   const short = (hash: string) => (/^[0-9a-f]{40}$/.test(hash) ? hash.slice(0, 7) : hash);
 
   const actions = {
-    checkout: (target: string) => run(`Could not check out ${short(target)}`, () => api.checkout({ repo, target })),
+    /** A remote branch is checked out as the local branch of the same name, which tracks it. */
+    checkout: (target: string) => {
+      const remote = repository.branches.find((b) => b.isRemote && b.name === target);
+      if (!remote?.remoteName) return run(`Could not check out ${short(target)}`, () => api.checkout({ repo, target }));
+      const local = target.slice(remote.remoteName.length + 1);
+      const exists = repository.branches.some((b) => !b.isRemote && b.name === local);
+      return run(
+        `Could not check out ${local}`,
+        async () => {
+          if (!exists) await api.createBranch({ repo, name: local, startPoint: target });
+          await api.checkout({ repo, target: local });
+        },
+        { success: exists ? undefined : `Created ${local}, tracking ${target}.` }
+      );
+    },
     pull: (rebase?: boolean) => run('Pull failed', () => api.pull({ repo, rebase }), { success: 'Pulled.' }),
     push: (forceWithLease = false) => run('Push failed', () => api.push({ repo, forceWithLease }), { success: 'Pushed.' }),
     fetch: () => run('Fetch failed', () => api.fetch({ repo }), { success: 'Fetched from all remotes.' }),
     undo: () => run('Nothing was undone', () => api.undo({ repo }), { success: (message) => message }),
 
+    /** Resolves once the commit exists; a requested push (or pull and push) follows on its own. */
     async commit(summary: string, description: string, amend: boolean, then?: 'push' | 'sync') {
       await run('Commit failed', () => api.commit({ repo, summary, description, amend }), { success: amend ? 'Amended the last commit.' : 'Committed.' });
-      if (then === 'sync') await actions.pull();
-      if (then) await actions.push();
+      if (!then) return;
+      void (async () => {
+        if (then === 'sync') await actions.pull();
+        await actions.push();
+      })().catch(ignore);
     },
 
     async generateCommitMessage() {
@@ -385,8 +421,8 @@ export const App: React.FC = () => {
     pushBranch: (branch: string) => run(`Could not push ${branch}`, () => api.push({ repo, branch }), { success: `Pushed ${branch}.` }),
 
     saveStash: (options: StashSaveOptions) => run('Could not stash', () => api.saveStash({ repo, ...options }), { success: 'Stashed.' }),
-    popStash: (index: number) => run('Could not pop the stash', () => api.popStash({ repo, index }), { success: 'Applied and removed the stash.' }).then(ignore),
-    applyStash: (index: number) => run('Could not apply the stash', () => api.applyStash({ repo, index }), { success: 'Applied the stash.' }).then(ignore),
+    popStash: (index: number) => run('Could not pop the stash', () => api.popStash({ repo, index }), { success: 'Applied and removed the stash.' }).then(() => undefined),
+    applyStash: (index: number) => run('Could not apply the stash', () => api.applyStash({ repo, index }), { success: 'Applied the stash.' }).then(() => undefined),
     async dropStash(index: number) {
       if (!(await ask.confirm({ title: `Drop stash@{${index}}?`, message: 'Its changes are deleted.', confirmLabel: 'Drop', danger: true }))) throw new Error('Cancelled');
       await run('Could not drop the stash', () => api.dropStash({ repo, index }));
@@ -395,14 +431,21 @@ export const App: React.FC = () => {
     copyPatch: (hash: string) =>
       run('Could not make the patch', async () => navigator.clipboard.writeText(await api.formatPatch({ repo, hash })), { success: 'Copied the patch.', refresh: false }),
     updateSubmodules: () => run('Could not update submodules', () => api.updateSubmodules({ repo }), { success: 'Submodules updated.' }),
-    checkoutPullRequest: (number: number) => run(`Could not check out #${number}`, () => api.checkoutPullRequest({ repo, number }), { success: `Checked out #${number}.` }).then(ignore),
+    checkoutPullRequest: (number: number) => run(`Could not check out #${number}`, () => api.checkoutPullRequest({ repo, number }), { success: `Checked out #${number}.` }).then(() => undefined),
     externalDiff: (file: string, staged: boolean) => run('Could not open the diff tool', () => api.openExternalDiff({ repo, file, staged }), { refresh: false }),
     async explain(diff: FileDiff) {
+      if (explaining) return;
+      const forRepo = repo;
+      setExplaining(true);
+      toast.info(`Reviewing ${diff.path}…`);
       try {
         const explanation = await api.explainChanges({ diff: diff.rawDiff, title: `Changes to ${diff.path}` });
-        setDialog({ kind: 'explanation', file: diff.path, explanation });
+        // Shown only if the user is still in that repository.
+        if (repoRef.current === forRepo) setDialog({ kind: 'explanation', file: diff.path, explanation });
       } catch (e: any) {
         toast.error(`AI review failed: ${e.message}`);
+      } finally {
+        setExplaining(false);
       }
     },
     runConsole: async (command: string) => {
@@ -441,7 +484,7 @@ export const App: React.FC = () => {
     { id: 'new-branch', title: 'New branch', category: 'Branches', icon: GitBranch, shortcut: 'Mod+Shift+N', enabled: hasRepo, run: () => setDialog({ kind: 'create-branch', startPoint: repoState?.currentBranch || 'HEAD' }) },
     { id: 'pull-request', title: 'New pull request', category: 'Branches', icon: GitPullRequest, enabled: hasRepo && !repoState?.isDetached, run: () => setDialog({ kind: 'create-pull-request' }) },
     { id: 'stash', title: 'Stash changes', category: 'Changes', icon: Archive, shortcut: 'Mod+Shift+S', enabled: hasRepo && !repoState?.isClean, run: () => setDialog({ kind: 'stash' }) },
-    { id: 'pop-stash', title: 'Pop latest stash', category: 'Changes', icon: Archive, enabled: repository.stashes.length > 0, run: () => void actions.popStash(0) },
+    { id: 'pop-stash', title: 'Pop latest stash', category: 'Changes', icon: Archive, enabled: repository.stashes.length > 0, run: () => quietly(actions.popStash(0)) },
     { id: 'stage-all', title: 'Stage all changes', category: 'Changes', enabled: hasRepo && !repoState?.isClean, run: () => quietly(actions.stageAll()) },
     { id: 'reveal', title: 'Show in file manager', category: 'Repository', icon: FolderOpen, enabled: hasRepo, run: () => quietly(run('Could not open the folder', () => api.revealInFileManager({ repo }), { refresh: false })) },
     { id: 'editor', title: 'Open in editor', category: 'Repository', icon: Code2, enabled: hasRepo, run: () => quietly(run('Could not open the editor', () => api.openInEditor({ repo }), { refresh: false })) },
@@ -452,7 +495,7 @@ export const App: React.FC = () => {
     { id: 'toggle-assistant', title: assistantOpen ? 'Hide assistant' : 'Ask the assistant', category: 'View', icon: Sparkles, shortcut: 'Mod+Shift+A', run: () => setAssistantOpen(!assistantOpen) },
     { id: 'agent-rail', title: railOpen ? 'Hide agent rail' : 'Show agent rail', category: 'View', icon: Bot, run: () => setRailOpen(!railOpen) },
     { id: 'review-inbox', title: 'Review inbox', category: 'Agents', icon: Inbox, shortcut: 'Mod+Shift+K', enabled: hasRepo, run: () => setDialog({ kind: 'inbox' }) },
-    { id: 'fleet', title: 'Agent fleet', category: 'Agents', icon: Bot, shortcut: 'Mod+Shift+F', enabled: hasRepo && Boolean(live.fleet), run: () => setDialog({ kind: 'fleet' }) },
+    { id: 'fleet', title: 'Agent fleet', category: 'Agents', icon: Bot, shortcut: 'Mod+Shift+F', enabled: hasRepo, run: () => setDialog({ kind: 'fleet' }) },
     {
       id: 'next-review',
       title: 'Compare the next agent to review',
@@ -482,7 +525,7 @@ export const App: React.FC = () => {
       repo={repo}
       repoState={repoState}
       seed={assistantSeed}
-      onSeedConsumed={() => setAssistantSeed('')}
+      onSeedConsumed={() => setAssistantSeed(null)}
       agentsWaiting={waiting}
       onOpenInbox={() => setDialog({ kind: 'inbox' })}
       onClose={() => setAssistantOpen(false)}
@@ -501,7 +544,7 @@ export const App: React.FC = () => {
           setTabs(tabs.filter((t) => samePath(t.path, keep)));
           setRepo(keep);
         }}
-        onRevealInExplorer={(path) => quietly(api.revealInFileManager({ repo: path }))}
+        onRevealInExplorer={(path) => quietly(run('Could not open the folder', () => api.revealInFileManager({ repo: path }), { refresh: false }))}
         onNewTab={() => setDialog({ kind: 'repositories' })}
       />
       <HeaderToolbar
@@ -529,7 +572,7 @@ export const App: React.FC = () => {
               selectedAgentId={dialog?.kind === 'agent-run' ? dialog.agentId : null}
               onOpenInbox={() => setDialog({ kind: 'inbox' })}
               onOpenFleet={() => setDialog({ kind: 'fleet' })}
-              onSpawn={() => setDialog({ kind: 'fleet' })}
+              onSpawn={() => setDialog({ kind: 'fleet', tab: 'spawn' })}
               onSelectAgent={(agentId) => setDialog({ kind: 'agent-run', agentId })}
             />
           )}
@@ -552,8 +595,8 @@ export const App: React.FC = () => {
                 onPushBranch={(name) => quietly(actions.pushBranch(name))}
                 onBranchDrop={(source, target) => setDialog({ kind: 'branch-drop', source, target })}
                 onCherryPickToBranch={(hash, branch) => quietly(actions.cherryPickOnto(hash, branch))}
-                onPopStash={(index) => void actions.popStash(index)}
-                onApplyStash={(index) => void actions.applyStash(index)}
+                onPopStash={(index) => quietly(actions.popStash(index))}
+                onApplyStash={(index) => quietly(actions.applyStash(index))}
                 onDropStash={(index) => quietly(actions.dropStash(index))}
                 onInspectStash={(index) => {
                   const stash = repository.stashes.find((s) => s.index === index);
@@ -564,7 +607,7 @@ export const App: React.FC = () => {
                 onCreateBranch={() => setDialog({ kind: 'create-branch', startPoint: repoState?.currentBranch || 'HEAD' })}
                 onCreateTag={() => void actions.createTag()}
                 onViewPr={(pr) => setDialog({ kind: 'pull-request', pr })}
-                onCreatePr={() => setDialog({ kind: 'create-pull-request' })}
+                onCreatePr={(head) => setDialog({ kind: 'create-pull-request', head })}
                 onOpenWorktrees={() => setDialog({ kind: 'worktrees' })}
                 onSwitchWorktree={(path) => void openRepo(path)}
                 onOpenGitflow={() => setDialog({ kind: 'gitflow' })}
@@ -610,6 +653,7 @@ export const App: React.FC = () => {
               <div style={{ width: effectiveRight }} className="flex flex-col bg-[#14181f] flex-shrink-0 overflow-hidden">
                 {laneMode ? (
                   <VirtualBranchPanel
+                    key={repo}
                     repo={repo}
                     currentBranch={repoState?.currentBranch ?? ''}
                     statuses={statuses}
@@ -625,7 +669,7 @@ export const App: React.FC = () => {
                         <StagingPanel
                           width={effectiveList}
                           statuses={statuses}
-                          selectedFile={selectedFile?.path ?? null}
+                          selected={selectedFile}
                           collisions={live.fleet?.collisions ?? []}
                           agents={live.fleet?.agents ?? []}
                           onSelectFile={(path, staged) => setSelectedFile({ path, staged })}
@@ -638,8 +682,8 @@ export const App: React.FC = () => {
                           onStash={() => setDialog({ kind: 'stash' })}
                           onOpenBlame={(file) => setDialog({ kind: 'blame', file })}
                           onOpenFileHistory={(file) => setDialog({ kind: 'file-history', file })}
-                          onRevealInExplorer={(file) => quietly(api.revealInFileManager({ repo, file }))}
-                          onOpenInVsCode={(file) => quietly(api.openInEditor({ repo, file }))}
+                          onRevealInExplorer={(file) => quietly(run('Could not open the folder', () => api.revealInFileManager({ repo, file }), { refresh: false }))}
+                          onOpenInVsCode={(file) => quietly(run('Could not open the editor', () => api.openInEditor({ repo, file }), { refresh: false }))}
                           onOpenExternalDiff={(file, staged) => quietly(actions.externalDiff(file, staged))}
                           onToggleVirtualBranches={() => setLaneMode(true)}
                         />
@@ -654,6 +698,7 @@ export const App: React.FC = () => {
                           diff={fileDiff}
                           staged={selectedFile?.staged ?? false}
                           conflicted={conflicted}
+                          whitespaceOnly={Boolean(currentDiffs && currentDiffs.length === 0 && ignoreWhitespace)}
                           banner={provenance && <Provenance review={provenance} file={selectedFile!.path} onOpenLens={() => setDialog({ kind: 'agent-lens', agentId: provenance.agentId })} />}
                           onToggleStaged={() => selectedFile && quietly(selectedFile.staged ? actions.unstage(selectedFile.path) : actions.stage(selectedFile.path))}
                           onPatch={actions.patch}
@@ -665,13 +710,13 @@ export const App: React.FC = () => {
                       </div>
                     </div>
                     <CommitBox
+                      key={repo}
                       stagedCount={repoState?.stagedCount ?? 0}
                       currentBranch={repoState?.currentBranch}
                       lastCommit={repository.commits.find((c) => c.refs.some((r) => r === 'HEAD' || r.startsWith('HEAD ->'))) ?? null}
                       onCommit={actions.commit}
                       onStash={() => setDialog({ kind: 'stash' })}
                       onGenerateAiMessage={actions.generateCommitMessage}
-                      loading={repository.busy}
                     />
                   </>
                 )}
@@ -719,7 +764,7 @@ export const App: React.FC = () => {
       case 'settings':
         return <SettingsModal repo={repo} onClose={close} onCheckForUpdates={() => setDialog({ kind: 'update' })} />;
       case 'update':
-        return <UpdateModal initial={null} onClose={close} />;
+        return <UpdateModal initial={update} onClose={close} />;
       case 'create-branch':
         return <CreateBranchModal startPoint={dialog.startPoint} onClose={close} onCreate={(name, start, checkout) => actions.createBranch(name, start, checkout).then(() => undefined)} />;
       case 'stash':
@@ -783,7 +828,7 @@ export const App: React.FC = () => {
           />
         );
       case 'conflict':
-        return <ThreeWayConflictResolverModal file={dialog.file} repo={repo} onClose={close} onResolved={afterChange} />;
+        return <ThreeWayConflictResolverModal file={dialog.file} repo={repo} rebasing={Boolean(repoState?.isRebasing)} onClose={close} onResolved={afterChange} />;
       case 'explanation':
         return (
           <Modal width="lg" icon={<Sparkles className="w-4 h-4" />} title="AI review" subtitle={dialog.file} onClose={close} footer={<Button tone="primary" onClick={close}>Close</Button>}>
@@ -795,12 +840,13 @@ export const App: React.FC = () => {
       case 'pull-request':
         return <PullRequestModal repo={repo} pr={dialog.pr} onClose={close} onCheckout={actions.checkoutPullRequest} />;
       case 'create-pull-request':
-        return <CreatePullRequestModal repo={repo} head={repoState?.currentBranch ?? ''} defaultBase={defaultBase} onClose={close} onCreated={afterChange} />;
+        return <CreatePullRequestModal repo={repo} head={dialog.head ?? repoState?.currentBranch ?? ''} defaultBase={defaultBase} onClose={close} onCreated={afterChange} />;
       case 'fleet':
-        return live.fleet ? (
+        return (
           <AgentFleetModal
             repo={repo}
-            fleet={live.fleet}
+            fleet={live.fleet ?? NO_AGENTS}
+            initialTab={dialog.tab}
             actions={agentActions}
             onClose={close}
             onRefresh={() => void live.refresh()}
@@ -810,7 +856,7 @@ export const App: React.FC = () => {
             }}
             onOpenReview={(agentId) => setDialog({ kind: 'agent-run', agentId })}
           />
-        ) : null;
+        );
       case 'inbox':
         return (
           <AgentReviewInbox

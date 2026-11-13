@@ -23,7 +23,7 @@ export const AgentLens: React.FC<AgentLensProps> = ({ repo, item, actions, onClo
   const agentId = item?.agentId ?? null;
   const { diff: agentDiff, setDiff, loading, reload } = useAgentDiff(repo, agentId, item?.lastActivity);
   const [selected, setSelected] = useState('');
-  const [working, setWorking] = useState<FileDiff | undefined>();
+  const [working, setWorking] = useState<{ diff: FileDiff; staged: boolean } | undefined>();
   const [busy, setBusy] = useState<number | null>(null);
 
   useEffect(() => {
@@ -35,9 +35,12 @@ export const AgentLens: React.FC<AgentLensProps> = ({ repo, item, actions, onClo
     let current = true;
     setWorking(undefined);
     if (selected) {
-      api
-        .workingDiff({ repo, file: selected })
-        .then((diffs) => current && setWorking(diffs[0]))
+      // Your unstaged change to the file, or the staged one when nothing else is left.
+      Promise.all([api.workingDiff({ repo, file: selected }), api.workingDiff({ repo, file: selected, staged: true })])
+        .then(([unstaged, staged]) => {
+          if (!current) return;
+          setWorking(unstaged[0] ? { diff: unstaged[0], staged: false } : staged[0] ? { diff: staged[0], staged: true } : undefined);
+        })
         .catch(() => undefined); // the file may not exist in your checkout
     }
     return () => {
@@ -152,9 +155,9 @@ export const AgentLens: React.FC<AgentLensProps> = ({ repo, item, actions, onClo
               </div>
               <div className="flex flex-col min-h-0">
                 <DiffView
-                  diff={working}
+                  diff={working?.diff}
                   emptyLabel="You have no uncommitted change to this file."
-                  title={sideTitle(<span className="w-3 h-3 rounded-full flex-shrink-0 bg-teal-400" />, 'You', 'uncommitted, unstaged')}
+                  title={sideTitle(<span className="w-3 h-3 rounded-full flex-shrink-0 bg-teal-400" />, 'You', working?.staged ? 'staged, not committed' : 'not committed')}
                 />
               </div>
             </div>

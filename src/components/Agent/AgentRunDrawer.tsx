@@ -17,6 +17,7 @@ import {
 import { api } from '../../api/client';
 import type { AgentReviewItem } from '../../../shared/types/agentReview';
 import { useAgentDiff, type AgentActions } from '../../hooks/useAgentActions';
+import { toast } from '../../utils/toast';
 import { ask } from '../ui/ask';
 import { useEscape } from '../ui/useEscape';
 import { AgentChanges } from './AgentChanges';
@@ -30,7 +31,7 @@ interface AgentRunDrawerProps {
   onRefresh: () => void;
   onOpenLens: (agentId: string) => void;
   onOpenWorktree: (worktreePath: string) => void;
-  onAskWhy: (prompt: string) => void;
+  onAskWhy: (question: { prompt: string; context?: string }) => void;
 }
 
 type DrawerTab = 'overview' | 'changes';
@@ -77,6 +78,17 @@ export const AgentRunDrawer: React.FC<AgentRunDrawerProps> = ({ repo, item, acti
 
   const submitFeedback = async () => {
     if (agentId && feedback.trim() && (await run('feedback', () => actions.requestChanges(agentId, feedback)))) setShowFeedback(false);
+  };
+
+  const rollback = async () => {
+    if (!item?.checkpoint) return;
+    const confirmed = await ask.confirm({
+      title: `Roll ${item.agentName} back?`,
+      message: `The worktree returns to the checkpoint "${item.checkpoint.label}" from ${timeAgo(item.checkpoint.createdAt)}. Changes since then are lost.`,
+      confirmLabel: 'Roll back',
+      danger: true,
+    });
+    if (confirmed) await run('rollback', () => actions.rollback(item.agentId));
   };
 
   const discard = async () => {
@@ -188,7 +200,7 @@ export const AgentRunDrawer: React.FC<AgentRunDrawerProps> = ({ repo, item, acti
                         <ExternalLink className="w-3 h-3" />
                         Open in a tab
                       </button>
-                      <button onClick={() => api.revealInFileManager({ repo: item.worktreePath! })} className={`${smallButton} bg-white/[0.05] hover:bg-white/[0.1] text-slate-300`}>
+                      <button onClick={() => api.revealInFileManager({ repo: item.worktreePath! }).catch((e) => toast.error(`Could not open the folder: ${e.message}`))} className={`${smallButton} bg-white/[0.05] hover:bg-white/[0.1] text-slate-300`}>
                         Show in folder
                       </button>
                     </div>
@@ -228,7 +240,7 @@ export const AgentRunDrawer: React.FC<AgentRunDrawerProps> = ({ repo, item, acti
                           {item.checkpoint ? 'Save again' : 'Save checkpoint'}
                         </button>
                         {item.checkpoint && (
-                          <button onClick={() => run('rollback', () => actions.rollback(item.agentId))} disabled={busy !== null} className={`${smallButton} bg-amber-500/15 hover:bg-amber-500/25 text-amber-200`}>
+                          <button onClick={rollback} disabled={busy !== null} className={`${smallButton} bg-amber-500/15 hover:bg-amber-500/25 text-amber-200`}>
                             <RotateCcw className="w-3 h-3" />
                             Roll back
                           </button>
@@ -274,7 +286,12 @@ export const AgentRunDrawer: React.FC<AgentRunDrawerProps> = ({ repo, item, acti
                 onRejectHunk={item.worktreePath ? rejectHunk : undefined}
                 toolbar={
                   <button
-                    onClick={() => onAskWhy(`Explain what ${item.agentName} changed on ${item.branchName} and why. Focus on intent, risks, and what I should verify.`)}
+                    onClick={() =>
+                      onAskWhy({
+                        prompt: `Explain what ${item.agentName} changed on ${item.branchName} and why. Focus on intent, risks, and what I should verify.`,
+                        context: diff ? `${item.agentName}'s task: ${item.taskDescription || '(none given)'}\nIts changes against ${item.baseRef}:\n${diff.diffs.map((d) => d.rawDiff).join('\n')}` : undefined,
+                      })
+                    }
                     className={`${smallButton} bg-white/[0.05] hover:bg-white/[0.1] text-teal-300`}
                   >
                     <Sparkles className="w-3 h-3" />

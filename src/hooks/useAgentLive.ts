@@ -11,8 +11,8 @@ export interface AgentLiveState {
   attention: AttentionItem[];
   /** Whether the backend's event stream is connected; while it is not, the hook polls. */
   connected: boolean;
-  /** Shows a snapshot an agent action returned, ahead of the next pushed one. */
-  apply: (snapshot: AgentReviewSnapshot) => void;
+  /** Shows a snapshot an agent action in `repo` returned, unless another repository has opened since. */
+  apply: (snapshot: AgentReviewSnapshot, repo: string) => void;
   refresh: () => Promise<void>;
 }
 
@@ -24,15 +24,23 @@ export function useAgentLive(repo: string): AgentLiveState {
   const [snapshot, setSnapshot] = useState<AgentReviewSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
   const connectedRef = useRef(false);
+  // Answers can arrive after the user switched repositories; only the open one's count.
+  const openRepo = useRef(repo);
+  openRepo.current = repo;
 
   const refresh = useCallback(async () => {
     if (!repo) return;
     try {
-      setSnapshot(await api.agentSnapshot({ repo }));
+      const next = await api.agentSnapshot({ repo });
+      if (openRepo.current === repo) setSnapshot(next);
     } catch {
       // The backend may still be starting; the stream or the next poll catches up.
     }
   }, [repo]);
+
+  const apply = useCallback((next: AgentReviewSnapshot, from: string) => {
+    if (openRepo.current === from) setSnapshot(next);
+  }, []);
 
   useEffect(() => {
     setSnapshot(null);
@@ -83,7 +91,7 @@ export function useAgentLive(repo: string): AgentLiveState {
     reviews: snapshot?.reviews ?? [],
     attention,
     connected,
-    apply: setSnapshot,
+    apply,
     refresh,
   };
 }

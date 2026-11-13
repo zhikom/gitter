@@ -16,6 +16,8 @@ interface WorkingDiffProps {
   diff: FileDiff | undefined;
   staged: boolean;
   conflicted: boolean;
+  /** The file is selected but has only whitespace changes, which are hidden. */
+  whitespaceOnly: boolean;
   banner?: React.ReactNode;
   onToggleStaged: () => void;
   onPatch: (action: PatchAction, patch: string) => Promise<void>;
@@ -31,6 +33,7 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
   diff,
   staged,
   conflicted,
+  whitespaceOnly,
   banner,
   onToggleStaged,
   onPatch,
@@ -40,12 +43,15 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
   onExternalDiff,
 }) => {
   const [ignoreWhitespace, setIgnoreWhitespace] = usePreference('ignoreWhitespace');
-  // A selection belongs to one file on one side; switching either starts afresh.
-  const fileKey = diff ? `${staged}:${diff.path}` : '';
-  const [selection, setSelection] = useState<{ key: string; lines: Map<number, Set<number>> }>({ key: '', lines: new Map() });
-  const lines = selection.key === fileKey ? selection.lines : new Map<number, Set<number>>();
+  // A selection belongs to one loaded diff. Any reload (a save in your editor,
+  // another file, the other side) starts afresh, so a highlighted line is always
+  // the line an action will take.
+  const [selection, setSelection] = useState<{ diff: FileDiff | undefined; lines: Map<number, Set<number>> }>({ diff: undefined, lines: new Map() });
+  const lines = selection.diff === diff ? selection.lines : new Map<number, Set<number>>();
   const selectedCount = [...lines.values()].reduce((n, s) => n + s.size, 0);
   const [busy, setBusy] = useState(false);
+  // With whitespace hidden, git shows changed lines as context, and patches built from that do not apply.
+  const canPatch = Boolean(diff) && !conflicted && !ignoreWhitespace && !diff?.isBinary;
 
   const toggleLine = (hunk: number, line: number) => {
     const next = new Map(lines);
@@ -54,7 +60,7 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
     else set.add(line);
     if (set.size) next.set(hunk, set);
     else next.delete(hunk);
-    setSelection({ key: fileKey, lines: next });
+    setSelection({ diff, lines: next });
   };
 
   const apply = async (action: PatchAction, chosen: LineSelection) => {
@@ -71,7 +77,9 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
     setBusy(true);
     try {
       await onPatch(action, patch);
-      setSelection({ key: '', lines: new Map() });
+      setSelection({ diff: undefined, lines: new Map() });
+    } catch {
+      // Reported by the action; the selection stays for another try.
     } finally {
       setBusy(false);
     }
@@ -88,6 +96,17 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
   const label: Record<PatchAction, string> = { stage: 'Stage', unstage: 'Unstage', discard: 'Discard' };
 
   const toolbarButton = 'flex items-center gap-1 px-2 py-1 rounded border text-[11px] font-medium transition';
+
+  if (!diff && whitespaceOnly) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 text-xs p-6 text-center">
+        This file only has whitespace changes, which are hidden.
+        <button onClick={() => setIgnoreWhitespace(false)} className="px-3 py-1.5 rounded bg-[#202735] border border-[#2a3447] hover:bg-[#2d384c] text-slate-200">
+          Show whitespace changes
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex-1 min-h-0 flex flex-col">
@@ -145,11 +164,22 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
             </>
           )
         }
-        banner={banner}
         selection={lines}
-        onToggleLine={conflicted ? undefined : toggleLine}
+        onToggleLine={canPatch ? toggleLine : undefined}
+        banner={
+          banner || (ignoreWhitespace && diff && !conflicted) ? (
+            <>
+              {banner}
+              {ignoreWhitespace && diff && !conflicted && (
+                <div className="px-3 py-1.5 bg-sky-500/[0.06] border-b border-sky-500/20 text-[11px] text-sky-200">
+                  Whitespace changes are hidden. Show them to stage or discard parts of this file.
+                </div>
+              )}
+            </>
+          ) : undefined
+        }
         hunkActions={
-          conflicted
+          !canPatch
             ? undefined
             : (_, index) =>
                 sideActions.map((action) => (
@@ -169,7 +199,7 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
               {label[action]}
             </button>
           ))}
-          <button onClick={() => setSelection({ key: '', lines: new Map() })} className="text-xs text-slate-400 hover:text-slate-200 underline">
+          <button onClick={() => setSelection({ diff: undefined, lines: new Map() })} className="text-xs text-slate-400 hover:text-slate-200 underline">
             Clear
           </button>
         </div>

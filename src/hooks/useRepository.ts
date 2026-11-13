@@ -57,10 +57,17 @@ export function useRepository(repo: string): Repository {
   const [running, setRunning] = useState(0);
   const current = useRef(repo);
   current.current = repo;
+  // Refreshes can overlap (two quick clicks); only the newest one's answer is shown.
+  const latestRefresh = useRef(0);
+  const [pullRequestTick, setPullRequestTick] = useState(0);
+  const pullRequestsLoadedAt = useRef(0);
 
   const refresh = useCallback(async () => {
     if (!repo) return;
+    const id = ++latestRefresh.current;
     setRunning((n) => n + 1);
+    // gh is slow and rate-limited, so pull requests reload at most once a minute.
+    if (Date.now() - pullRequestsLoadedAt.current > 60_000) setPullRequestTick((t) => t + 1);
     try {
       const [state, commits, statuses, branches, tags, stashes, remotes, worktrees, submodules] = await Promise.all([
         api.repoState({ repo }),
@@ -73,11 +80,11 @@ export function useRepository(repo: string): Repository {
         api.worktrees({ repo }),
         api.submodules({ repo }),
       ]);
-      if (current.current !== repo) return; // another repository opened meanwhile
+      if (current.current !== repo || id !== latestRefresh.current) return; // superseded
       setData((prev) => ({ ...prev, state, commits, statuses, branches, tags, stashes, remotes, worktrees, submodules }));
       setProblem(null);
     } catch (e: any) {
-      if (current.current === repo) setProblem(e.message);
+      if (current.current === repo && id === latestRefresh.current) setProblem(e.message);
     } finally {
       setRunning((n) => n - 1);
     }
@@ -90,15 +97,17 @@ export function useRepository(repo: string): Repository {
       setData((prev) => (prev.pullRequests.length ? { ...prev, pullRequests: [] } : prev));
       return;
     }
+    pullRequestsLoadedAt.current = Date.now();
     api
       .pullRequests({ repo })
       .then((pullRequests) => current.current === repo && setData((prev) => ({ ...prev, pullRequests })))
       .catch(() => current.current === repo && setData((prev) => ({ ...prev, pullRequests: [] })));
-  }, [repo, hasGitHubRemote, data.commits]);
+  }, [repo, hasGitHubRemote, pullRequestTick]);
 
   useEffect(() => {
     setData(EMPTY);
     setProblem(null);
+    pullRequestsLoadedAt.current = 0;
     void refresh();
   }, [refresh]);
 

@@ -14,7 +14,6 @@ export type PatchDirection = 'forward' | 'reverse';
 export type LineSelection = ReadonlyMap<number, ReadonlySet<number> | 'all'>;
 
 export const wholeHunk = (index: number): LineSelection => new Map([[index, 'all']]);
-export const wholeFile = (file: FileDiff): LineSelection => new Map(file.hunks.map((_, i) => [i, 'all']));
 
 const NO_NEWLINE = '\\ No newline at end of file';
 

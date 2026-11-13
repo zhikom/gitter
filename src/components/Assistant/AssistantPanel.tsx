@@ -14,11 +14,16 @@ interface Message {
   suggestedCommand?: string;
 }
 
+export interface AssistantQuestion {
+  prompt: string;
+  context?: string;
+}
+
 interface AssistantPanelProps {
   repo: string;
   repoState: RepositoryState | null;
-  /** A question to send as soon as the panel opens, e.g. from "Ask why". */
-  seed: string;
+  /** A question to send as soon as the panel opens, e.g. from "Ask why", with material for it not shown in the chat. */
+  seed: AssistantQuestion | null;
   onSeedConsumed: () => void;
   agentsWaiting: number;
   onOpenInbox: () => void;
@@ -33,7 +38,7 @@ const WELCOME: Message = {
   text: 'Ask me about this repository: what changed, how to undo something, or which git command does what you need.',
 };
 
-const SUGGESTIONS = ['Explain my uncommitted changes', 'How do I undo my last commit?', 'What is on this branch that main lacks?'];
+const SUGGESTIONS = ['Explain my uncommitted changes', 'Summarize my recent commits', 'How do I undo my last commit?'];
 
 const storageKey = (repo: string) => `gitter_agent_chat:${repo}`;
 
@@ -67,18 +72,18 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({ repo, repoState,
 
   const add = (message: Omit<Message, 'id'>) => setMessages((prev) => [...prev, { ...message, id: Date.now() + Math.random() }]);
 
-  const send = async (text: string) => {
+  // The backend adds the repository's branch, status, recent commits and uncommitted diff.
+  const send = async (text: string, context?: string) => {
     const question = text.trim();
     if (!question || thinking) return;
+    const history = messages
+      .filter((m) => m.id !== WELCOME.id && m.sender !== 'system')
+      .map((m) => ({ role: m.sender === 'user' ? ('user' as const) : ('assistant' as const), text: m.text }));
     add({ sender: 'user', text: question });
     setInput('');
     setThinking(true);
     try {
-      const context = {
-        branch: repoState?.currentBranch || 'HEAD',
-        status: `${repoState?.stagedCount ?? 0} staged, ${repoState?.unstagedCount ?? 0} unstaged, ${repoState?.untrackedCount ?? 0} untracked files`,
-      };
-      const { reply, suggestedCommand } = await api.chat({ message: question, context });
+      const { reply, suggestedCommand } = await api.chat({ repo, message: question, history, context });
       if (mounted.current) add({ sender: 'assistant', text: reply, suggestedCommand });
     } catch (e: any) {
       if (mounted.current) add({ sender: 'system', text: `The assistant is unavailable: ${e.message}` });
@@ -88,9 +93,9 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({ repo, repoState,
   };
 
   useEffect(() => {
-    if (seed.trim()) {
+    if (seed?.prompt.trim()) {
       onSeedConsumed();
-      void send(seed);
+      void send(seed.prompt, seed.context);
     }
     // Only a new seed triggers a send.
     // eslint-disable-next-line react-hooks/exhaustive-deps

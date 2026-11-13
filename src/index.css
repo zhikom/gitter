@@ -15,7 +15,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* Custom Scrollbars matching GitKraken */
+/* Scrollbars in the app's palette */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

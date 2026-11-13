@@ -78,8 +78,11 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({ commands, repoStat
   const byId = new Map(commands.map((c) => [c.id, c]));
   const cmd = (id: string) => byId.get(id);
 
-  /** A command as a toolbar button; `label` shows text next to the icon from the given breakpoint. */
-  const Action = ({ id, label, className = plain, pressed }: { id: string; label?: string; className?: string; pressed?: boolean }) => {
+  // Plain functions, not components: a component declared here would remount on
+  // every App render, closing an open dropdown and dropping keyboard focus.
+
+  /** A command as a toolbar button; `label` shows next to the icon on wide windows. */
+  const action = ({ id, label, className = plain, pressed }: { id: string; label?: string; className?: string; pressed?: boolean }) => {
     const c = cmd(id);
     if (!c) return null;
     const Icon = c.icon;
@@ -91,11 +94,11 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({ commands, repoStat
     );
   };
 
-  const SplitAction = ({ main, label, more }: { main: string; label: string; more: string[] }) => (
+  const splitAction = ({ main, label, more }: { main: string; label: string; more: string[] }) => (
     <Menu
       button={(toggle) => (
         <div className="inline-flex">
-          <Action id={main} label={label} className={`${plain} rounded-r-none`} />
+          {action({ id: main, label, className: `${plain} rounded-r-none` })}
           <button onClick={toggle} aria-label={`More ${label.toLowerCase()} options`} className="px-1.5 bg-[#202735] hover:bg-[#2d384c] border-y border-r border-[#2a3447] rounded-r text-slate-400">
             <ChevronDown className="w-3 h-3" />
           </button>
@@ -113,7 +116,7 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({ commands, repoStat
   return (
     <header className="h-12 flex-shrink-0 bg-[#1b212c] border-b border-[#2a3447] flex items-center justify-between gap-2 px-3 select-none z-30">
       <div className="flex items-center gap-2 min-w-0">
-        <Action id="toggle-sidebar" className={toggleClass(open.sidebar)} pressed={open.sidebar} />
+        {action({ id: 'toggle-sidebar', className: toggleClass(open.sidebar), pressed: open.sidebar })}
         <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-emerald-500 via-teal-500 to-cyan-400 flex items-center justify-center flex-shrink-0" aria-hidden>
           <Layers className="w-4 h-4 text-white" />
         </div>
@@ -133,12 +136,12 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({ commands, repoStat
 
       {repoState && (
         <div className="flex items-center gap-1 flex-shrink-0">
-          <SplitAction main="pull" label="Pull" more={['pull', 'pull-rebase', 'fetch']} />
-          <SplitAction main="push" label="Push" more={['push', 'push-force']} />
-          <Action id="new-branch" label="Branch" />
-          <Action id="stash" label="Stash" />
-          <Action id="pop-stash" label="Pop" />
-          <Action id="undo" label="Undo" />
+          {splitAction({ main: 'pull', label: 'Pull', more: ['pull', 'pull-rebase', 'fetch'] })}
+          {splitAction({ main: 'push', label: 'Push', more: ['push', 'push-force'] })}
+          {action({ id: 'new-branch', label: 'Branch' })}
+          {action({ id: 'stash', label: 'Stash' })}
+          {action({ id: 'pop-stash', label: 'Pop' })}
+          {action({ id: 'undo', label: 'Undo' })}
           <Menu
             align="right"
             button={(toggle) => (
@@ -177,23 +180,28 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({ commands, repoStat
                 {agents.collisions}
               </button>
             ) : (
-              <Action id="fleet" label={agents.count ? `${agents.count} agent${agents.count === 1 ? '' : 's'}` : 'Agents'} />
+              action({ id: 'fleet', label: agents.count ? `${agents.count} agent${agents.count === 1 ? '' : 's'}` : 'Agents' })
             )}
           </>
         )}
-        <Action id="toggle-assistant" label="Assistant" className={`${base} rounded-full ${open.assistant ? 'bg-teal-600 text-white' : 'bg-[#202735] border border-teal-500/30 text-teal-300 hover:bg-[#2d384c]'}`} pressed={open.assistant} />
+        {action({
+          id: 'toggle-assistant',
+          label: 'Assistant',
+          className: `${base} rounded-full ${open.assistant ? 'bg-teal-600 text-white' : 'bg-[#202735] border border-teal-500/30 text-teal-300 hover:bg-[#2d384c]'}`,
+          pressed: open.assistant,
+        })}
         <button onClick={cmd('palette')?.run} title={cmd('palette') && tooltip(cmd('palette')!)} aria-label="Command palette" className={plain}>
           <Search className="w-3.5 h-3.5 text-teal-400" />
         </button>
-        {repoState && <Action id="toggle-staging" className={toggleClass(open.staging)} pressed={open.staging} />}
-        {repoState && <Action id="refresh" className={`${icon} ${busy ? 'animate-spin' : ''}`} />}
+        {repoState && action({ id: 'toggle-staging', className: toggleClass(open.staging), pressed: open.staging })}
+        {repoState && action({ id: 'refresh', className: `${icon} ${busy ? 'animate-spin' : ''}` })}
         {update?.hasUpdate && (
           <button onClick={cmd('check-updates')?.run} title={`Gitter ${update.version} is available`} className={`${base} rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/40`}>
             <DownloadCloud className="w-3.5 h-3.5" />
             <span className="hidden md:inline">{update.version}</span>
           </button>
         )}
-        <Action id="settings" className={icon} />
+        {action({ id: 'settings', className: icon })}
       </div>
     </header>
   );

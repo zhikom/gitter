@@ -27,6 +27,8 @@ export interface GraphRoute {
 export interface GraphNode {
   commit: Commit;
   lane: number;
+  /** A newer commit above continues into this one in its lane. */
+  incoming: boolean;
   color: string;
   routes: GraphRoute[];
   passingLanes: number[];
@@ -158,6 +160,8 @@ export interface FileCommitHistory {
   author: string;
   date: string;
   summary: string;
+  /** The file's path in this commit; it differs from today's path before a rename. */
+  path: string;
 }
 
 export interface Worktree {

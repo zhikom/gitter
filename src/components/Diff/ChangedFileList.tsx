@@ -53,7 +53,7 @@ export const ChangedFileList: React.FC<ChangedFileListProps> = ({ files, selecte
     <div className="px-3 py-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider border-b border-[#222a3a] select-none flex-shrink-0">
       {heading ?? `Changed files (${files.length})`}
     </div>
-    {files.length >= FILTER_FROM && (
+    {(files.length >= FILTER_FROM || filter) && (
       <input
         value={filter}
         onChange={(e) => setFilter(e.target.value)}

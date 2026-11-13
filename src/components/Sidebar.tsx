@@ -1,3 +1,4 @@
+import { menuPosition, useDismiss } from './ui/useDismiss';
 import React, { useState } from 'react';
 import {
   GitBranch,
@@ -121,60 +122,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Section Visibility / Decluttering
   const [showSectionCustomizer, setShowSectionCustomizer] = useState(false);
-  const [sectionConfig, setSectionConfig] = useState<SidebarSectionConfig>(() => {
+  // Sections show by default when they have something to show; what the user
+  // switches on or off is kept, so a section with data loaded later still appears.
+  const [overrides, setOverrides] = useState<Partial<SidebarSectionConfig>>(() => {
     try {
-      const saved = localStorage.getItem('gitter_sidebar_sections');
-      if (saved) {
-        return {
-          localBranches: true,
-          remoteBranches: true,
-          gitflow: true,
-          pullRequests: true,
-          tags: true,
-          stashes: true,
-          remotes: false,
-          worktrees: true,
-          submodules: true,
-          ...JSON.parse(saved),
-        };
-      }
-    } catch {}
-    return {
-      localBranches: true,
-      remoteBranches: true,
-      gitflow: true,
-      pullRequests: pullRequests.length > 0,
-      tags: true,
-      stashes: true,
-      remotes: false,
-      worktrees: worktrees.length > 1,
-      submodules: submodules.length > 0,
-    };
+      return JSON.parse(localStorage.getItem('gitter_sidebar_sections') || '{}');
+    } catch {
+      return {};
+    }
   });
-
-  const toggleSection = (key: keyof SidebarSectionConfig) => {
-    setSectionConfig((prev) => {
-      const next = { ...prev, [key]: !prev[key] };
+  const defaults: SidebarSectionConfig = {
+    localBranches: true,
+    remoteBranches: true,
+    gitflow: true,
+    pullRequests: pullRequests.length > 0,
+    tags: true,
+    stashes: true,
+    remotes: false,
+    worktrees: worktrees.length > 1,
+    submodules: submodules.length > 0,
+  };
+  const sectionConfig: SidebarSectionConfig = { ...defaults, ...overrides };
+  const saveOverrides = (next: Partial<SidebarSectionConfig>) => {
+    setOverrides(next);
+    try {
       localStorage.setItem('gitter_sidebar_sections', JSON.stringify(next));
-      return next;
-    });
+    } catch {
+      // Kept for this session only.
+    }
   };
 
-  const resetSmartDefaults = () => {
-    const defaults: SidebarSectionConfig = {
-      localBranches: true,
-      remoteBranches: true,
-      gitflow: true,
-      pullRequests: pullRequests.length > 0,
-      tags: true,
-      stashes: true,
-      remotes: false,
-      worktrees: worktrees.length > 1,
-      submodules: submodules.length > 0,
-    };
-    setSectionConfig(defaults);
-    localStorage.setItem('gitter_sidebar_sections', JSON.stringify(defaults));
-  };
+  const toggleSection = (key: keyof SidebarSectionConfig) => saveOverrides({ ...overrides, [key]: !sectionConfig[key] });
+  const resetSmartDefaults = () => saveOverrides({});
 
   // Drag and drop state
   const [draggedBranch, setDraggedBranch] = useState<string | null>(null);
@@ -185,6 +164,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Context Menu state
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  useDismiss(Boolean(contextMenu), () => setContextMenu(null));
 
   const localBranches = branches.filter((b) => !b.isRemote);
   const remoteBranches = branches.filter((b) => b.isRemote);
@@ -976,7 +956,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* CONTEXT MENU */}
       {contextMenu && (
         <div
-          style={{ top: Math.min(contextMenu.y, window.innerHeight - 280), left: Math.min(contextMenu.x, window.innerWidth - 220) }}
+          data-context-menu
+          style={menuPosition(contextMenu.x, contextMenu.y, 220, 300)}
           className="fixed bg-[#1b212c] border border-[#2a3447] rounded-md shadow-2xl py-1 z-50 text-xs text-slate-200 min-w-[210px]"
           onClick={(e) => e.stopPropagation()}
         >

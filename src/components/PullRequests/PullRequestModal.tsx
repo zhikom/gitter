@@ -95,7 +95,7 @@ export const CreatePullRequestModal: React.FC<CreateProps> = ({ repo, head, defa
   const describe = async () => {
     setDrafting(true);
     try {
-      const [commits, files] = await Promise.all([api.rebaseCommits({ repo, base }), api.compareCommits({ repo, base, target: 'HEAD' })]);
+      const [commits, files] = await Promise.all([api.rebaseCommits({ repo, base }), api.compareCommits({ repo, base, target: 'HEAD', fromForkPoint: true })]);
       if (commits.length === 0) throw new Error(`${head} has no commits that ${base} lacks.`);
       const summary = files.map((f) => `${f.status} ${f.path} (+${f.additions} −${f.deletions})`).join('\n');
       const result = await api.prDescription({ commits: commits.map((c) => c.summary), diffSummary: summary });

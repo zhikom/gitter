@@ -33,6 +33,7 @@ interface AgentFleetModalProps {
   onRefresh: () => void;
   onOpenWorktree: (worktreePath: string) => void;
   onOpenReview: (agentId: string) => void;
+  initialTab?: 'spawn';
 }
 
 type FleetTab = 'fleet' | 'activity' | 'spawn' | 'matrix';
@@ -59,8 +60,8 @@ const Stat: React.FC<{ label: string; value: number | string; tone?: 'default' |
 };
 
 /** Every agent in the repository: start new ones, see what they did, claim files, release them. */
-export const AgentFleetModal: React.FC<AgentFleetModalProps> = ({ repo, fleet: fleetState, actions, onClose, onRefresh, onOpenWorktree, onOpenReview }) => {
-  const [activeTab, setActiveTab] = useState<FleetTab>(fleetState.agents.length ? 'fleet' : 'spawn');
+export const AgentFleetModal: React.FC<AgentFleetModalProps> = ({ repo, fleet: fleetState, actions, onClose, onRefresh, onOpenWorktree, onOpenReview, initialTab }) => {
+  const [activeTab, setActiveTab] = useState<FleetTab>(initialTab ?? (fleetState.agents.length ? 'fleet' : 'spawn'));
   const [loading, setLoading] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [activity, setActivity] = useState<AgentActivityState | null>(null);
@@ -434,7 +435,7 @@ export const AgentFleetModal: React.FC<AgentFleetModalProps> = ({ repo, fleet: f
                             )}
                             {agent.worktreePath && (
                               <button
-                                onClick={() => api.revealInFileManager({ repo: agent.worktreePath! })}
+                                onClick={() => api.revealInFileManager({ repo: agent.worktreePath! }).catch((e) => toast.error(`Could not open the folder: ${e.message}`))}
                                 title="Reveal worktree in file explorer"
                                 aria-label="Reveal worktree in file explorer"
                                 className="p-1.5 rounded-md bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 hover:text-white transition-colors"
@@ -577,7 +578,7 @@ export const AgentFleetModal: React.FC<AgentFleetModalProps> = ({ repo, fleet: f
                 <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <span className="font-semibold text-slate-100">Claim files before agents start.</span>{' '}
-                  If another agent changes a claimed file, Collision Radar flags it immediately.
+                  If another agent changes a claimed file, Gitter warns you right away.
                 </div>
               </div>
 

@@ -51,6 +51,8 @@ export function useShortcuts(commands: Command[]): void {
   latest.current = commands;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // A held key repeats; Mod+Z held down must not undo several times.
+      if (e.repeat) return;
       // An open dialog owns the keyboard, except for its own Escape handling.
       if (document.querySelector('[role="dialog"]')) return;
       const command = latest.current.find((c) => c.shortcut && c.enabled !== false && matches(e, c.shortcut));

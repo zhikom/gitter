@@ -12,7 +12,6 @@ interface CommitBoxProps {
   onCommit: (summary: string, description: string, amend: boolean, postAction?: 'push' | 'sync') => Promise<void>;
   onStash?: () => void;
   onGenerateAiMessage: () => Promise<{ summary: string; description: string }>;
-  loading: boolean;
 }
 
 const CONVENTIONAL_TAGS = ['feat', 'fix', 'refactor', 'docs', 'chore', 'perf', 'test'];
@@ -24,8 +23,8 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
   onCommit,
   onStash,
   onGenerateAiMessage,
-  loading,
 }) => {
+  const [committing, setCommitting] = useState(false);
   const [summary, setSummary] = useState('');
   const [description, setDescription] = useState('');
   const [amend, setAmend] = useState(false);
@@ -103,15 +102,19 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
 
   const handleSubmit = async (e?: React.FormEvent, overrideMode?: 'commit' | 'push' | 'sync') => {
     if (e) e.preventDefault();
-    if (!summary.trim() || (stagedCount === 0 && !amend)) return;
+    if (!canCommit) return; // also stops a second Ctrl+Enter while the first commit runs
 
     const action = overrideMode || commitMode;
     const postAction = action === 'push' ? 'push' : action === 'sync' ? 'sync' : undefined;
 
+    setCommitting(true);
     try {
+      // Resolves once the commit exists; a push or pull afterwards reports its own failure.
       await onCommit(summary.trim(), description.trim(), amend, postAction);
     } catch {
       return; // the message stays for another try; the failure was reported
+    } finally {
+      setCommitting(false);
     }
     setSummary('');
     setDescription('');
@@ -120,7 +123,7 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
     setShowOptions(false);
   };
 
-  const canCommit = summary.trim().length > 0 && (stagedCount > 0 || amend) && !loading;
+  const canCommit = summary.trim().length > 0 && (stagedCount > 0 || amend) && !committing;
 
   const getCommitButtonLabel = () => {
     if (amend) {

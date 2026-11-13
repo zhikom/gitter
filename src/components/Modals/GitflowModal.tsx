@@ -10,6 +10,7 @@ import {
 import { api } from '../../api/client';
 import { toast } from '../../utils/toast';
 import { ask } from '../ui/ask';
+import { useEscape } from '../ui/useEscape';
 
 interface GitflowModalProps {
   repo: string;
@@ -24,6 +25,7 @@ export const GitflowModal: React.FC<GitflowModalProps> = ({ repo, onClose, onRef
   const [error, setError] = useState<string | null>(null);
 
   const [gitflowStatus, setGitflowStatus] = useState<Awaited<ReturnType<typeof api.gitflowStatus>> | null>(null);
+  useEscape(onClose);
 
   // Init form
   const [masterBranch, setMasterBranch] = useState('main');
@@ -130,7 +132,7 @@ export const GitflowModal: React.FC<GitflowModalProps> = ({ repo, onClose, onRef
             <div>
               <span className="text-sm font-bold text-slate-100 block">Gitflow Integration</span>
               <span className="text-[11px] text-slate-400">
-                GitKraken & Tower style branch workflow model
+                Feature, release and hotfix branches, merged and tagged for you
               </span>
             </div>
           </div>

@@ -1,3 +1,4 @@
+import { menuPosition, useDismiss } from '../ui/useDismiss';
 import React, { useState, useRef } from 'react';
 import {
   FolderGit2,
@@ -41,6 +42,7 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
   onNewTab,
 }) => {
   const [contextMenu, setContextMenu] = useState<TabContextMenu | null>(null);
+  useDismiss(Boolean(contextMenu), () => setContextMenu(null));
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
@@ -148,7 +150,8 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
       {/* Tab Context Menu */}
       {contextMenu && (
         <div
-          style={{ top: contextMenu.y, left: contextMenu.x }}
+          data-context-menu
+          style={menuPosition(contextMenu.x, contextMenu.y, 200, 160)}
           className="fixed bg-[#1b212c] border border-[#2a3447] rounded-md shadow-2xl py-1 z-50 text-xs text-slate-200 min-w-[180px]"
           onClick={(e) => e.stopPropagation()}
         >

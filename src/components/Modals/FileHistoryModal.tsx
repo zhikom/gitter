@@ -43,7 +43,7 @@ export const FileHistoryModal: React.FC<FileHistoryModalProps> = ({ file, repo, 
     setDiff(undefined);
     if (selected) {
       api
-        .fileCommitDiff({ repo, hash: selected.hash, file })
+        .fileCommitDiff({ repo, hash: selected.hash, file: selected.path })
         .then((diffs) => current && setDiff(diffs[0]))
         .catch((e) => toast.error(`Could not load the change: ${e.message}`));
     }

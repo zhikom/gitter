@@ -126,7 +126,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
                   })}
                 </div>
               ) : (
-                <SplitHunk hunk={hunk} textClass={textClass} />
+                <SplitHunk hunk={hunk} textClass={textClass} selected={selection?.get(h)} onToggle={onToggleLine && ((l) => onToggleLine(h, l))} />
               )}
             </section>
           ))
@@ -136,30 +136,45 @@ export const DiffView: React.FC<DiffViewProps> = ({
   );
 };
 
+type Indexed = { line: DiffLine; index: number } | null;
+
 /** Side by side: deletions on the left paired with the additions that replace them. */
-const SplitHunk: React.FC<{ hunk: DiffHunk; textClass: string }> = ({ hunk, textClass }) => {
-  const rows: Array<[DiffLine | null, DiffLine | null]> = [];
+const SplitHunk: React.FC<{ hunk: DiffHunk; textClass: string; selected?: ReadonlySet<number>; onToggle?: (lineIndex: number) => void }> = ({
+  hunk,
+  textClass,
+  selected,
+  onToggle,
+}) => {
+  const rows: Array<[Indexed, Indexed]> = [];
   for (let i = 0; i < hunk.lines.length; ) {
     const line = hunk.lines[i];
     if (line.type === 'context') {
-      rows.push([line, line]);
+      rows.push([{ line, index: i }, { line, index: i }]);
       i++;
       continue;
     }
-    const deleted: DiffLine[] = [];
-    const added: DiffLine[] = [];
-    while (i < hunk.lines.length && hunk.lines[i].type === 'delete') deleted.push(hunk.lines[i++]);
-    while (i < hunk.lines.length && hunk.lines[i].type === 'add') added.push(hunk.lines[i++]);
+    const deleted: Indexed[] = [];
+    const added: Indexed[] = [];
+    while (i < hunk.lines.length && hunk.lines[i].type === 'delete') deleted.push({ line: hunk.lines[i], index: i++ });
+    while (i < hunk.lines.length && hunk.lines[i].type === 'add') added.push({ line: hunk.lines[i], index: i++ });
     for (let k = 0; k < Math.max(deleted.length, added.length); k++) rows.push([deleted[k] ?? null, added[k] ?? null]);
   }
-  const cell = (line: DiffLine | null, side: 'old' | 'new') => (
-    <div className={`flex ${line ? LINE_TONE[line.type] : 'bg-black/20'}`}>
-      <span className="w-10 flex-shrink-0 pr-2 text-right text-slate-600 select-none border-r border-[#222a38]">
-        {(side === 'old' ? line?.oldLineNumber : line?.newLineNumber) ?? ''}
-      </span>
-      <span className={`flex-1 px-2 ${textClass}`}>{line?.text ?? ''}</span>
-    </div>
-  );
+  const cell = (entry: Indexed, side: 'old' | 'new') => {
+    const line = entry?.line;
+    const selectable = Boolean(onToggle && line && line.type !== 'context');
+    const isSelected = entry && selected?.has(entry.index);
+    return (
+      <div
+        onClick={selectable ? () => onToggle!(entry!.index) : undefined}
+        className={`flex ${isSelected ? 'bg-teal-500/25 ring-1 ring-inset ring-teal-500/40' : line ? LINE_TONE[line.type] : 'bg-black/20'} ${selectable ? 'cursor-pointer' : ''}`}
+      >
+        <span className="w-10 flex-shrink-0 pr-2 text-right text-slate-600 select-none border-r border-[#222a38]">
+          {(side === 'old' ? line?.oldLineNumber : line?.newLineNumber) ?? ''}
+        </span>
+        <span className={`flex-1 px-2 ${textClass}`}>{line?.text ?? ''}</span>
+      </div>
+    );
+  };
   return (
     <div className="bg-[#12161d]">
       {rows.map(([left, right], i) => (

@@ -83,7 +83,8 @@ export const VirtualBranchPanel: React.FC<VirtualBranchPanelProps> = ({
   );
 
   // Unassigned modified files
-  const unassignedFiles = statuses.filter((s) => !assignedFilePaths.has(s.path));
+  // A partly staged file is listed twice in statuses; a lane takes it once.
+  const unassignedFiles = [...new Map(statuses.filter((s) => !assignedFilePaths.has(s.path)).map((s) => [s.path, s])).values()];
 
   // Create a new Virtual Branch
   const handleCreateVirtualBranch = async () => {
@@ -315,7 +316,8 @@ export const VirtualBranchPanel: React.FC<VirtualBranchPanelProps> = ({
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => {
                     e.preventDefault();
-                    const droppedFile = e.dataTransfer.getData('application/x-gitter-filepath') || e.dataTransfer.getData('text/plain');
+                    // Only file rows carry this type; a commit or branch dropped here is ignored.
+                    const droppedFile = e.dataTransfer.getData('application/x-gitter-filepath');
                     if (droppedFile) {
                       handleAssignFile(droppedFile, lane.id);
                     }

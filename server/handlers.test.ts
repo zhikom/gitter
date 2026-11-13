@@ -10,7 +10,7 @@ import { createHandlers } from './handlers';
 import { combine, UserError } from './http';
 import { parseDiff } from './gitParse';
 import { consoleArgs } from './gitConsole';
-import { buildPatch, wholeFile, wholeHunk, type LineSelection } from '../shared/patch';
+import { buildPatch, wholeHunk, type LineSelection } from '../shared/patch';
 import { mergeConflicts, parseConflicts } from '../shared/conflicts';
 import type { FileDiff } from '../shared/types/git';
 
@@ -159,7 +159,7 @@ describe('line staging', () => {
     await api.stagePatch({ repo, patch: buildPatch(diff, pick(0), 'forward')! });
     assert.equal(await git(repo, ['show', ':new.txt']), 'alpha\n');
     [diff] = await api.workingDiff({ repo, file: 'new.txt' });
-    await api.discardPatch({ repo, patch: buildPatch(diff, wholeFile(diff), 'reverse')! });
+    await api.discardPatch({ repo, patch: buildPatch(diff, wholeHunk(0), 'reverse')! });
     assert.equal(read(repo, 'new.txt'), 'alpha\n');
   });
 
@@ -258,6 +258,21 @@ describe('history and branches', () => {
     // Reverting d without d left nothing to commit, so that pick was skipped.
     assert.equal((await git(repo, ['rev-list', '--count', 'HEAD'])).trim(), '2'); // init and the squashed commit
     assert.equal(read(repo, 'c.txt'), 'c\n');
+  });
+
+  test('file history follows a rename, and each revision diffs at its own path', async () => {
+    const repo = await newRepo();
+    await git(repo, ['mv', 'a.txt', 'b.txt']);
+    await git(repo, ['commit', '-qm', 'rename']);
+    write(repo, 'b.txt', 'one\ntwo\nthree\n');
+    await git(repo, ['commit', '-qam', 'grow']);
+    const history = await api.fileHistory({ repo, file: 'b.txt' });
+    assert.deepEqual(
+      history.map((h) => [h.summary, h.path]),
+      [['grow', 'b.txt'], ['rename', 'b.txt'], ['init', 'a.txt']]
+    );
+    const [first] = await api.fileCommitDiff({ repo, hash: history[2].hash, file: history[2].path });
+    assert.deepEqual(first.hunks[0].lines.map((l) => l.text), ['one', 'two']);
   });
 
   test('undo restores what a hard reset threw away', async () => {

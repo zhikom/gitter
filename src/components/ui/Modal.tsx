@@ -27,10 +27,30 @@ export const Modal: React.FC<ModalProps> = ({ title, icon, subtitle, onClose, wi
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
-    const first = panel.current?.querySelector<HTMLElement>('[autofocus], input, textarea, select, button:not([data-close])');
-    (first ?? panel.current)?.focus();
+    // React has already focused an element marked autoFocus (the confirm button of a
+    // confirmation); otherwise the first field gets focus, or the dialog itself.
+    if (!panel.current?.contains(document.activeElement)) {
+      (panel.current?.querySelector<HTMLElement>('input, textarea, select') ?? panel.current)?.focus();
+    }
     return () => previous?.focus?.();
   }, []);
+
+  // Tab stays inside the dialog, so it cannot reach buttons behind the backdrop.
+  const trapTab = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Tab' || !panel.current) return;
+    const focusable = [...panel.current.querySelectorAll<HTMLElement>('button, input, textarea, select, a[href], [tabindex]:not([tabindex="-1"])')].filter(
+      (el) => !el.hasAttribute('disabled') && el.offsetParent !== null
+    );
+    if (focusable.length === 0) return;
+    const [first, last] = [focusable[0], focusable[focusable.length - 1]];
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
 
   return (
     <div
@@ -42,6 +62,7 @@ export const Modal: React.FC<ModalProps> = ({ title, icon, subtitle, onClose, wi
         role="dialog"
         aria-modal="true"
         tabIndex={-1}
+        onKeyDown={trapTab}
         className={`w-full ${WIDTHS[width]} ${tall ? 'h-[88vh]' : 'max-h-[88vh]'} flex flex-col bg-[#1b212c] border border-[#2a3447] rounded-xl shadow-2xl shadow-black/60 overflow-hidden outline-none animate-[gk-pop-in_160ms_cubic-bezier(0.16,1,0.3,1)]`}
       >
         <header className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[#2a3447] bg-[#171c26] select-none">

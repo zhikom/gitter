@@ -39,7 +39,7 @@ export const FileBlameModal: React.FC<FileBlameModalProps> = ({ file, repo, onCl
       tall
       icon={<FileCode className="w-4 h-4" />}
       title={<span className="font-mono">{file}</span>}
-      subtitle={lines ? `${lines.length} lines in the committed version` : 'Loading…'}
+      subtitle={lines ? `${lines.length} lines as the file is now; lines not committed yet show 0000000` : 'Loading…'}
       onClose={onClose}
       actions={
         <Button onClick={() => onOpenHistory(file)}>
@@ -54,7 +54,12 @@ export const FileBlameModal: React.FC<FileBlameModalProps> = ({ file, repo, onCl
           <div key={line.lineNumber} className="flex items-start hover:bg-[#1a2333]/40">
             <div style={{ opacity: Math.max(0.15, line.agePercent) }} className="w-1.5 self-stretch bg-teal-400 flex-shrink-0" />
             <div className="w-56 px-2 py-0.5 flex-shrink-0 select-none border-r border-[#222a38] text-[11px] text-slate-500 flex items-center gap-2">
-              <button onClick={() => onOpenCommit(line.commitHash)} title={line.summary} className="text-teal-400/80 hover:text-teal-300 font-semibold">
+              <button
+                onClick={() => onOpenCommit(line.commitHash)}
+                disabled={/^0+$/.test(line.commitHash)}
+                title={/^0+$/.test(line.commitHash) ? 'Not committed yet' : line.summary}
+                className="text-teal-400/80 hover:text-teal-300 disabled:text-slate-600 font-semibold"
+              >
                 {line.shortHash}
               </button>
               <span className="truncate flex-1 text-slate-400" title={line.author}>

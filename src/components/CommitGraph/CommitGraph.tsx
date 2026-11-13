@@ -1,3 +1,4 @@
+import { menuPosition, useDismiss } from '../ui/useDismiss';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Commit } from '../../../shared/types/git';
 import { layoutCommitGraph, getLaneColor } from '../../utils/graphLayout';
@@ -70,18 +71,18 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
   const [density, setDensity] = usePreference('graphDensity');
   // The checked-out commit; the list is newest first across all branches, so it need not be first.
   const headCommit = commits.find((c) => c.refs.some((r) => r === 'HEAD' || r.startsWith('HEAD ->')));
+  const closeMenu = () => setContextMenu(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
     commit: Commit;
   } | null>(null);
+  useDismiss(Boolean(contextMenu), closeMenu);
 
   // Compute graph nodes with topological lane assignment
-  const graphNodes = useMemo(() => {
-    return layoutCommitGraph(commits, hasWip);
-  }, [commits, hasWip]);
+  const graphNodes = useMemo(() => layoutCommitGraph(commits, hasWip ? headCommit?.hash ?? '' : undefined), [commits, hasWip, headCommit?.hash]);
 
-  // Filter commits based on search query (supporting Sublime Merge syntax: author:, hash:, msg:)
+  // Search: plain text, or author:, hash: (sha:) and message: (msg:) prefixes.
   const filteredNodes = useMemo(() => {
     if (!searchQuery.trim()) return graphNodes;
     const q = searchQuery.toLowerCase().trim();
@@ -118,6 +119,8 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
       );
     });
   }, [graphNodes, searchQuery]);
+
+  const searching = searchQuery.trim() !== '';
 
   // Max lanes for graph SVG width calculation
   const maxLanes = useMemo(() => {
@@ -206,7 +209,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
           </div>
           {hasAgentCollisions && (
             <span
-              title="Agent file collisions detected. Open the review inbox to resolve them."
+              title="Agents are changing the same files. Open the agent fleet to see which."
               className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-semibold"
             >
               <AlertTriangle className="w-3 h-3" />
@@ -273,7 +276,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                   }
                   onSelectCommit(commit);
                 }}
-                onContextMenu={(e) => handleContextMenu(e, commit)}
+                onContextMenu={(e) => (isWip ? e.preventDefault() : handleContextMenu(e, commit))}
                 style={{ height: rowHeight }}
                 title={isWip ? 'Uncommitted changes' : `Commit ${commit.shortHash} by ${commit.author.name} (Drag onto a branch to cherry-pick)`}
                 className={`flex items-center text-xs border-b border-[#1b212c] cursor-pointer transition select-none ${
@@ -292,8 +295,12 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                     height={rowHeight}
                     className="absolute inset-0 pointer-events-none"
                   >
+                    {/* While searching, rows are not adjacent, so only the nodes are drawn. */}
+                    {!searching && node.incoming && (
+                      <line x1={nodeX} y1={0} x2={nodeX} y2={nodeY} stroke={node.color} strokeWidth="2" />
+                    )}
                     {/* Passing lanes */}
-                    {node.passingLanes.map((pLane) => {
+                    {!searching && node.passingLanes.map((pLane) => {
                       const px = GRAPH_PADDING_X + pLane * laneWidth + laneWidth / 2;
                       const pColor = getLaneColor(pLane);
                       return (
@@ -311,7 +318,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                     })}
 
                     {/* Connecting routes to parents */}
-                    {node.routes.map((route, rIdx) => {
+                    {!searching && node.routes.map((route, rIdx) => {
                       const fromX = GRAPH_PADDING_X + route.fromLane * laneWidth + laneWidth / 2;
                       const toX = GRAPH_PADDING_X + route.toLane * laneWidth + laneWidth / 2;
                       const y1 = nodeY;
@@ -466,8 +473,9 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
       {/* Context Menu on Right Click */}
       {contextMenu && (
         <div
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          className="fixed bg-[#1b212c] border border-[#2a3447] rounded-md shadow-2xl py-1 z-50 text-xs text-slate-200 min-w-[200px]"
+          data-context-menu
+          style={menuPosition(contextMenu.x, contextMenu.y, 220, 460)}
+          className="fixed bg-[#1b212c] border border-[#2a3447] rounded-md shadow-2xl py-1 z-50 text-xs text-slate-200 min-w-[200px] max-h-[90vh] overflow-y-auto"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="px-3 py-1 font-mono text-[11px] text-teal-400 border-b border-[#2a3447]">

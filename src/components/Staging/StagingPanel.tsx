@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useDismiss } from '../ui/useDismiss';
 import { FileStatus, GitFileState } from '../../../shared/types/git';
 import type { AgentInstance, FileCollision } from '../../../shared/types/agentFleet';
 import { collisionAgents, COLLISION_TEXT, harnessColor } from '../Agent/agentUi';
@@ -17,7 +18,8 @@ import {
 
 interface StagingPanelProps {
   statuses: FileStatus[];
-  selectedFile: string | null;
+  /** A partly staged file is listed twice; only the row on the selected side is highlighted. */
+  selected: { path: string; staged: boolean } | null;
   onSelectFile: (file: string, staged: boolean) => void;
   onStageFile: (file: string) => void;
   onUnstageFile: (file: string) => void;
@@ -45,7 +47,7 @@ interface ContextMenuState {
 
 export const StagingPanel: React.FC<StagingPanelProps> = ({
   statuses,
-  selectedFile,
+  selected,
   onSelectFile,
   onStageFile,
   onUnstageFile,
@@ -73,6 +75,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
 
   // Context Menu state
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  useDismiss(Boolean(contextMenu), () => setContextMenu(null));
 
   const getStatusBadge = (status: GitFileState) => {
     switch (status) {
@@ -221,7 +224,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
               </div>
             ) : (
               stagedFiles.map((file) => {
-                const isSelected = selectedFile === file.path;
+                const isSelected = selected?.path === file.path && selected.staged;
                 return (
                   <div
                     key={`staged-${file.path}`}
@@ -232,6 +235,10 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
                       e.dataTransfer.setData('application/x-gitter-file-staged', 'true');
                     }}
                     onClick={() => onSelectFile(file.path, true)}
+                    onKeyDown={(e) => e.key === 'Enter' && onSelectFile(file.path, true)}
+                    role="option"
+                    tabIndex={0}
+                    aria-selected={isSelected}
                     onDoubleClick={() => onUnstageFile(file.path)}
                     onContextMenu={(e) => handleFileContextMenu(e, file)}
                     title={`Click to view diff. Double-click to unstage. Right-click for options. Drag to Unstaged below.`}
@@ -245,7 +252,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
                       {renderAgentIndicators(file.path)}
                     </div>
 
-                    <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition">
+                    <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -328,7 +335,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
               </div>
             ) : (
               unstagedFiles.map((file) => {
-                const isSelected = selectedFile === file.path;
+                const isSelected = selected?.path === file.path && !selected.staged;
                 return (
                   <div
                     key={`unstaged-${file.path}`}
@@ -339,6 +346,10 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
                       e.dataTransfer.setData('application/x-gitter-file-staged', 'false');
                     }}
                     onClick={() => onSelectFile(file.path, false)}
+                    onKeyDown={(e) => e.key === 'Enter' && onSelectFile(file.path, false)}
+                    role="option"
+                    tabIndex={0}
+                    aria-selected={isSelected}
                     onDoubleClick={() => onStageFile(file.path)}
                     onContextMenu={(e) => handleFileContextMenu(e, file)}
                     title={`Click to view diff. Double-click to stage. Right-click for options. Drag to Staged above.`}
@@ -352,7 +363,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
                       {renderAgentIndicators(file.path)}
                     </div>
 
-                    <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition">
+                    <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -385,6 +396,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
       {/* CONTEXT MENU */}
       {contextMenu && (
         <div
+          data-context-menu
           style={{
             top: Math.min(contextMenu.y, window.innerHeight - 240),
             left: Math.min(contextMenu.x, window.innerWidth - 220),
@@ -429,7 +441,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
               className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-teal-300"
             >
               <ExternalLink className="w-3.5 h-3.5 text-teal-400" />
-              <span>Open in External Diff Tool (code --diff)</span>
+              <span>Open in diff tool</span>
             </button>
           )}
 
@@ -442,7 +454,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
               className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-blue-300"
             >
               <FileText className="w-3.5 h-3.5 text-blue-400" />
-              <span>Open in VS Code</span>
+              <span>Open in editor</span>
             </button>
           )}
 
@@ -509,18 +521,22 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
             </button>
           )}
 
-          <div className="border-t border-[#2a3447] my-1" />
-
-          <button
-            onClick={() => {
-              onDiscardFile(contextMenu.file.path);
-              setContextMenu(null);
-            }}
-            className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-red-400"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Discard changes</span>
-          </button>
+          {/* Discarding works on the working tree; a staged change is unstaged first. */}
+          {!contextMenu.file.staged && (
+            <>
+              <div className="border-t border-[#2a3447] my-1" />
+              <button
+                onClick={() => {
+                  onDiscardFile(contextMenu.file.path);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-red-400"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Discard changes</span>
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

@@ -4,8 +4,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
 import { AI_PROVIDERS, type AiProvider, type AiSettings } from '../shared/aiProviders';
+import { git } from './git';
 import { consoleArgs, CONSOLE_SUBCOMMANDS } from './gitConsole';
-import { UserError } from './http';
+import { inRepo, UserError } from './http';
 import { readUserConfig, writeUserConfig } from './userConfig';
 
 interface StoredAiConfig {
@@ -166,15 +167,40 @@ const prTask: Task<{ title: string; body: string }> = {
   effort: 'low',
 };
 
-function chatTask(context: { branch: string; status: string }): Task<string> {
-  return {
-    system:
-      `You are Gitter's git assistant. The user's repository is on branch "${context.branch}"; status: ${context.status}. ` +
-      `Answer precisely. To suggest a command the user can run with one click, put it on its own line as "COMMAND: git <subcommand> ...". ` +
-      `Only these subcommands can run that way: ${CONSOLE_SUBCOMMANDS.join(', ')}. For anything else (reset, clean, force push), ` +
-      `explain which of Gitter's own actions to use instead.`,
-    effort: 'medium',
-  };
+const chatTask: Task<string> = {
+  system:
+    `You are Gitter's git assistant. The message includes the state of the user's repository and the conversation so far. ` +
+    `Answer from that state; say so when it does not show what the user asks about. To suggest a command the user can run ` +
+    `with one click, put it on its own line as "COMMAND: git <subcommand> ...". Only these subcommands can run that way: ` +
+    `${CONSOLE_SUBCOMMANDS.join(', ')}. For anything else (reset, clean, force push), explain which of Gitter's own actions to use instead.`,
+  effort: 'medium',
+};
+
+/** Earlier turns sent along with a chat message; the newest ones count. */
+const MAX_HISTORY = 12;
+/** The uncommitted diff is cut to this, so the conversation keeps most of the room. */
+const MAX_CONTEXT_DIFF = 60_000;
+
+export interface ChatTurn {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
+/** What the assistant is told about the repository: branch, status, recent commits and the uncommitted diff. */
+async function repositoryState(repo: string): Promise<string> {
+  const [branch, status, log, diff] = await Promise.all([
+    git(repo, ['branch', '--show-current']).then((s) => s.trim() || 'detached HEAD', () => 'unknown'),
+    git(repo, ['status', '--short', '--branch']).catch(() => ''),
+    git(repo, ['log', '-15', '--oneline', '--decorate']).catch(() => '(no commits yet)'),
+    git(repo, ['diff', 'HEAD']).catch(() => git(repo, ['diff', '--cached']).catch(() => '')),
+  ]);
+  const shownDiff = diff.length > MAX_CONTEXT_DIFF ? `${diff.slice(0, MAX_CONTEXT_DIFF)}\n[diff cut]` : diff;
+  return [
+    `Branch: ${branch}`,
+    `Status (git status --short):\n${status.trim() || '(clean)'}`,
+    `Recent commits:\n${log.trim()}`,
+    `Uncommitted changes to tracked files (git diff HEAD):\n${shownDiff.trim() || '(none)'}`,
+  ].join('\n\n');
 }
 
 export const aiHandlers = {
@@ -204,11 +230,21 @@ export const aiHandlers = {
   prDescription: ({ commits, diffSummary }: { commits: string[]; diffSummary: string }) =>
     ask(prTask, `Commits:\n${commits.map((c) => `- ${c}`).join('\n')}\n\nChanged files:\n${clip(diffSummary)}`),
 
-  chat: async ({ message, context }: { message: string; context: { branch: string; status: string } }) => {
-    const reply = await ask(chatTask(context), message);
+  /** `context`: more for the assistant to see with this message, such as an agent's diff. */
+  chat: inRepo(async (repo, { message, history = [], context }: { message: string; history?: ChatTurn[]; context?: string }) => {
+    const turns = history.slice(-MAX_HISTORY).map((t) => `${t.role === 'user' ? 'User' : 'Assistant'}: ${t.text}`);
+    const prompt = [
+      `Repository state:\n${await repositoryState(repo)}`,
+      context ? `Also shown for this question:\n${context}` : '',
+      turns.length ? `Conversation so far:\n${turns.join('\n\n')}` : '',
+      `User: ${message}`,
+    ]
+      .filter(Boolean)
+      .join('\n\n---\n\n');
+    const reply = await ask(chatTask, clip(prompt));
     const command = reply.match(/^COMMAND:\s*(git\s+.+)$/im)?.[1].trim();
     return { reply, suggestedCommand: command && isRunnable(command) ? command : undefined };
-  },
+  }),
 };
 
 /** Whether the git console accepts the command; only those are offered as one click. */

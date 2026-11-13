@@ -46,7 +46,8 @@ async function call(operation: string, input: unknown): Promise<unknown> {
 }
 
 export const api = new Proxy({} as Api, {
-  get: (_, operation) => (typeof operation === 'string' ? (input: unknown) => call(operation, input) : undefined),
+  // "then" is not an operation: without this, `await api` would POST /then.
+  get: (_, operation) => (typeof operation === 'string' && operation !== 'then' ? (input: unknown) => call(operation, input) : undefined),
 });
 
 /** Shows the OS folder picker. Resolves to the chosen folder, or null if cancelled. */

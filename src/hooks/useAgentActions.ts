@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import type { AgentHarness } from '../../shared/types/agentFleet';
 import type { AgentDiff, AgentReviewSnapshot } from '../../shared/types/agentReview';
@@ -25,7 +25,7 @@ export interface AgentActions {
  */
 export function useAgentActions(
   repo: string,
-  apply: (snapshot: AgentReviewSnapshot) => void,
+  apply: (snapshot: AgentReviewSnapshot, repo: string) => void,
   refresh: () => Promise<void>,
   onRepositoryChanged: () => void
 ): AgentActions {
@@ -35,7 +35,7 @@ export function useAgentActions(
     async function act<T>(run: () => Promise<T>, success: string, failure: string, changesRepository = false): Promise<T> {
       try {
         const result = await run();
-        if (result && typeof result === 'object' && 'fleet' in result) apply(result as unknown as AgentReviewSnapshot);
+        if (result && typeof result === 'object' && 'fleet' in result) apply(result as unknown as AgentReviewSnapshot, repo);
         toast.success(success);
         if (changesRepository) onRepositoryChanged();
         return result;
@@ -78,14 +78,19 @@ export function useAgentActions(
 export function useAgentDiff(repo: string, agentId: string | null, version: unknown) {
   const [diff, setDiff] = useState<AgentDiff | null>(null);
   const [loading, setLoading] = useState(false);
+  // Switching agents quickly must not show the previous agent's answer.
+  const wanted = useRef('');
+  wanted.current = `${repo}\0${agentId}`;
 
   const reload = useCallback(async () => {
     if (!agentId) return;
+    const key = `${repo}\0${agentId}`;
     setLoading(true);
     try {
-      setDiff(await api.agentDiff({ repo, agentId }));
+      const next = await api.agentDiff({ repo, agentId });
+      if (wanted.current === key) setDiff(next);
     } catch (e: any) {
-      toast.error(`Could not load the agent's changes: ${e.message}`);
+      if (wanted.current === key) toast.error(`Could not load the agent's changes: ${e.message}`);
     } finally {
       setLoading(false);
     }

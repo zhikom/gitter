@@ -11,6 +11,8 @@ import { type Conflict, type ConflictedFile, hasMarkers, mergeConflicts, parseCo
 interface ThreeWayConflictResolverModalProps {
   file: string;
   repo: string;
+  /** During a rebase git's "ours" is the branch being rebased onto and "theirs" is your commit. */
+  rebasing: boolean;
   onClose: () => void;
   onResolved: () => void;
 }
@@ -20,7 +22,8 @@ const SIDE_STYLE = {
   theirs: { dot: 'bg-purple-500', text: 'text-purple-300', chosen: 'border-purple-500/60 bg-purple-500/10', button: 'bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border-purple-500/40' },
 };
 
-export const ThreeWayConflictResolverModal: React.FC<ThreeWayConflictResolverModalProps> = ({ file, repo, onClose, onResolved }) => {
+export const ThreeWayConflictResolverModal: React.FC<ThreeWayConflictResolverModalProps> = ({ file, repo, rebasing, onClose, onResolved }) => {
+  const sideLabel = { ours: rebasing ? 'Rebasing onto' : 'Yours (checked out)', theirs: rebasing ? 'Your commit' : 'Incoming' };
   const [parsed, setParsed] = useState<ConflictedFile | null>(null);
   const [result, setResult] = useState('');
   const [rationale, setRationale] = useState('');
@@ -94,7 +97,7 @@ export const ThreeWayConflictResolverModal: React.FC<ThreeWayConflictResolverMod
       <div className="flex flex-col min-h-0 bg-[#12161f]">
         <div className="h-9 flex-shrink-0 bg-[#171c26] border-b border-[#232c3d] px-4 flex items-center gap-2">
           <span className={`w-2.5 h-2.5 rounded-full ${style.dot}`} />
-          <span className={`text-xs font-semibold ${style.text}`}>{which === 'ours' ? 'Yours (checked out)' : 'Incoming'}</span>
+          <span className={`text-xs font-semibold ${style.text}`}>{sideLabel[which]}</span>
           <span className="text-[10px] text-slate-500 font-mono truncate">{conflicts[0]?.[which === 'ours' ? 'oursLabel' : 'theirsLabel']}</span>
         </div>
         <div className="flex-1 p-3 overflow-y-auto font-mono text-xs space-y-3">
@@ -110,7 +113,7 @@ export const ThreeWayConflictResolverModal: React.FC<ThreeWayConflictResolverMod
                     </button>
                     <button
                       onClick={() => choose(c, which === 'ours' ? 'ours-then-theirs' : 'theirs-then-ours')}
-                      title={`Keep both, ${which === 'ours' ? 'yours' : 'incoming'} first`}
+                      title={`Keep both, ${sideLabel[which].toLowerCase()} first`}
                       className="px-2 py-0.5 rounded text-[10px] bg-[#1d2636] hover:bg-[#253147] text-slate-300"
                     >
                       Both, this first
