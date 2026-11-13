@@ -14,6 +14,7 @@ import { toast } from '../../utils/toast';
 import { Button, Field, inputClass, Modal } from '../ui/Modal';
 import { IntegrationsPanel } from './IntegrationsPanel';
 import { OpenInSettings } from './OpenInSettings';
+import { FontSettings } from './FontSettings';
 
 type Tab = 'general' | 'repository' | 'ssh' | 'integrations' | 'open-in' | 'ai' | 'about';
 type RepoSettings = Awaited<ReturnType<typeof api.repoSettings>>['settings'];
@@ -118,6 +119,7 @@ const GeneralSettings: React.FC = () => (
   <>
     <Section title="Appearance">
       <ThemePicker />
+      <FontSettings />
     </Section>
     <Section title="Repositories">
       <RepositoryFolderSettings />

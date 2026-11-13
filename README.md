@@ -46,7 +46,9 @@ written by AI coding agents.
   after restart. Copy a public SSH key and open either provider's
   SSH-key page from Settings when you need to add it.
 - Single-click a branch to reveal its tip in the graph; double-click to check it out.
-- Choose Gitter dark, Codex-inspired dark, or Claude-inspired light in Settings.
+- Choose Gitter dark, Codex-inspired dark, or Claude-inspired light in Settings;
+  select interface and code fonts independently, including Anthropic Sans from
+  a local Claude Desktop installation when available.
 
 **AI agents**
 - Start an agent in its own branch and worktree (`agent/<harness>-<task>`), or
@@ -71,12 +73,16 @@ ad-hoc signed but not notarized, and the Windows installer is unsigned, so the
 operating system may show a security warning. Gitter checks for new releases at
 startup and can install them (Settings → General).
 
-Gitter uses the `git` on your `PATH`, with your own credentials, hooks and
-signing setup. GitHub pull requests need the [GitHub CLI](https://cli.github.com/)
-signed in; Bitbucket pull requests need a connected Bitbucket account.
+Gitter uses the `git` on your `PATH`, with your own credentials and signing
+setup. Ordinary commits use Git's commit hooks. Lane commits targeting a
+different, unchecked-out branch use Git's lower-level commit commands and do
+not run the usual commit hooks; see the roadmap for the planned audit. GitHub
+pull requests need the [GitHub CLI](https://cli.github.com/) signed in;
+Bitbucket pull requests need a connected Bitbucket account.
 
 For a tour of the workspace and step-by-step workflows, see the
-[visual user guide](docs/USER_GUIDE.md).
+[visual user guide](docs/USER_GUIDE.md). The [configuration roadmap](docs/JETBRAINS_INSPIRED_ROADMAP.md)
+compares Gitter with JetBrains' configuration options and prioritizes future work.
 
 ## Keyboard shortcuts
 

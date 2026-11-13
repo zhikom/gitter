@@ -4,6 +4,7 @@
 // existing choices carry over.
 import { useCallback, useSyncExternalStore } from 'react';
 import { DEFAULT_OPEN_IN_APPS, type OpenInApp, type OpenInKind } from '../shared/types/openIn';
+import { normalizeFontName } from '../shared/fonts';
 
 export interface RepoTab {
   path: string;
@@ -14,6 +15,8 @@ export interface RepoTab {
 
 export interface Preferences {
   theme: 'classic' | 'codex' | 'claude';
+  interfaceFont: string;
+  codeFont: string;
   // Diffs
   diffView: 'unified' | 'split';
   diffFontSize: number;
@@ -48,6 +51,8 @@ export interface Preferences {
 
 const DEFAULTS: Preferences = {
   theme: 'classic',
+  interfaceFont: '',
+  codeFont: '',
   diffView: 'unified',
   diffFontSize: 12,
   tabSize: 4,
@@ -76,6 +81,8 @@ const DEFAULTS: Preferences = {
 
 const STORAGE_KEYS: Record<keyof Preferences, string> = {
   theme: 'gitter_theme',
+  interfaceFont: 'gitter_interface_font',
+  codeFont: 'gitter_code_font',
   diffView: 'gitter_diff_view',
   diffFontSize: 'gitter_diff_font_size',
   tabSize: 'gitter_tab_size',
@@ -113,6 +120,8 @@ const strings = (v: unknown) => (Array.isArray(v) && v.every((s) => typeof s ===
 // by an earlier version or edited by hand, falls back to the default.
 const NORMALIZE: { [K in keyof Preferences]?: (value: unknown) => Preferences[K] | undefined } = {
   theme: oneOf('classic', 'codex', 'claude'),
+  interfaceFont: normalizeFontName,
+  codeFont: normalizeFontName,
   openInApps: (value) => {
     if (!Array.isArray(value)) return undefined;
     const kinds: OpenInKind[] = ['vscode', 'rider', 'codex', 'claude', 'terminal', 'application', 'command'];

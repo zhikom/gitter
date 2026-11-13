@@ -152,9 +152,19 @@ resolver was open.
 ## Choose a theme and external apps
 
 Open **Settings → General → Appearance** to choose **Gitter dark**, **Codex**
-(neutral dark), or **Claude** (warm light with serif headings). The choice
-applies immediately and is remembered. These are Gitter themes inspired by the
-apps; they use available system fonts.
+(neutral dark), or **Claude** (warm light with serif headings). Choose separate
+**Interface font** and **Code and diff font** families from the installed-font
+list, or enter a family name. The preview and app update immediately; choices
+are remembered. Use **Theme default** to restore the theme's font. For aligned
+code and diff columns, choose a monospaced font; diff size is in **Diffs**.
+
+The **Anthropic Sans** option uses the font from a local Claude Desktop
+installation on macOS when available, or a matching system-installed family.
+Gitter does not include the font in its installers. If it cannot be found, the
+interface uses a system fallback and Settings shows that status.
+
+These are Gitter themes inspired by the apps. The [configuration roadmap](JETBRAINS_INSPIRED_ROADMAP.md)
+compares Gitter with JetBrains' settings and outlines future improvements.
 
 Use **Open in…** in the toolbar or a repository tab's context menu to open the
 repository in an editor, coding app, or terminal. In **Settings → Open in**,
@@ -178,4 +188,6 @@ argument on each line and use `{path}` where the repository folder belongs.
 
 For older Git actions, open **Reflog** from the command palette. Review what a
 reset, restore, or revert will change before using it. Git operations use your
-installed Git, including your hooks and signing configuration.
+installed Git and signing configuration. Ordinary commits run Git's commit
+hooks; lane commits targeting a different, unchecked-out branch use Git
+plumbing and do not run the usual commit hooks.

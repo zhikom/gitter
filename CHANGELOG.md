@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-13
+
+### Appearance
+
+- Choose independent interface and code fonts from installed families, or
+  enter a family name. Preview changes immediately and keep them across restarts.
+- Use Anthropic Sans from a local Claude Desktop installation or an installed
+  font, with a system fallback when it is unavailable. The font is not bundled.
+
+### Documentation
+
+- Add a JetBrains-inspired configuration roadmap covering settings, appearance,
+  windows, actions, templates, Git hooks, and extensions.
+- Clarify that lane commits to a different, unchecked-out branch do not run
+  Git's usual commit hooks.
+
+### Downloads
+
+- Windows x64 and macOS ARM64 (Apple Silicon) installers are available. The
+  Windows installer is unsigned; the Mac app is ad-hoc signed but not
+  notarized, so the operating system may show a security warning.
+
 ## [1.8.0] - 2026-11-13
 
 ### Pull request reviews

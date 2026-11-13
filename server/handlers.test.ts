@@ -10,6 +10,8 @@ import { createGitHubHandlers } from './github';
 import { createGitHubReviewHandlers, githubPullTarget } from './pullReview';
 import { validateSuggestions } from './reviewAgent';
 import { bitbucketReviewSnapshot, reviewAnchorPage, reviewPageDiff, REVIEW_PAGE_ROWS } from '../src/utils/pullReview';
+import { createFontHandlers, fontHandlers, macFontFamilies } from './fonts';
+import { ANTHROPIC_SANS, fontStack, normalizeFontName } from '../shared/fonts';
 import { createHandlers } from './handlers';
 import { combine, UserError } from './http';
 import { parseDiff } from './gitParse';
@@ -105,6 +107,44 @@ test('configured application arguments keep the repository path as one literal a
   assert.deepEqual(openInArguments(app, folder), [`--folder=${folder}`, '--new-window']);
   assert.deepEqual(openInArguments({ ...app, args: ['--new-window'] }, folder), ['--new-window', folder]);
   assert.throws(() => openInArguments({ ...app, args: ['bad\0arg'] }, folder));
+});
+
+test('font choices use enabled families and quote custom names safely', () => {
+  const data = JSON.stringify({ SPFontsDataType: [
+    { enabled: 'yes', typefaces: [{ family: 'Example Sans', enabled: 'yes' }, { family: 'Example Sans', enabled: 'yes' }, { family: 'Hidden', enabled: 'no' }] },
+    { enabled: 'no', typefaces: [{ family: 'Disabled' }] },
+    { typefaces: [{ family: 'Mono Family' }, { family: '.Hidden System Font' }, { family: 'bad\nname' }] },
+  ] });
+  assert.deepEqual(macFontFamilies(data), ['Example Sans', 'Mono Family']);
+  assert.equal(fontStack('', 'ui'), null);
+  assert.match(fontStack(ANTHROPIC_SANS, 'ui')!, /Gitter Anthropic Sans/);
+  assert.equal(fontStack('A "quoted" \\ font', 'code'), '"A \\"quoted\\" \\\\ font", "SF Mono", "Cascadia Code", Consolas, monospace');
+  assert.equal(normalizeFontName('bad\nname'), undefined);
+});
+
+test('Anthropic Sans is loaded only from a local Claude font directory', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitter-font-test-'));
+  temps.push(dir);
+  const fonts = createFontHandlers([dir]);
+  await assert.rejects(fonts.claudeSansFont(), /Install Claude Desktop/);
+  const roman = Buffer.from([0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+  const italic = Buffer.from([0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
+  fs.writeFileSync(path.join(dir, 'AnthropicSans-Romans-Variable-test.ttf'), roman);
+  fs.writeFileSync(path.join(dir, 'AnthropicSans-Italics-Variable-test.ttf'), italic);
+  const loaded = await fonts.claudeSansFont();
+  assert.deepEqual(Buffer.from(loaded.roman, 'base64'), roman);
+  assert.deepEqual(Buffer.from(loaded.italic!, 'base64'), italic);
+  fs.writeFileSync(path.join(dir, 'AnthropicSans-Romans-Variable-test.ttf'), 'not a font file');
+  await assert.rejects(fonts.claudeSansFont(), /unsupported font/);
+});
+
+test('font discovery lists installed families on desktop platforms', async () => {
+  const catalog = await fontHandlers.fontCatalog();
+  assert.ok(Array.isArray(catalog.families));
+  if (process.platform === 'darwin' || process.platform === 'win32') {
+    assert.equal(catalog.listingFailed, false);
+    assert.ok(catalog.families.length > 0);
+  }
 });
 
 test('clone returns the actual destination so it can be opened', async () => {

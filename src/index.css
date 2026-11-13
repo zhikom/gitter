@@ -4,7 +4,7 @@
 
 :root {
   color-scheme: dark;
-  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
   --font-code: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
 }
 
@@ -13,7 +13,6 @@
   color-scheme: dark;
   --theme-deep: 20 20 20; --theme-base: 28 28 28; --theme-surface: 36 36 36; --theme-raised: 46 46 46; --theme-border: 62 62 62;
   --graph-bg: #1c1c1c; --graph-accent: #8baee8;
-  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-code: 'SF Mono', 'Cascadia Code', Consolas, monospace;
   --slate-50: 250 250 249; --slate-100: 241 241 239; --slate-200: 224 224 221; --slate-300: 196 196 192; --slate-400: 161 161 156; --slate-500: 132 132 128; --slate-600: 105 105 102; --slate-700: 76 76 74; --slate-800: 47 47 46; --slate-900: 28 28 28; --slate-950: 18 18 18;
   --teal-50: 239 245 255; --teal-100: 219 232 252; --teal-200: 196 216 248; --teal-300: 171 202 247; --teal-400: 139 174 232; --teal-500: 70 110 174; --teal-600: 60 104 177; --teal-700: 48 81 139; --teal-800: 39 62 105; --teal-900: 29 47 80; --teal-950: 22 35 61;
@@ -25,13 +24,12 @@
   color-scheme: light;
   --theme-deep: 236 232 223; --theme-base: 250 249 245; --theme-surface: 244 242 235; --theme-raised: 232 228 218; --theme-border: 211 205 193; --theme-overlay: 61 51 41;
   --graph-bg: #faf9f5; --graph-accent: #a95134;
-  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-code: 'SF Mono', 'Cascadia Code', Consolas, monospace;
   --slate-50: 34 31 28; --slate-100: 43 39 34; --slate-200: 58 52 46; --slate-300: 75 67 59; --slate-400: 96 86 76; --slate-500: 112 101 89; --slate-600: 125 113 100; --slate-700: 147 135 121; --slate-800: 204 196 183; --slate-900: 235 231 223; --slate-950: 249 247 241;
   --teal-50: 58 35 26; --teal-100: 73 41 29; --teal-200: 106 52 32; --teal-300: 134 59 36; --teal-400: 153 67 42; --teal-500: 164 74 45; --teal-600: 135 56 34; --teal-700: 112 46 28; --teal-800: 92 39 25; --teal-900: 71 32 22; --teal-950: 48 25 18;
 }
 
-:root[data-theme='claude'] h1, :root[data-theme='claude'] h2 { font-family: 'Iowan Old Style', Georgia, serif; letter-spacing: -0.01em; }
+:root[data-theme='claude'] h1, :root[data-theme='claude'] h2 { font-family: var(--font-heading, 'Iowan Old Style', Georgia, serif); letter-spacing: -0.01em; }
 :root[data-theme='claude'] .text-slate-950 { color: #211b16; }
 :root[data-theme='claude'] [aria-label='Command palette'] [role='option'][aria-selected='true'] { color: rgb(var(--slate-100)); }
 :root[data-theme='claude'] [class~='hover:text-white']:hover { color: #211b16; }
@@ -70,10 +68,16 @@ body {
   background: #3c4b66;
 }
 
-/* Monospace font */
+/* Typography follows the selected families, including explicit utility classes. */
+.font-sans {
+  font-family: var(--font-ui);
+}
+
 .font-mono {
   font-family: var(--font-code);
 }
+
+pre, code, kbd, samp { font-family: var(--font-code); }
 
 /* Selection and focus */
 ::selection {

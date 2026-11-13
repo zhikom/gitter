@@ -8,6 +8,7 @@ import { branchHandlers } from './branches';
 import { changeHandlers } from './changes';
 import { consoleHandlers } from './gitConsole';
 import { historyHandlers } from './history';
+import { fontHandlers } from './fonts';
 import { combine } from './http';
 import * as os from './osIntegration';
 import { homedir } from 'node:os';
@@ -50,6 +51,7 @@ export function createHandlers(host: Host) {
     repositoryHandlers,
     changeHandlers,
     historyHandlers,
+    fontHandlers,
     branchHandlers,
     remoteHandlers,
     githubReviewHandlers,
