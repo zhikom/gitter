@@ -126,6 +126,7 @@ const GeneralSettings: React.FC = () => (
 
 const RepositorySettings: React.FC<{ repo: string }> = ({ repo }) => {
   const [settings, setSettings] = useState<RepoSettings | null>(null);
+  const [saved, setSaved] = useState<RepoSettings | null>(null);
   const [inherited, setInherited] = useState({ userName: '', userEmail: '' });
   const [saving, setSaving] = useState(false);
 
@@ -134,6 +135,7 @@ const RepositorySettings: React.FC<{ repo: string }> = ({ repo }) => {
       .repoSettings({ repo })
       .then((loaded) => {
         setSettings(loaded.settings);
+        setSaved(loaded.settings);
         setInherited(loaded.inherited);
       })
       .catch((e) => toast.error(`Could not read the repository settings: ${e.message}`));
@@ -145,7 +147,17 @@ const RepositorySettings: React.FC<{ repo: string }> = ({ repo }) => {
   const save = async () => {
     setSaving(true);
     try {
-      await api.saveRepoSettings({ repo, settings });
+      // Only what was changed is written, so values inherited from global config
+      // (or ones Gitter cannot show exactly, like pull.rebase=merges) stay as they are.
+      const changed = Object.fromEntries(
+        (Object.keys(settings) as Array<keyof RepoSettings>).filter((k) => JSON.stringify(settings[k]) !== JSON.stringify(saved?.[k])).map((k) => [k, settings[k]])
+      );
+      if (Object.keys(changed).length === 0) {
+        toast.info('Nothing changed.');
+        return;
+      }
+      await api.saveRepoSettings({ repo, settings: changed });
+      setSaved(settings);
       toast.success('Repository settings saved.');
     } catch (e: any) {
       toast.error(`Could not save: ${e.message}`);

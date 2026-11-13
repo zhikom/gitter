@@ -565,6 +565,13 @@ export const App: React.FC = () => {
         <Welcome recent={recent} problem={repo ? repository.problem : null} onOpen={openRepo} onChoose={(tab) => setDialog({ kind: 'repositories', tab })} />
       ) : (
         <div className="flex-1 flex overflow-hidden relative">
+          {repository.problem && (
+            <div role="alert" className="absolute top-0 inset-x-0 z-30 flex items-center gap-3 px-4 py-2 bg-rose-950/90 border-b border-rose-500/40 text-xs text-rose-100">
+              <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+              <span className="flex-1 truncate">Could not read the repository: {repository.problem}. What you see may be out of date.</span>
+              <Button onClick={() => void repository.refresh()}>Try again</Button>
+            </div>
+          )}
           {railOpen && (
             <AgentRail
               reviews={live.reviews}
