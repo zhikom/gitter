@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-## [1.4.0] - 2026-11-13
+## [1.4.1] - 2026-11-13
 
 ### Repositories and coding apps
 
@@ -13,8 +13,9 @@
   most recent successful clone destination is filled in automatically.
 - Open a repository in a new Codex or Claude Code desktop session from the
   repository menu, a repository tab, or the recent repositories list.
-- Copy an SSH public key from Settings and open a connected Bitbucket server's
-  SSH-key page to paste it. The browser may ask you to sign in separately.
+- Generate an Ed25519 SSH key in Settings, with an optional passphrase, without
+  overwriting existing files. Copy a public key and open a connected Bitbucket
+  server's SSH-key page to paste it. The browser may ask you to sign in separately.
 
 ### Downloads
 

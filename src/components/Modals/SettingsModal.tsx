@@ -156,6 +156,12 @@ const SshSettings: React.FC = () => {
   const [keys, setKeys] = useState<SshPublicKey[]>([]);
   const [connections, setConnections] = useState<Integration[]>([]);
   const [connectionId, setConnectionId] = useState('');
+  const [showGenerate, setShowGenerate] = useState(false);
+  const [keyName, setKeyName] = useState('id_ed25519');
+  const [comment, setComment] = useState('');
+  const [passphrase, setPassphrase] = useState('');
+  const [confirmPassphrase, setConfirmPassphrase] = useState('');
+  const [generating, setGenerating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [remote, setRemote] = useState('');
   const [result, setResult] = useState('');
@@ -171,6 +177,20 @@ const SshSettings: React.FC = () => {
     return () => { live = false; };
   }, []);
   const connection = connections.find((item) => item.id === connectionId);
+  const generateKey = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (passphrase !== confirmPassphrase) { setResult('The passphrases do not match.'); return; }
+    const secret = passphrase;
+    setPassphrase(''); setConfirmPassphrase(''); setResult(''); setGenerating(true);
+    try {
+      const path = await desktopApi.generateSshKey(keyName.trim(), comment.trim(), secret);
+      setShowGenerate(false);
+      toast.success(`Created SSH key ${path}.`);
+      try { setKeys(await desktopApi.listSshKeys()); }
+      catch (e) { setResult(`The key was created, but the list could not be refreshed: ${String(e)}`); }
+    } catch (e) { setResult(`Could not create the SSH key: ${String(e)}`); }
+    finally { setGenerating(false); }
+  };
   const copyKey = async (key: SshPublicKey, openBitbucket: boolean) => {
     try {
       await desktopApi.copySshPublicKey(key.publicKey);
@@ -184,15 +204,24 @@ const SshSettings: React.FC = () => {
   };
   return (
     <div className="space-y-3 text-xs text-slate-300">
-      <p>Git uses your system SSH configuration and agent. Gitter reads public keys only.</p>
+      <p>Git and Gitter use your system SSH configuration and agent. Gitter shows public keys; private keys stay on your computer.</p>
       {loading && <p>Loading public keys…</p>}
-      {!loading && keys.length === 0 && <p>No public keys were found in ~/.ssh. Create an SSH key, then refresh this list.</p>}
-      {!loading && <Button type="button" onClick={async () => {
+      {!loading && keys.length === 0 && <p>No public keys were found in ~/.ssh. Generate a key or add an existing one.</p>}
+      {!loading && <div className="flex flex-wrap gap-2"><Button type="button" onClick={() => { setShowGenerate((value) => !value); setResult(''); setPassphrase(''); setConfirmPassphrase(''); }}>{showGenerate ? 'Cancel' : 'Generate SSH key…'}</Button><Button type="button" onClick={async () => {
         setLoading(true); setResult('');
         try { setKeys(await desktopApi.listSshKeys()); }
         catch (e) { setResult(String(e)); }
         finally { setLoading(false); }
-      }}>Refresh keys</Button>}
+      }}>Refresh keys</Button></div>}
+      {showGenerate && <form onSubmit={generateKey} className="space-y-3 rounded border border-[#2a3447] bg-[#14181f] p-3">
+        <p>An Ed25519 key will be saved in ~/.ssh. Existing keys are never overwritten.</p>
+        {result && <p role="alert" className="whitespace-pre-wrap break-words text-rose-300">{result}</p>}
+        <Field label="Key filename" hint="The default id_ed25519 is automatically discovered by OpenSSH. Other names need SSH configuration or an agent."><input aria-label="Key filename" value={keyName} onChange={(event) => setKeyName(event.target.value)} className={`${inputClass} font-mono`} required /></Field>
+        <Field label="Comment (optional)"><input aria-label="SSH key comment" value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Email or label" className={inputClass} /></Field>
+        <Field label="Passphrase (optional)" hint="Leave blank for an unencrypted key. A protected key may need to be unlocked in your SSH agent before Git can use it."><input aria-label="SSH key passphrase" type="password" autoComplete="new-password" value={passphrase} onChange={(event) => setPassphrase(event.target.value)} className={inputClass} /></Field>
+        <Field label="Confirm passphrase"><input aria-label="Confirm SSH key passphrase" type="password" autoComplete="new-password" value={confirmPassphrase} onChange={(event) => setConfirmPassphrase(event.target.value)} className={inputClass} /></Field>
+        <Button type="submit" tone="primary" busy={generating} disabled={!keyName.trim()}>{generating ? 'Generating…' : 'Generate key'}</Button>
+      </form>}
       {connections.length > 1 && <Field label="Bitbucket connection"><select aria-label="Bitbucket connection for SSH keys" value={connectionId} onChange={(event) => setConnectionId(event.target.value)} className={inputClass}>{connections.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></Field>}
       {connection && keys.length > 0 && <p className="text-slate-500">Copy a public key and open {connection.label}'s SSH keys page to paste it. Your browser may ask you to sign in.</p>}
       {keys.map((key) => <div key={key.path} className="p-3 rounded bg-[#14181f] border border-[#2a3447] break-all">
@@ -209,7 +238,7 @@ const SshSettings: React.FC = () => {
         catch (e) { setResult(String(e)); }
         finally { setTesting(false); }
       }}>{testing ? 'Testing…' : 'Test connection'}</Button>
-      {result && <pre className="whitespace-pre-wrap break-all">{result}</pre>}
+      {result && !showGenerate && <pre className="whitespace-pre-wrap break-all">{result}</pre>}
     </div>
   );
 };

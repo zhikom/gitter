@@ -34,8 +34,8 @@ written by AI coding agents.
   commit each group to its own branch without switching.
 - Several repositories open in tabs.
 - Clone over HTTPS or SSH into a configurable default folder (`~/repos` by
-  default); reuse recent clone destinations, inspect and copy SSH public keys,
-  and reveal repositories in Finder or Explorer.
+  default); reuse recent clone destinations, generate, inspect, and copy SSH
+  public keys, and reveal repositories in Finder or Explorer.
 - Open a repository in Codex or Claude Code from the repository menu or tab
   menu, with the repository folder selected for a new coding session.
 - On macOS, connect Bitbucket Server / Data Center with a personal access token

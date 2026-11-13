@@ -17,6 +17,7 @@ function desktop<T>(command: string, args?: Record<string, unknown>): Promise<T>
 export const desktopApi = {
   listSshKeys: () => desktop<SshPublicKey[]>('list_ssh_keys'),
   copySshPublicKey: (publicKey: string) => desktop<void>('copy_ssh_public_key', { publicKey }),
+  generateSshKey: (name: string, comment: string, passphrase: string) => desktop<string>('generate_ssh_key', { name, comment, passphrase }),
   testSshRemote: (remote: string) => desktop<string>('test_ssh_remote', { remote }),
   listIntegrations: () => desktop<Integration[]>('list_integrations'),
   connectIntegration: (kind: IntegrationKind, baseUrl: string, label: string, token: string) =>

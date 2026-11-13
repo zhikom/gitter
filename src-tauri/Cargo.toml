@@ -1,6 +1,6 @@
 [package]
 name = "gitter"
-version = "1.4.0"
+version = "1.4.1"
 description = "Gitter - High-Performance Git GUI with AI and Virtual Branches"
 authors = ["Zhiko Mitov <zhikom@gmail.com>"]
 edition = "2021"
@@ -22,6 +22,8 @@ tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "native-tls", "system-proxy", "query"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }
+ssh-key = { version = "0.6.7", default-features = false, features = ["std", "ed25519", "encryption", "getrandom"] }
+zeroize = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3"

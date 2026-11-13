@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::path::Path;
 use std::io::Write;
 use std::process::{Command, Stdio};
+use ssh_key::{Algorithm, LineEnding, PrivateKey, rand_core::OsRng};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,6 +41,86 @@ pub fn copy_public_key(key: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn restrict_private_key(path: &Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    const NO_WINDOW: u32 = 0x08000000;
+    let user = Command::new("whoami.exe").args(["/user", "/fo", "csv", "/nh"]).creation_flags(NO_WINDOW).output()
+        .map_err(|error| format!("Could not determine the Windows account: {error}"))?;
+    if !user.status.success() { return Err("Could not determine the Windows account".into()); }
+    let user = String::from_utf8_lossy(&user.stdout);
+    let start = user.find("S-1-").ok_or("Could not determine the Windows account SID")?;
+    let sid = user[start..].split(|ch: char| !ch.is_ascii_digit() && ch != '-').next().unwrap_or("");
+    let grant = format!("*{sid}:(F)");
+    let status = Command::new("icacls.exe").arg(path).args(["/inheritance:r", "/grant:r", &grant])
+        .creation_flags(NO_WINDOW).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+        .status().map_err(|error| format!("Could not protect the private key: {error}"))?;
+    if !status.success() { return Err("Could not restrict access to the private key".into()); }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn restrict_private_key(_path: &Path) -> Result<(), String> { Ok(()) }
+
+/** Create a standard OpenSSH key pair without replacing either existing file. */
+fn generate_key_in(folder: &Path, name: &str, comment: &str, passphrase: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() || name.len() > 100 || name.starts_with('.') || name.ends_with(".pub")
+        || !name.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.')) {
+        return Err("Use a key name made of letters, numbers, dots, hyphens, or underscores".into());
+    }
+    let comment = comment.trim();
+    if comment.len() > 256 || comment.contains(['\r', '\n', '\0']) || passphrase.len() > 4096 {
+        return Err("The key comment or passphrase is invalid".into());
+    }
+    let private_path = folder.join(name);
+    let public_path = folder.join(format!("{name}.pub"));
+    if private_path.exists() || public_path.exists() { return Err("A key with that name already exists. Choose another name.".into()); }
+
+    let mut key = PrivateKey::random(&mut OsRng, Algorithm::Ed25519).map_err(|error| format!("Could not create the SSH key: {error}"))?;
+    key.set_comment(comment);
+    let public = key.public_key().to_openssh().map_err(|error| error.to_string())?;
+    let key = if passphrase.is_empty() { key } else { key.encrypt(&mut OsRng, passphrase).map_err(|error| format!("Could not encrypt the SSH key: {error}"))? };
+    let private = key.to_openssh(LineEnding::LF).map_err(|error| error.to_string())?;
+
+    if !folder.is_dir() {
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)] { use std::os::unix::fs::DirBuilderExt; builder.mode(0o700); }
+        if let Err(error) = builder.create(folder) {
+            if !folder.is_dir() { return Err(format!("Could not create the SSH folder: {error}")); }
+        }
+    }
+    let mut private_options = std::fs::OpenOptions::new();
+    private_options.write(true).create_new(true);
+    #[cfg(unix)] { use std::os::unix::fs::OpenOptionsExt; private_options.mode(0o600); }
+    let mut private_file = private_options.open(&private_path).map_err(|error| format!("Could not create the private key: {error}"))?;
+    let mut public_created = false;
+    let result = (|| -> Result<(), String> {
+        restrict_private_key(&private_path)?;
+        let mut public_options = std::fs::OpenOptions::new();
+        public_options.write(true).create_new(true);
+        #[cfg(unix)] { use std::os::unix::fs::OpenOptionsExt; public_options.mode(0o644); }
+        let mut public_file = public_options.open(&public_path).map_err(|error| format!("Could not create the public key: {error}"))?;
+        public_created = true;
+        private_file.write_all(private.as_bytes()).and_then(|_| private_file.sync_all()).map_err(|error| format!("Could not save the private key: {error}"))?;
+        public_file.write_all(public.as_bytes()).and_then(|_| public_file.write_all(b"\n")).and_then(|_| public_file.sync_all()).map_err(|error| format!("Could not save the public key: {error}"))?;
+        Ok(())
+    })();
+    if let Err(error) = result {
+        drop(private_file);
+        let _ = std::fs::remove_file(&private_path);
+        if public_created { let _ = std::fs::remove_file(&public_path); }
+        return Err(error);
+    }
+    Ok(private_path.to_string_lossy().to_string())
+}
+
+pub fn generate_key(name: &str, comment: &str, passphrase: &str) -> Result<String, String> {
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .ok_or("Could not determine the home directory")?;
+    generate_key_in(&Path::new(&home).join(".ssh"), name, comment, passphrase)
+}
+
 pub fn list_public_keys() -> Result<Vec<SshPublicKey>, String> {
     let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
         .ok_or("Could not determine the home directory")?;
@@ -63,7 +144,10 @@ pub fn list_public_keys() -> Result<Vec<SshPublicKey>, String> {
         let identity = match key_identity(&public_key) { Some(value) => value, None => continue };
         let fingerprint = match Command::new("ssh-keygen").arg("-lf").arg(&path).stdin(Stdio::null()).output() {
             Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).trim().to_string(),
-            _ => continue,
+            _ => match ssh_key::PublicKey::from_openssh(&public_key) {
+                Ok(key) => format!("{} {}", key.algorithm(), key.fingerprint(Default::default())),
+                Err(_) => continue,
+            },
         };
         let private_path = path.with_extension("");
         result.push(SshPublicKey {
@@ -115,5 +199,30 @@ mod tests {
         assert_eq!(validate_public_key("ssh-ed25519 AAAAB3 comment\n").unwrap(), "ssh-ed25519 AAAAB3 comment");
         assert!(validate_public_key("-----BEGIN OPENSSH PRIVATE KEY-----\nsecret").is_err());
         assert!(validate_public_key("ssh-ed25519 AAA\nextra").is_err());
+    }
+
+    #[test]
+    fn generates_an_openssh_key_without_overwriting_existing_files() {
+        let folder = std::env::temp_dir().join(format!("gitter-ssh-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&folder).unwrap();
+        let path = generate_key_in(&folder, "id_ed25519", "test@example.invalid", "test passphrase").unwrap();
+        let public = std::fs::read_to_string(folder.join("id_ed25519.pub")).unwrap();
+        let private = std::fs::read_to_string(&path).unwrap();
+        assert!(PrivateKey::from_openssh(&private).unwrap().is_encrypted());
+        assert!(public.starts_with("ssh-ed25519 "));
+        let output = Command::new("ssh-keygen").args(["-y", "-P", "test passphrase", "-f", &path]).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(key_identity(&String::from_utf8_lossy(&output.stdout)), key_identity(&public));
+        #[cfg(unix)] { use std::os::unix::fs::PermissionsExt; assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600); }
+        assert!(generate_key_in(&folder, "id_ed25519", "", "").is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), private);
+        assert!(generate_key_in(&folder, "../outside", "", "").is_err());
+        std::fs::write(folder.join("reserved.pub"), "existing public key").unwrap();
+        assert!(generate_key_in(&folder, "reserved", "", "").is_err());
+        assert!(!folder.join("reserved").exists());
+        assert_eq!(std::fs::read_to_string(folder.join("reserved.pub")).unwrap(), "existing public key");
+        let plain = generate_key_in(&folder, "id_other", "", "").unwrap();
+        assert!(!PrivateKey::from_openssh(std::fs::read_to_string(plain).unwrap()).unwrap().is_encrypted());
+        std::fs::remove_dir_all(folder).unwrap();
     }
 }

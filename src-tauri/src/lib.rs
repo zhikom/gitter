@@ -82,6 +82,12 @@ async fn copy_ssh_public_key(public_key: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn generate_ssh_key(name: String, comment: String, passphrase: String) -> Result<String, String> {
+    let passphrase = zeroize::Zeroizing::new(passphrase);
+    tauri::async_runtime::spawn_blocking(move || ssh_native::generate_key(&name, &comment, &passphrase)).await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 async fn test_ssh_remote(remote: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || ssh_native::test_remote(&remote)).await.map_err(|error| error.to_string())?
 }
@@ -101,7 +107,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_integrations, connect_integration, disconnect_integration, save_git_https_credential,
             bitbucket_repositories, bitbucket_pull_requests, create_bitbucket_pull_request,
-            list_ssh_keys, copy_ssh_public_key, test_ssh_remote, native_git_request
+            list_ssh_keys, copy_ssh_public_key, generate_ssh_key, test_ssh_remote, native_git_request
         ])
         .setup(|app| {
             let handle = app.handle().clone();
