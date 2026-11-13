@@ -137,7 +137,7 @@ export function useRepository(repo: string): Repository {
         requests.push(api.pullRequests({ repo }));
       }
       for (const target of unique) {
-        if (!target.connection.authenticated) { errors.push(`Connect ${target.connection.label} for this session to see pull requests.`); continue; }
+        if (!target.connection.authenticated) { errors.push(`Connect ${target.connection.label} to see pull requests.`); continue; }
         requests.push(loadBitbucketPullRequests(target, (start) => desktopApi.getBitbucketPullRequests(target.connection.id, target.projectKey, target.slug, start)));
       }
       const results = await Promise.allSettled(requests);

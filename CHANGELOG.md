@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-11-13
+
+### Bitbucket connection
+
+- Remember Bitbucket personal access tokens across Gitter restarts without
+  using the OS Keychain. On macOS, tokens are stored unencrypted in files
+  restricted to the current user; on Windows they are encrypted for the user.
+- Update an existing token in Integrations, or remove the connection to delete
+  its saved token. Existing session-only connections need one token re-entry.
+
+### Downloads
+
+- Windows x64 and macOS ARM64 (Apple Silicon) installers are available. The
+  Windows installer is unsigned; the Mac app is ad-hoc signed but not
+  notarized, so the operating system may show a security warning.
+
 ## [1.6.0] - 2026-11-13
 
 ### Pull requests and navigation

@@ -1371,7 +1371,7 @@ dependencies = [
 
 [[package]]
 name = "gitter"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "reqwest",
  "serde",
@@ -1384,6 +1384,7 @@ dependencies = [
  "tokio",
  "url",
  "uuid",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 

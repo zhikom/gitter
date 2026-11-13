@@ -74,7 +74,7 @@ export const BitbucketClonePicker: React.FC<{ selectedUrl: string; onSelect: (ur
         {connections.length > 1 && <select aria-label="Bitbucket connection" value={connectionId} onChange={(event) => setConnectionId(event.target.value)} className={inputClass}>
           {connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.label}</option>)}
         </select>}
-        {!authenticated && <div className="space-y-2"><p className="text-slate-500">Enter your token to connect for this session.</p><button type="button" className={action} onClick={onConnect}>Connect Bitbucket…</button></div>}
+        {!authenticated && <div className="space-y-2"><p className="text-slate-500">Enter your token to connect.</p><button type="button" className={action} onClick={onConnect}>Connect Bitbucket…</button></div>}
         {authenticated && <><input aria-label="Search Bitbucket repositories" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search repositories by name…" className={inputClass} />
         <div className="max-h-32 space-y-1 overflow-y-auto">
           {repos.map((repo) => <div key={`${repo.projectKey}/${repo.slug}`} className="flex flex-wrap items-center gap-2 rounded bg-[#14181f] px-2 py-1.5">

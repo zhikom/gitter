@@ -51,7 +51,7 @@ export const IntegrationsPanel: React.FC<Props> = ({ onCloneRepository, onCreate
   };
 
   const disconnect = async (connection: Integration) => {
-    if (!confirm(`Remove the ${connection.label} connection?`)) return;
+    if (!confirm(`Remove the ${connection.label} connection and delete its saved token?`)) return;
     setBusy(true); setError('');
     try {
       await desktopApi.disconnectIntegration(connection.id);
@@ -96,16 +96,16 @@ export const IntegrationsPanel: React.FC<Props> = ({ onCloneRepository, onCreate
   return (
     <div className="space-y-4 max-w-2xl">
       <GitHubIntegration onClone={() => onCloneRepository?.('')} onCreate={onCreateGitHub} />
-      <p className="text-slate-400">Bitbucket tokens stay in memory for this session. Re-enter your token after restarting Gitter.</p>
+      <p className="text-slate-400">Bitbucket tokens are saved on this device. On macOS they are unencrypted in a file accessible to your user account. Removing a connection deletes its token.</p>
       {error && <div role="alert" className="p-2 border border-red-500/40 rounded text-red-300 whitespace-pre-wrap break-words">{error}</div>}
       {connections.map((connection) => (
         <div key={connection.id} className="p-3 bg-[#14181f] border border-[#2a3447] rounded-lg flex flex-wrap items-center justify-between gap-2">
-          <div><div className="font-semibold text-slate-100">{connection.label}</div><div className="text-slate-500 break-all">Bitbucket Server / Data Center · {connection.baseUrl} · {connection.authenticated ? 'Connected for this session' : 'Token required'}</div></div>
-          <div className="flex gap-2">{connection.authenticated ? <button type="button" className={button} disabled={busy} onClick={() => openConnection(connection)}>Browse</button> : <button type="button" className={button} disabled={busy} onClick={() => { setReconnectId(connection.id); setReconnectToken(''); }}>Connect for this session</button>}<button type="button" className={button} disabled={busy} onClick={() => disconnect(connection)}>Remove</button></div>
+          <div><div className="font-semibold text-slate-100">{connection.label}</div><div className="text-slate-500 break-all">Bitbucket Server / Data Center · {connection.baseUrl} · {connection.authenticated ? 'Connected' : 'Token required'}</div></div>
+          <div className="flex gap-2">{connection.authenticated && <button type="button" className={button} disabled={busy} onClick={() => openConnection(connection)}>Browse</button>}<button type="button" className={button} disabled={busy} onClick={() => { setReconnectId(connection.id); setReconnectToken(''); }}>{connection.authenticated ? 'Update token' : 'Connect'}</button><button type="button" className={button} disabled={busy} onClick={() => disconnect(connection)}>Remove</button></div>
           {reconnectId === connection.id && <form className="w-full flex gap-2" onSubmit={async (event) => {
             event.preventDefault(); setBusy(true); setError('');
             const secret = reconnectToken; setReconnectToken('');
-            try { await desktopApi.reconnectIntegration(connection.id, secret); setReconnectId(''); await refresh(); toast.success('Connected for this session.'); }
+            try { await desktopApi.reconnectIntegration(connection.id, secret); setReconnectId(''); await refresh(); toast.success('Bitbucket token saved.'); }
             catch (e) { setError(String(e)); } finally { setBusy(false); }
           }}><input type="password" autoComplete="off" aria-label={`Token for ${connection.label}`} className={field} value={reconnectToken} onChange={(event) => setReconnectToken(event.target.value)} placeholder="Personal access token" required /><button type="submit" className={button} disabled={busy || !reconnectToken}>Connect</button><button type="button" className={button} onClick={() => { setReconnectId(''); setReconnectToken(''); }}>Cancel</button></form>}
         </div>

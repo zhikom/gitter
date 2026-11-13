@@ -2,6 +2,7 @@
 // backend (the `gitter-server` sidecar), waits for it to report its port and
 // access token, then opens the main window with that location injected.
 mod integrations;
+mod credential_store;
 mod git_core;
 mod ssh_native;
 

@@ -108,34 +108,16 @@ fn write_config(path: &Path, integrations: &[Integration]) -> Result<(), String>
     Ok(())
 }
 
-// Tokens stay in memory for the lifetime of this process. Existing Keychain
-// entries from older versions are neither read nor changed.
-fn session_secrets() -> &'static Mutex<std::collections::HashMap<String, zeroize::Zeroizing<String>>> {
-    static SECRETS: OnceLock<Mutex<std::collections::HashMap<String, zeroize::Zeroizing<String>>>> = OnceLock::new();
-    SECRETS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
-}
-
-fn store_secret(id: &str, token: &str) -> Result<(), String> {
-    session_secrets().lock().map_err(|_| "Session credentials are busy")?
-        .insert(id.into(), zeroize::Zeroizing::new(token.into()));
-    Ok(())
-}
-
-fn read_secret(id: &str) -> Result<zeroize::Zeroizing<String>, String> {
-    session_secrets().lock().map_err(|_| "Session credentials are busy")?
-        .get(id).cloned().ok_or_else(|| "Enter your Bitbucket token in Integrations to connect for this session".into())
-}
-
-fn delete_secret(id: &str) -> Result<(), String> {
-    session_secrets().lock().map_err(|_| "Session credentials are busy")?.remove(id);
-    Ok(())
+fn read_secret(path: &Path, id: &str) -> Result<zeroize::Zeroizing<String>, String> {
+    crate::credential_store::load(path, id)?
+        .ok_or_else(|| "Enter your Bitbucket token in Integrations to connect".into())
 }
 
 pub fn list(path: &Path) -> Result<Vec<Integration>, String> {
     let _guard = config_lock().lock().map_err(|_| "Integration settings are busy")?;
-    let secrets = session_secrets().lock().map_err(|_| "Session credentials are busy")?;
     Ok(read_config(path)?.into_iter().filter(|entry| entry.kind == "bitbucket_dc").map(|mut entry| {
-        entry.authenticated = secrets.contains_key(&entry.id);
+        // If a saved token is unreadable, allow the user to reconnect and replace it.
+        entry.authenticated = crate::credential_store::load(path, &entry.id).ok().flatten().is_some();
         entry
     }).collect())
 }
@@ -165,8 +147,13 @@ pub async fn connect(path: &Path, kind: &str, base: &str, label: &str, token: &s
     let _guard = config_lock().lock().map_err(|_| "Integration settings are busy")?;
     let mut integrations = read_config(path)?;
     integrations.push(entry.clone());
-    write_config(path, &integrations)?;
-    store_secret(&entry.id, token)?;
+    crate::credential_store::save(path, &entry.id, token)?;
+    if let Err(error) = write_config(path, &integrations) {
+        if let Err(cleanup) = crate::credential_store::remove(path, &entry.id) {
+            return Err(format!("{error}; could not remove the token: {cleanup}"));
+        }
+        return Err(error);
+    }
     Ok(Integration { authenticated: true, ..entry })
 }
 
@@ -181,21 +168,21 @@ pub async fn reconnect(path: &Path, id: &str, token: &str) -> Result<(), String>
     if !read_config(path)?.iter().any(|connection| connection.id == id && connection.kind == "bitbucket_dc") {
         return Err("Integration not found".into());
     }
-    store_secret(id, token)
+    crate::credential_store::save(path, id, token)
 }
 
 pub fn disconnect(path: &Path, id: &str) -> Result<(), String> {
     let _guard = config_lock().lock().map_err(|_| "Integration settings are busy")?;
     let mut entries = read_config(path)?;
     if !entries.iter().any(|entry| entry.id == id) { return Err("Integration not found".into()); }
+    crate::credential_store::remove(path, id)?;
     entries.retain(|entry| entry.id != id);
-    write_config(path, &entries)?;
-    delete_secret(id)
+    write_config(path, &entries)
 }
 
 pub async fn bitbucket_repositories(path: &Path, id: &str, start: u64, search: &str) -> Result<Value, String> {
     let integration = find(path, id, "bitbucket_dc")?;
-    let token = read_secret(id)?;
+    let token = read_secret(path, id)?;
     let mut url = endpoint(&integration.base_url, &integration.kind, &["rest", "api", "1.0", "repos"])?;
     url.query_pairs_mut().append_pair("limit", "50").append_pair("start", &start.to_string());
     if !search.trim().is_empty() { url.query_pairs_mut().append_pair("name", search.trim()); }
@@ -222,7 +209,7 @@ pub async fn bitbucket_repositories(path: &Path, id: &str, start: u64, search: &
 pub async fn bitbucket_pull_requests(path: &Path, id: &str, project: &str, slug: &str, start: u64) -> Result<Value, String> {
     if project.is_empty() || slug.is_empty() { return Err("A project and repository are required".into()); }
     let integration = find(path, id, "bitbucket_dc")?;
-    let token = read_secret(id)?;
+    let token = read_secret(path, id)?;
     let mut url = endpoint(&integration.base_url, &integration.kind, &["rest", "api", "1.0", "projects", project, "repos", slug, "pull-requests"])?;
     url.query_pairs_mut().append_pair("state", "OPEN").append_pair("limit", "50").append_pair("start", &start.to_string());
     let value = request_json(&client()?, Method::GET, url, &token, None).await?;
@@ -252,7 +239,7 @@ fn map_bitbucket_pull_request(pull: &Value) -> Value {
 pub async fn bitbucket_pull_request(path: &Path, id: &str, project: &str, slug: &str, number: u64) -> Result<Value, String> {
     if number == 0 || project.is_empty() || slug.is_empty() { return Err("A repository and pull request number are required".into()); }
     let integration = find(path, id, "bitbucket_dc")?;
-    let token = read_secret(id)?;
+    let token = read_secret(path, id)?;
     let url = endpoint(&integration.base_url, &integration.kind, &["rest", "api", "1.0", "projects", project, "repos", slug, "pull-requests", &number.to_string()])?;
     let pull = request_json(&client()?, Method::GET, url, &token, None).await?;
     Ok(map_bitbucket_pull_request(&pull))
@@ -292,7 +279,7 @@ fn pull_request_payload(project: &str, slug: &str, input: &NewPullRequest) -> Re
 pub async fn create_bitbucket_pull_request(path: &Path, id: &str, project: &str, slug: &str, input: &NewPullRequest) -> Result<Value, String> {
     let body = pull_request_payload(project, slug, input)?;
     let integration = find(path, id, "bitbucket_dc")?;
-    let token = read_secret(id)?;
+    let token = read_secret(path, id)?;
     let url = endpoint(&integration.base_url, &integration.kind, &["rest", "api", "1.0", "projects", project, "repos", slug, "pull-requests"])?;
     let pull = request_json(&client()?, Method::POST, url, &token, Some(body)).await?;
     if pull.get("id").and_then(Value::as_u64).is_none() { return Err("The server did not return the created pull request".into()); }
@@ -386,7 +373,8 @@ mod tests {
         let connection = connect(&config, "bitbucket_dc", &base, "Test", "fake-token").await.unwrap();
         assert!(!std::fs::read_to_string(&config).unwrap().contains("fake-token"));
         assert!(list(&config).unwrap()[0].authenticated);
-        delete_secret(&connection.id).unwrap();
+        assert_eq!(crate::credential_store::load(&config, &connection.id).unwrap().unwrap().as_str(), "fake-token");
+        crate::credential_store::remove(&config, &connection.id).unwrap();
         assert!(!list(&config).unwrap()[0].authenticated);
         assert!(bitbucket_repositories(&config, &connection.id, 0, "").await.is_err());
         reconnect(&config, &connection.id, "fake-token").await.unwrap();
@@ -408,6 +396,7 @@ mod tests {
         assert_eq!(created["source"], "feature/PRJ-42");
         disconnect(&config, &connection.id).unwrap();
         assert!(list(&config).unwrap().is_empty());
+        assert!(crate::credential_store::load(&config, &connection.id).unwrap().is_none());
         server.join().unwrap();
         std::fs::remove_dir_all(directory).unwrap();
     }

@@ -42,8 +42,8 @@ written by AI coding agents.
   repositories and work with pull requests. Clone over HTTPS or SSH.
 - Connect Bitbucket Server / Data Center with a personal access token to browse
   repositories and pull requests, create a pull request within one repository,
-  and search from the clone dialog. The token is kept only in memory for the
-  current Gitter session. Copy a public SSH key and open either provider's
+  and search from the clone dialog. Tokens are saved on this device and restored
+  after restart. Copy a public SSH key and open either provider's
   SSH-key page from Settings when you need to add it.
 - Single-click a branch to reveal its tip in the graph; double-click to check it out.
 
@@ -112,9 +112,12 @@ with the app.
 In the desktop app, cloning, file staging and commits run through Rust and
 system Git. The other Git operations and services still use the sidecar; the
 Rust migration and GitKraken feature parity are ongoing. SSH authentication
-uses the system configuration and agent. Bitbucket API tokens stay in memory
-and must be re-entered after restarting Gitter; Git HTTPS credentials are
-separate and use your configured Git credential helper. For GitHub, Gitter can
+uses the system configuration and agent. Bitbucket API tokens are stored in
+Gitter's application data, separate from the OS Keychain. On macOS the token is
+unencrypted and protected by file permissions restricting it to the user; on
+Windows it is encrypted for the current user. Remove the connection to delete
+its saved token. Git HTTPS credentials are separate and use your configured Git
+credential helper. For GitHub, Gitter can
 reuse existing GitHub CLI authentication without changing Git configuration.
 Bitbucket Cloud, cross-repository pull requests and pull-request reviews are
 not yet implemented.
