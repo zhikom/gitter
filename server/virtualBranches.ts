@@ -3,11 +3,11 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { randomUUID } from 'crypto';
 import type { VirtualBranch } from '../shared/types/virtualBranch';
 import { git, gitSucceeds } from './git';
 import { inRepo, UserError } from './http';
 import { readDoc, updateDoc } from './repoStore';
-import { pushStash } from './stash';
 import { worktrees } from './worktrees';
 
 const laneRef = (laneId: string) => `refs/gitter/lanes/${laneId.replace(/[^\w-]/g, '-')}`;
@@ -72,17 +72,40 @@ export const virtualBranchHandlers = {
   /** Moves a lane's changes out of the working tree, keeping them under a ref of their own. */
   stashLane: inRepo(async (repo, { laneId, files }: { laneId: string; files: string[] }) => {
     if (files.length === 0) return;
-    const stash = await pushStash(repo, ['-u', '-m', `gitter lane ${laneId}`, '--', ...files]);
-    if (!stash) throw new UserError('The lane has no changes to put away.');
-    await git(repo, ['update-ref', laneRef(laneId), stash]);
-    await git(repo, ['stash', 'drop', 'stash@{0}']); // the one pushStash just made
+    const ref = laneRef(laneId);
+    if (await gitSucceeds(repo, ['rev-parse', '--verify', '--quiet', ref])) throw new UserError('This lane is already put away. Restore it first.');
+    const marker = `gitter lane ${randomUUID()}`;
+    await git(repo, ['stash', 'push', '-u', '-m', marker, '--', ...files]);
+    // Another tool may create a stash concurrently, so identify ours by its
+    // unique message rather than assuming stash@{0} still belongs to us.
+    const entries = (await git(repo, ['stash', 'list', '--format=%H%x1f%gs'])).split('\n');
+    const saved = entries.find((line) => line.endsWith(marker))?.split('\x1f')[0];
+    if (!saved) throw new UserError('The lane has no changes to put away.');
+    await git(repo, ['update-ref', ref, saved, '0'.repeat(saved.length)]);
+    // Retain the stash as a recovery copy; never drop a different process's stash.
   }),
 
   /** Puts a stashed lane's changes back into the working tree. */
   unstashLane: inRepo(async (repo, { laneId }: { laneId: string }) => {
     const ref = laneRef(laneId);
     if (!(await gitSucceeds(repo, ['rev-parse', '--verify', '--quiet', ref]))) return;
+    const [tracked, untracked] = await Promise.all([
+      git(repo, ['diff', '--no-renames', '--name-only', '-z', `${ref}^1`, ref]),
+      git(repo, ['ls-tree', '-r', '--name-only', '-z', `${ref}^3`]).catch(() => ''),
+    ]);
+    const paths = [...new Set([...tracked.split('\0'), ...untracked.split('\0')].filter(Boolean))];
     await git(repo, ['stash', 'apply', ref]);
+    if (paths.length) {
+      const [savedIndex, currentIndex] = await Promise.all([
+        git(repo, ['ls-tree', '-r', '--name-only', '-z', `${ref}^2`, '--', ...paths]),
+        git(repo, ['ls-files', '-z', '--', ...paths]),
+      ]);
+      const indexed = [...new Set([...savedIndex.split('\0'), ...currentIndex.split('\0')].filter(Boolean))];
+      if (indexed.length) {
+        try { await git(repo, ['restore', `--source=${ref}^2`, '--staged', '--', ...indexed]); }
+        catch (e: any) { throw new UserError(`Files were restored, but their staged state could not be restored. The lane backup remains saved: ${e.message}`); }
+      }
+    }
     await git(repo, ['update-ref', '-d', ref]);
   }),
 };

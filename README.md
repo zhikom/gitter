@@ -29,6 +29,12 @@ written by AI coding agents.
 - Lanes: group the working tree's changes by the branch they belong to and
   commit each group to its own branch without switching.
 - Several repositories open in tabs.
+- Clone over HTTPS or SSH into a configurable default folder (`~/repos` by
+  default), inspect SSH public keys and agent status, and reveal repositories
+  in Finder or Explorer.
+- On macOS, connect Bitbucket Server / Data Center with a personal access token
+  stored in Keychain to browse repositories and pull requests, create a pull
+  request within one repository, and start an HTTPS or SSH clone.
 
 **AI agents**
 - Start an agent in its own branch and worktree (`agent/<harness>-<task>`), or
@@ -89,8 +95,16 @@ The desktop app ships the backend as a sidecar executable compiled with Bun.
 It listens on a random loopback port, requires a per-launch token, and exits
 with the app.
 
-Every backend operation is `POST /api/<name>` with a JSON body. The handler
-map in `server/handlers.ts` is the contract: the UI's client
+In the desktop app, cloning, file staging and commits run through Rust and
+system Git. The other Git operations and services still use the sidecar; the
+Rust migration and GitKraken feature parity are ongoing. SSH authentication
+uses the system configuration and agent. Bitbucket API tokens and Git HTTPS
+credentials are separate; the Bitbucket settings offer an optional **Save for
+Git** action for the macOS Keychain helper. Bitbucket Cloud, cross-repository
+pull requests and pull-request reviews are not yet implemented.
+
+Sidecar operations use `POST /api/<name>` with a JSON body. The handler map in
+`server/handlers.ts` is the contract: the UI's client
 (`src/api/client.ts`) is typed from it, so a changed handler is a type error in
 the UI. git always runs without a shell, with `--end-of-options` before
 user-supplied names.

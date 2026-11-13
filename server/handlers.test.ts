@@ -13,6 +13,7 @@ import { consoleArgs } from './gitConsole';
 import { buildPatch, wholeHunk, type LineSelection } from '../shared/patch';
 import { mergeConflicts, parseConflicts } from '../shared/conflicts';
 import type { FileDiff } from '../shared/types/git';
+import { joinRepoFolder, repositoryNameFromUrl } from '../src/utils/repositoryPaths';
 
 const api = createHandlers({ onUpdateInstalling: () => {} });
 const temps: string[] = [];
@@ -38,7 +39,23 @@ function write(repo: string, file: string, content: string) {
 
 const read = (repo: string, file: string) => fs.readFileSync(path.join(repo, file), 'utf8');
 
+test('suggests safe clone destinations for HTTPS and SSH remotes', () => {
+  assert.equal(repositoryNameFromUrl('https://example.com/team/repo.git'), 'repo');
+  assert.equal(repositoryNameFromUrl('ssh://git@example.com:7999/team/repo.git'), 'repo');
+  assert.equal(repositoryNameFromUrl('git@example.com:team/repo.git'), 'repo');
+  assert.equal(repositoryNameFromUrl('https://example.com/team/%2e%2e'), '');
+  assert.equal(joinRepoFolder('/Users/example/repos/', 'repo'), '/Users/example/repos/repo');
+  assert.equal(joinRepoFolder('C:\\Users\\example\\repos', 'repo'), 'C:\\Users\\example\\repos\\repo');
+});
+
 describe('working tree', () => {
+  test('a filename containing pathspec metacharacters does not stage matching files', async () => {
+    const repo = await newRepo();
+    write(repo, '[x].txt', 'literal\n');
+    write(repo, 'x.txt', 'other\n');
+    await api.stageFile({ repo, file: '[x].txt' });
+    assert.deepEqual((await git(repo, ['diff', '--cached', '--name-only'])).trim().split('\n'), ['[x].txt']);
+  });
   test('status covers staged, unstaged, untracked and odd file names', async () => {
     const repo = await newRepo();
     write(repo, 'a.txt', 'one\nTWO\n');
@@ -253,6 +270,30 @@ describe('history and branches', () => {
     assert.equal(read(repo, 'a.txt'), 'dirty\n');
   });
 
+  test('a conflicting interactive rebase leaves the original checkout untouched', async () => {
+    const repo = await newRepo();
+    write(repo, 'a.txt', 'first change\n');
+    await git(repo, ['commit', '-qam', 'first']);
+    write(repo, 'a.txt', 'second change\n');
+    await git(repo, ['commit', '-qam', 'second']);
+    const original = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+    const plan = await api.rebaseCommits({ repo, base: 'HEAD~2' });
+    await assert.rejects(api.runRebasePlan({ repo, base: 'HEAD~2', plan: [...plan].reverse() }), /original worktree was preserved/);
+    assert.equal((await git(repo, ['rev-parse', 'HEAD'])).trim(), original);
+    assert.equal(read(repo, 'a.txt'), 'second change\n');
+    assert.ok((await api.repoState({ repo })).isClean);
+  });
+
+  test('an incomplete or duplicated rebase plan is rejected before changes', async () => {
+    const repo = await newRepo();
+    write(repo, 'a.txt', 'first change\n');
+    await git(repo, ['commit', '-qam', 'first']);
+    const plan = await api.rebaseCommits({ repo, base: 'HEAD~1' });
+    const original = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+    await assert.rejects(api.runRebasePlan({ repo, base: 'HEAD~1', plan: [plan[0], plan[0]] }), /each selected commit exactly once/);
+    assert.equal((await git(repo, ['rev-parse', 'HEAD'])).trim(), original);
+  });
+
   test('rewording keeps the body; squashing keeps both messages; an emptied pick is dropped', async () => {
     const repo = await newRepo();
     const commit = async (file: string, content: string, message: string) => {
@@ -399,6 +440,22 @@ describe('virtual branches', () => {
     assert.ok(!fs.existsSync(path.join(repo, 'new.txt')));
     await api.unstashLane({ repo, laneId: 'l1' });
     assert.equal(read(repo, 'new.txt'), 'lane new\n');
+  });
+
+  test('restoring a lane preserves its staged content and unrelated staged files', async () => {
+    const repo = await newRepo();
+    write(repo, 'a.txt', 'staged lane\n');
+    await git(repo, ['add', '--', 'a.txt']);
+    write(repo, 'a.txt', 'working lane\n');
+    write(repo, 'other.txt', 'staged elsewhere\n');
+    await git(repo, ['add', '--', 'other.txt']);
+    await api.stashLane({ repo, laneId: 'staged-lane', files: ['a.txt'] });
+    await assert.rejects(api.stashLane({ repo, laneId: 'staged-lane', files: ['other.txt'] }), /already put away/);
+    await api.unstashLane({ repo, laneId: 'staged-lane' });
+    assert.equal(read(repo, 'a.txt'), 'working lane\n');
+    assert.equal(await git(repo, ['show', ':a.txt']), 'staged lane\n');
+    assert.equal(await git(repo, ['show', ':other.txt']), 'staged elsewhere\n');
+    assert.equal((await api.stashes({ repo })).length, 1, 'the recovery stash is retained');
   });
 });
 

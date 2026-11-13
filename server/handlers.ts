@@ -10,6 +10,8 @@ import { consoleHandlers } from './gitConsole';
 import { historyHandlers } from './history';
 import { combine } from './http';
 import * as os from './osIntegration';
+import { homedir } from 'node:os';
+import path from 'node:path';
 import { remoteHandlers } from './remotes';
 import { repositoryHandlers } from './repository';
 import { settingsHandlers } from './settings';
@@ -27,6 +29,7 @@ function appHandlers(host: Host) {
     /** The OS folder picker, for a browser UI that has no dialog of its own. */
     pickFolder: ({ title }: { title?: string }) => os.pickFolder(title),
     openUrl: ({ url }: { url: string }) => os.openUrl(url),
+    defaultRepoFolder: () => path.join(homedir(), 'repos').replace(/\\/g, '/'),
     latestRelease: () => latestRelease(),
     installUpdate: async ({ downloadUrl }: { downloadUrl: string }) => {
       // The installer runs with the user's rights: only an asset of the current release qualifies.

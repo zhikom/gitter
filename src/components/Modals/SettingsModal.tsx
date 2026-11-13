@@ -3,15 +3,17 @@
 // per-repo store), and the AI provider (the per-user config file; the key is
 // never sent back to the UI).
 import React, { useEffect, useState } from 'react';
-import { Bot, FolderGit2, Info, Settings as SettingsIcon, SlidersHorizontal } from 'lucide-react';
+import { Bot, FolderGit2, Globe, Info, KeyRound, Settings as SettingsIcon, SlidersHorizontal } from 'lucide-react';
 import { AI_PROVIDERS, type AiProvider } from '../../../shared/aiProviders';
-import { api } from '../../api/client';
+import { api, pickFolder } from '../../api/client';
+import { desktopApi, type SshPublicKey } from '../../api/desktop';
 import { usePreference, type Preferences } from '../../preferences';
 import { CURRENT_VERSION } from '../../services/updateService';
 import { toast } from '../../utils/toast';
 import { Button, Field, inputClass, Modal } from '../ui/Modal';
+import { IntegrationsPanel } from './IntegrationsPanel';
 
-type Tab = 'general' | 'repository' | 'ai' | 'about';
+type Tab = 'general' | 'repository' | 'ssh' | 'integrations' | 'ai' | 'about';
 type RepoSettings = Awaited<ReturnType<typeof api.repoSettings>>['settings'];
 
 interface SettingsModalProps {
@@ -19,13 +21,16 @@ interface SettingsModalProps {
   initialTab?: Tab;
   onClose: () => void;
   onCheckForUpdates: () => void;
+  onCloneRepository: (url: string) => void;
 }
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab = 'general', onClose, onCheckForUpdates }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab = 'general', onClose, onCheckForUpdates, onCloneRepository }) => {
   const [tab, setTab] = useState<Tab>(initialTab);
   const tabs: Array<{ id: Tab; label: string; icon: React.ReactNode; hidden?: boolean }> = [
     { id: 'general', label: 'General', icon: <SlidersHorizontal className="w-3.5 h-3.5" /> },
     { id: 'repository', label: 'This repository', icon: <FolderGit2 className="w-3.5 h-3.5" />, hidden: !repo },
+    { id: 'ssh', label: 'SSH keys', icon: <KeyRound className="w-3.5 h-3.5" /> },
+    { id: 'integrations', label: 'Integrations', icon: <Globe className="w-3.5 h-3.5" /> },
     { id: 'ai', label: 'AI', icon: <Bot className="w-3.5 h-3.5" /> },
     { id: 'about', label: 'About', icon: <Info className="w-3.5 h-3.5" /> },
   ];
@@ -51,6 +56,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab =
         <div className="flex-1 min-w-0 overflow-y-auto p-5">
           {tab === 'general' && <GeneralSettings />}
           {tab === 'repository' && repo && <RepositorySettings repo={repo} />}
+          {tab === 'ssh' && <SshSettings />}
+          {tab === 'integrations' && <IntegrationsPanel onCloneRepository={onCloneRepository} />}
           {tab === 'ai' && <AiSettingsForm />}
           {tab === 'about' && (
             <div className="space-y-3 text-xs text-slate-300">
@@ -103,6 +110,9 @@ function Choice<K extends keyof Preferences>({ name, label, options }: { name: K
 
 const GeneralSettings: React.FC = () => (
   <>
+    <Section title="Repositories">
+      <RepositoryFolderSettings />
+    </Section>
     <Section title="Diffs">
       <Choice name="diffView" label="Layout" options={[['unified', 'Unified'], ['split', 'Side by side']]} />
       <Choice name="diffFontSize" label="Font size" options={[10, 11, 12, 13, 14, 16].map((n) => [n, `${n} px`])} />
@@ -123,6 +133,53 @@ const GeneralSettings: React.FC = () => (
     </Section>
   </>
 );
+
+const RepositoryFolderSettings: React.FC = () => {
+  const [folder, setFolder] = usePreference('cloneFolder');
+  const [defaultFolder, setDefaultFolder] = useState('~/repos');
+  useEffect(() => { api.defaultRepoFolder().then(setDefaultFolder).catch(() => undefined); }, []);
+  return (
+    <Field label="Default clone folder" hint={`Leave empty to use ${defaultFolder}.`}>
+      <div className="flex gap-2">
+        <input value={folder} onChange={(e) => setFolder(e.target.value)} placeholder={defaultFolder} className={`${inputClass} font-mono`} />
+        <Button type="button" onClick={async () => {
+          try { const picked = await pickFolder('Default clone folder'); if (picked) setFolder(picked); }
+          catch (e: any) { toast.error(`Could not open the folder picker: ${e.message}`); }
+        }}>Browse…</Button>
+      </div>
+    </Field>
+  );
+};
+
+const SshSettings: React.FC = () => {
+  const [keys, setKeys] = useState<SshPublicKey[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [remote, setRemote] = useState('');
+  const [result, setResult] = useState('');
+  const [testing, setTesting] = useState(false);
+  useEffect(() => { desktopApi.listSshKeys().then(setKeys).catch((e) => setResult(String(e))).finally(() => setLoading(false)); }, []);
+  return (
+    <div className="space-y-3 text-xs text-slate-300">
+      <p>Git uses your system SSH configuration and agent. Gitter reads public keys only.</p>
+      {loading && <p>Loading public keys…</p>}
+      {!loading && keys.length === 0 && <p>No public keys were found in ~/.ssh.</p>}
+      {keys.map((key) => <div key={key.path} className="p-3 rounded bg-[#14181f] border border-[#2a3447] break-all">
+        <div className="font-semibold">{key.path}</div><div>{key.fingerprint}</div>
+        <div className="text-slate-500">{key.privateKeyExists ? 'Private key present' : 'No matching private key'} · {key.loadedInAgent ? 'Loaded in SSH agent' : 'Not listed by SSH agent'}</div>
+      </div>)}
+      <Field label="Test an SSH repository" hint="Uses known hosts without accepting new host keys.">
+        <input value={remote} onChange={(e) => setRemote(e.target.value)} placeholder="git@example.com:project/repository.git" className={`${inputClass} font-mono`} />
+      </Field>
+      <Button type="button" busy={testing} disabled={!remote.trim()} onClick={async () => {
+        setTesting(true); setResult('');
+        try { setResult(await desktopApi.testSshRemote(remote.trim())); }
+        catch (e) { setResult(String(e)); }
+        finally { setTesting(false); }
+      }}>{testing ? 'Testing…' : 'Test connection'}</Button>
+      {result && <pre className="whitespace-pre-wrap break-all">{result}</pre>}
+    </div>
+  );
+};
 
 const RepositorySettings: React.FC<{ repo: string }> = ({ repo }) => {
   const [settings, setSettings] = useState<RepoSettings | null>(null);

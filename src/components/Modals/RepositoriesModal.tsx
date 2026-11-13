@@ -1,16 +1,18 @@
 // Getting to a repository: recently opened ones, a scan of a folder, a clone,
 // or a new empty repository. Opening goes through the app, which remembers it.
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { DownloadCloud, ExternalLink, FolderOpen, FolderPlus, FolderSearch, History, Terminal, X } from 'lucide-react';
 import { api, pickFolder } from '../../api/client';
 import { usePreference } from '../../preferences';
 import { toast } from '../../utils/toast';
+import { joinRepoFolder, repositoryNameFromUrl } from '../../utils/repositoryPaths';
 import { Button, Field, inputClass, Modal } from '../ui/Modal';
 
 export type RepositoriesTab = 'recent' | 'scan' | 'clone' | 'create';
 
 interface RepositoriesModalProps {
   initialTab?: RepositoriesTab;
+  initialCloneUrl?: string;
   onClose: () => void;
   /** Opens the repository at `path` in a tab. */
   onOpen: (path: string) => void;
@@ -19,7 +21,6 @@ interface RepositoriesModalProps {
 type ScannedRepo = Awaited<ReturnType<typeof api.scanRepositories>>[number];
 
 const folderName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
-const joinPath = (parent: string, name: string) => `${parent.replace(/[\\/]+$/, '')}/${name}`;
 
 async function browse(title: string): Promise<string | null> {
   try {
@@ -30,7 +31,7 @@ async function browse(title: string): Promise<string | null> {
   }
 }
 
-export const RepositoriesModal: React.FC<RepositoriesModalProps> = ({ initialTab = 'recent', onClose, onOpen }) => {
+export const RepositoriesModal: React.FC<RepositoriesModalProps> = ({ initialTab = 'recent', initialCloneUrl = '', onClose, onOpen }) => {
   const [tab, setTab] = useState<RepositoriesTab>(initialTab);
   const open = (path: string) => {
     onOpen(path);
@@ -83,7 +84,7 @@ export const RepositoriesModal: React.FC<RepositoriesModalProps> = ({ initialTab
       <div className="flex-1 min-h-0 overflow-y-auto p-4">
         {tab === 'recent' && <RecentRepositories onOpen={open} onScan={() => setTab('scan')} />}
         {tab === 'scan' && <ScanFolder onOpen={open} />}
-        {tab === 'clone' && <CloneRepository onOpen={open} />}
+        {tab === 'clone' && <CloneRepository onOpen={open} initialUrl={initialCloneUrl} />}
         {tab === 'create' && <CreateRepository onOpen={open} />}
       </div>
     </Modal>
@@ -193,13 +194,19 @@ const ScanFolder: React.FC<{ onOpen: (path: string) => void }> = ({ onOpen }) =>
   );
 };
 
-const CloneRepository: React.FC<{ onOpen: (path: string) => void }> = ({ onOpen }) => {
-  const [url, setUrl] = useState('');
-  const [parent, setParent] = usePreference('scanFolder');
+const CloneRepository: React.FC<{ onOpen: (path: string) => void; initialUrl: string }> = ({ onOpen, initialUrl }) => {
+  const [url, setUrl] = useState(initialUrl);
+  const [defaultFolder] = usePreference('cloneFolder');
+  const [parent, setParent] = useState(defaultFolder);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
-  const guessed = url.trim().replace(/\.git$/, '').split(/[/:]/).filter(Boolean).pop() ?? '';
-  const target = parent.trim() && (name.trim() || guessed) ? joinPath(parent.trim(), name.trim() || guessed) : '';
+  useEffect(() => {
+    if (!defaultFolder) api.defaultRepoFolder().then((folder) => setParent((current) => current || folder)).catch((e) => toast.error(e.message));
+  }, [defaultFolder]);
+  const guessed = repositoryNameFromUrl(url);
+  const chosenName = name.trim() || guessed;
+  const validName = chosenName && chosenName !== '.' && chosenName !== '..' && !/[\\/\0]/.test(chosenName);
+  const target = parent.trim() && validName ? joinRepoFolder(parent.trim(), chosenName) : '';
 
   const clone = async (e: React.FormEvent) => {
     e.preventDefault();

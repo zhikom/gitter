@@ -23,3 +23,6 @@ gk_package.json
 
 # Desktop sidecar (built by scripts/build-sidecar.mjs)
 src-tauri/binaries/
+src-tauri/resources/gitter-server.mjs
+.bun-build*
+.*.bun-build

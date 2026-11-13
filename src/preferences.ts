@@ -39,6 +39,7 @@ export interface Preferences {
   openTabs: RepoTab[];
   recentRepos: string[];
   scanFolder: string;
+  cloneFolder: string;
 }
 
 const DEFAULTS: Preferences = {
@@ -63,6 +64,7 @@ const DEFAULTS: Preferences = {
   openTabs: [],
   recentRepos: [],
   scanFolder: '',
+  cloneFolder: '',
 };
 
 const STORAGE_KEYS: Record<keyof Preferences, string> = {
@@ -88,6 +90,7 @@ const STORAGE_KEYS: Record<keyof Preferences, string> = {
   openTabs: 'gitter_open_repo_tabs',
   recentRepos: 'gitter_recent_repos',
   scanFolder: 'gitter_scan_parent_folder',
+  cloneFolder: 'gitter_default_repo_folder',
 };
 
 const oneOf =

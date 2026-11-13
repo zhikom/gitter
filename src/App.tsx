@@ -82,7 +82,7 @@ import { toast } from './utils/toast';
 
 /** The one open dialog, if any. */
 type Dialog =
-  | { kind: 'repositories'; tab?: RepositoriesTab }
+  | { kind: 'repositories'; tab?: RepositoriesTab; cloneUrl?: string }
   | { kind: 'palette' }
   | { kind: 'settings' }
   | { kind: 'update' }
@@ -753,7 +753,7 @@ export const App: React.FC = () => {
     const afterChange = () => void repository.refresh();
     switch (dialog.kind) {
       case 'repositories':
-        return <RepositoriesModal initialTab={dialog.tab} onClose={close} onOpen={(path) => void openRepo(path)} />;
+        return <RepositoriesModal initialTab={dialog.tab} initialCloneUrl={dialog.cloneUrl} onClose={close} onOpen={(path) => void openRepo(path)} />;
       case 'palette':
         return (
           <CommandPalette
@@ -769,7 +769,7 @@ export const App: React.FC = () => {
           />
         );
       case 'settings':
-        return <SettingsModal repo={repo} onClose={close} onCheckForUpdates={() => setDialog({ kind: 'update' })} />;
+        return <SettingsModal repo={repo} onClose={close} onCheckForUpdates={() => setDialog({ kind: 'update' })} onCloneRepository={(url) => setDialog({ kind: 'repositories', tab: 'clone', cloneUrl: url })} />;
       case 'update':
         return <UpdateModal initial={update} onClose={close} />;
       case 'create-branch':

@@ -1,6 +1,10 @@
 // The desktop app is a window onto Gitter's backend. It starts the bundled
 // backend (the `gitter-server` sidecar), waits for it to report its port and
 // access token, then opens the main window with that location injected.
+mod integrations;
+mod git_core;
+mod ssh_native;
+
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -26,12 +30,74 @@ struct Ready {
     token: String,
 }
 
+fn integration_settings_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    app.path().app_config_dir().map(integrations::config_path).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn list_integrations(app: AppHandle) -> Result<Vec<integrations::Integration>, String> {
+    integrations::list(&integration_settings_path(&app)?)
+}
+
+#[tauri::command]
+async fn connect_integration(app: AppHandle, kind: String, base_url: String, label: String, token: String) -> Result<integrations::Integration, String> {
+    integrations::connect(&integration_settings_path(&app)?, &kind, &base_url, &label, &token).await
+}
+
+#[tauri::command]
+fn disconnect_integration(app: AppHandle, id: String) -> Result<(), String> {
+    integrations::disconnect(&integration_settings_path(&app)?, &id)
+}
+
+#[tauri::command]
+async fn save_git_https_credential(app: AppHandle, id: String, username: String) -> Result<(), String> {
+    let path = integration_settings_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || integrations::save_git_https_credential(&path, &id, &username))
+        .await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn bitbucket_repositories(app: AppHandle, id: String, start: u64) -> Result<serde_json::Value, String> {
+    integrations::bitbucket_repositories(&integration_settings_path(&app)?, &id, start).await
+}
+
+#[tauri::command]
+async fn bitbucket_pull_requests(app: AppHandle, id: String, project: String, slug: String, start: u64) -> Result<serde_json::Value, String> {
+    integrations::bitbucket_pull_requests(&integration_settings_path(&app)?, &id, &project, &slug, start).await
+}
+
+#[tauri::command]
+async fn create_bitbucket_pull_request(app: AppHandle, id: String, project: String, slug: String, pull_request: integrations::NewPullRequest) -> Result<serde_json::Value, String> {
+    integrations::create_bitbucket_pull_request(&integration_settings_path(&app)?, &id, &project, &slug, &pull_request).await
+}
+
+#[tauri::command]
+async fn list_ssh_keys() -> Result<Vec<ssh_native::SshPublicKey>, String> {
+    tauri::async_runtime::spawn_blocking(ssh_native::list_public_keys).await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn test_ssh_remote(remote: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || ssh_native::test_remote(&remote)).await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn native_git_request(operation: String, input: serde_json::Value) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || git_core::dispatch(&operation, &input))
+        .await.map_err(|error| error.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Backend::default())
+        .invoke_handler(tauri::generate_handler![
+            list_integrations, connect_integration, disconnect_integration, save_git_https_credential,
+            bitbucket_repositories, bitbucket_pull_requests, create_bitbucket_pull_request,
+            list_ssh_keys, test_ssh_remote, native_git_request
+        ])
         .setup(|app| {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -73,11 +139,21 @@ fn log_path(app: &AppHandle) -> String {
 /// Starts the backend, opens the window once it is ready, and returns only if
 /// the backend fails to start or stops while the app is running.
 async fn run_backend(app: &AppHandle) -> Result<(), String> {
-    let (mut events, child) = app
+    let command = app
         .shell()
         .sidecar("gitter-server")
         .map_err(|e| format!("Gitter's backend is missing from this install: {e}"))?
-        .args(["--desktop", &format!("--parent-pid={}", std::process::id())])
+        .args(["--desktop", &format!("--parent-pid={}", std::process::id())]);
+    // Finder-launched apps may not inherit the shell's Homebrew paths. Git,
+    // gh and configured credential helpers should still be discoverable.
+    #[cfg(target_os = "macos")]
+    let command = {
+        let inherited = std::env::var_os("PATH").unwrap_or_default();
+        let paths = [std::path::PathBuf::from("/opt/homebrew/bin"), std::path::PathBuf::from("/usr/local/bin")]
+            .into_iter().chain(std::env::split_paths(&inherited));
+        command.env("PATH", std::env::join_paths(paths).map_err(|e| e.to_string())?)
+    };
+    let (mut events, child) = command
         .spawn()
         .map_err(|e| format!("Gitter could not start its backend: {e}"))?;
     app.state::<Backend>().child.lock().unwrap().replace(child);
@@ -93,7 +169,11 @@ async fn run_backend(app: &AppHandle) -> Result<(), String> {
             CommandEvent::Stdout(bytes) | CommandEvent::Stderr(bytes) => {
                 let line = String::from_utf8_lossy(&bytes);
                 if let Some(file) = log.as_mut() {
-                    let _ = writeln!(file, "{}", line.trim_end());
+                    // The ready message contains the per-launch backend token.
+                    // Keep it out of the persistent application log.
+                    if !line.trim().starts_with("GITTER_READY ") {
+                        let _ = writeln!(file, "{}", line.trim_end());
+                    }
                 }
                 if !window_open {
                     if let Some(ready) = line.trim().strip_prefix("GITTER_READY ") {

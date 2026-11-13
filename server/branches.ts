@@ -1,5 +1,6 @@
 import type { Branch, RebaseCommitItem, Tag } from '../shared/types/git';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { git, gitSucceeds } from './git';
 import { format, records, refFormat, STATUS_ARGS } from './gitParse';
@@ -113,41 +114,62 @@ async function runRebasePlan(repo: string, base: string, plan: RebaseCommitItem[
   if (first.action === 'squash' || first.action === 'fixup') throw new UserError('The first kept commit has nothing to fold into.');
   await requireCleanTree(repo, 'an interactive rebase');
   const branch = (await git(repo, ['branch', '--show-current'])).trim();
+  if (!branch) throw new UserError('Check out a branch before an interactive rebase.');
   const start = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+  const baseCommit = (await git(repo, ['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`])).trim();
+  const expected = (await git(repo, ['rev-list', '--no-merges', '--end-of-options', `${baseCommit}..${start}`])).trim().split('\n').filter(Boolean);
+  const allowed = new Set(['pick', 'reword', 'squash', 'fixup', 'drop']);
+  const actual = plan.map((item) => item.hash);
+  if (plan.some((item) => !allowed.has(item.action)) || actual.length !== expected.length ||
+      new Set(actual).size !== expected.length || actual.some((hash) => !expected.includes(hash))) {
+    throw new UserError('The rebase plan must contain each selected commit exactly once. Reload the plan and try again.');
+  }
+  const temporary = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gitter-rebase-'));
+  let added = false;
   try {
-    await git(repo, ['reset', '--hard', '--end-of-options', base]);
+    // Replaying history in a detached worktree leaves the user's checkout and
+    // index untouched if a pick, hook or commit fails.
+    await git(repo, ['worktree', 'add', '--detach', '--', temporary, baseCommit]);
+    added = true;
     // Squash and fixup amend the previous commit of the plan; while none has been
     // made (the first picks were empty), amending would rewrite `base` itself.
     let made = 0;
     for (const item of plan) {
       if (item.action === 'drop') continue;
       if (item.action === 'pick') {
-        if (await pick(repo, item.hash)) made++;
+        if (await pick(temporary, item.hash)) made++;
       } else if (item.action === 'reword') {
         // A new summary replaces the first line; the body stays.
-        const [, ...body] = (await fullMessage(repo, item.hash)).split('\n');
-        if (await pick(repo, item.hash)) {
+        const [, ...body] = (await fullMessage(temporary, item.hash)).split('\n');
+        if (await pick(temporary, item.hash)) {
           made++;
-          await git(repo, ['commit', '--amend', '-F', '-'], { input: [item.newSummary?.trim() || item.summary, ...body].join('\n') });
+          await git(temporary, ['commit', '--amend', '-F', '-'], { input: [item.newSummary?.trim() || item.summary, ...body].join('\n') });
         }
       } else {
         // squash: like git, both messages, the squashed one possibly reworded; fixup: the previous message only.
-        const message = item.action === 'squash' ? item.newSummary?.trim() || (await fullMessage(repo, item.hash)) : await fullMessage(repo, item.hash);
-        const staged = await pick(repo, item.hash, true);
+        const message = item.action === 'squash' ? item.newSummary?.trim() || (await fullMessage(temporary, item.hash)) : await fullMessage(temporary, item.hash);
+        const staged = await pick(temporary, item.hash, true);
         if (made > 0) {
-          const amended = item.action === 'squash' ? `${await fullMessage(repo, 'HEAD')}\n\n${message}` : await fullMessage(repo, 'HEAD');
-          await git(repo, ['commit', '--amend', '--allow-empty', '-F', '-'], { input: amended });
+          const amended = item.action === 'squash' ? `${await fullMessage(temporary, 'HEAD')}\n\n${message}` : await fullMessage(temporary, 'HEAD');
+          await git(temporary, ['commit', '--amend', '--allow-empty', '-F', '-'], { input: amended });
         } else if (staged) {
-          await git(repo, ['commit', '-F', '-'], { input: message });
+          await git(temporary, ['commit', '-F', '-'], { input: message });
           made++;
         }
       }
     }
-    return `Rewrote ${branch || 'HEAD'} onto ${base.slice(0, 7)}.`;
+    const rewritten = (await git(temporary, ['rev-parse', 'HEAD'])).trim();
+    if ((await git(repo, ['branch', '--show-current'])).trim() !== branch || (await git(repo, ['rev-parse', 'HEAD'])).trim() !== start) {
+      throw new UserError('The checked-out branch changed while rewriting. Reload and try again.');
+    }
+    // Refuse to overwrite edits made while the temporary worktree was running.
+    await git(repo, ['reset', '--keep', '--end-of-options', rewritten]);
+    return `Rewrote ${branch} onto ${base.slice(0, 7)}.`;
   } catch (e: any) {
-    await git(repo, ['cherry-pick', '--abort']).catch(() => undefined); // only meaningful mid-conflict
-    await git(repo, ['reset', '--hard', start]);
-    throw new UserError(`Interactive rebase stopped and was undone: ${e.message}`);
+    throw new UserError(`Interactive rebase stopped; the original worktree was preserved: ${e.message}`);
+  } finally {
+    if (added) await git(repo, ['worktree', 'remove', '--force', '--', temporary]).catch(() => undefined);
+    else await fs.promises.rm(temporary, { recursive: true, force: true });
   }
 }
 

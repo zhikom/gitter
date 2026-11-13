@@ -1,7 +1,7 @@
 // The UI's view of the backend. Every operation is `POST <backend>/<name>` with
 // one JSON object in and one JSON value out, and its types come straight from
 // the server's handler map, so a changed handler is a type error here.
-import { isTauri } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { Handlers } from '../../server/handlers';
 import { TOKEN_HEADER } from '../../shared/host';
 import type { AgentReviewSnapshot } from '../../shared/types/agentReview';
@@ -29,7 +29,13 @@ type Api = {
     : never;
 };
 
+const nativeGit = new Set(['cloneRepo', 'stageFile', 'unstageFile', 'stageAll', 'unstageAll', 'commit']);
+
 async function call(operation: string, input: unknown): Promise<unknown> {
+  if (isTauri() && nativeGit.has(operation)) {
+    try { return await invoke('native_git_request', { operation, input: input ?? {} }); }
+    catch (error) { throw new Error(String(error)); }
+  }
   let res: Response;
   try {
     res = await fetch(`${backend.baseUrl}/${operation}`, {

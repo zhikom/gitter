@@ -30,6 +30,9 @@ const GIT_ENV = {
   // There is no terminal to answer a credential prompt; fail instead of hanging.
   // Credential helpers (Git Credential Manager, the macOS keychain) still work.
   GIT_TERMINAL_PROMPT: '0',
+  // Paths shown in the UI are literal filenames, even when they contain glob
+  // metacharacters or resemble Git's pathspec magic.
+  GIT_LITERAL_PATHSPECS: '1',
   ...configEnv({
     // Print non-ASCII paths as-is instead of as octal escapes in diffs and logs.
     'core.quotePath': 'false',
