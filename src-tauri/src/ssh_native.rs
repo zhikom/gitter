@@ -52,10 +52,17 @@ fn restrict_private_key(path: &Path) -> Result<(), String> {
     let start = user.find("S-1-").ok_or("Could not determine the Windows account SID")?;
     let sid = user[start..].split(|ch: char| !ch.is_ascii_digit() && ch != '-').next().unwrap_or("");
     let grant = format!("*{sid}:(F)");
-    let status = Command::new("icacls.exe").arg(path).args(["/inheritance:r", "/grant:r", &grant])
-        .creation_flags(NO_WINDOW).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
-        .status().map_err(|error| format!("Could not protect the private key: {error}"))?;
-    if !status.success() { return Err("Could not restrict access to the private key".into()); }
+    // Grant the owner access before removing inherited permissions so that a
+    // second security update cannot lock the current account out of the file.
+    for args in [vec!["/grant:r", grant.as_str()], vec!["/inheritance:r"]] {
+        let output = Command::new("icacls.exe").arg(path).args(args)
+            .creation_flags(NO_WINDOW).stdin(Stdio::null()).output()
+            .map_err(|error| format!("Could not protect the private key: {error}"))?;
+        if !output.status.success() {
+            let detail = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("Could not restrict access to the private key: {}", detail.trim()));
+        }
+    }
     Ok(())
 }
 
