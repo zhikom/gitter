@@ -55,6 +55,8 @@ import { BranchActionModal } from './components/Modals/BranchActionModal';
 import { CommandPalette } from './components/Modals/CommandPalette';
 import { CreateBranchModal } from './components/Modals/CreateBranchModal';
 import { FileHistoryModal } from './components/Modals/FileHistoryModal';
+import { HistorySearchModal } from './components/Modals/HistorySearchModal';
+import { BranchTimelineModal } from './components/Modals/BranchTimelineModal';
 import { SelectionHistoryModal } from './components/Modals/SelectionHistoryModal';
 import { GitflowModal } from './components/Modals/GitflowModal';
 import { ReflogModal } from './components/Modals/ReflogModal';
@@ -100,6 +102,8 @@ type Dialog =
   | { kind: 'rebase'; base: string }
   | { kind: 'blame'; file: string; revision?: string }
   | { kind: 'file-history'; file: string; revision?: string }
+  | { kind: 'history-search'; path?: string }
+  | { kind: 'branch-timeline'; branch: Branch }
   | { kind: 'selection-history'; file: string; revision?: string }
   | { kind: 'conflict'; file: string }
   | { kind: 'explanation'; file: string; explanation: AIExplanation }
@@ -579,6 +583,8 @@ export const App: React.FC = () => {
     { id: 'fetch', title: 'Fetch all remotes', category: 'Repository', icon: RefreshCw, enabled: hasRepo, run: () => quietly(actions.fetch()) },
     { id: 'undo', title: 'Undo last action', category: 'Repository', icon: Undo2, shortcut: 'Mod+Z', notInTextFields: true, enabled: hasRepo, run: () => quietly(actions.undo()) },
     { id: 'reflog', title: 'Reflog', category: 'Repository', icon: History, enabled: hasRepo, run: () => setDialog({ kind: 'reflog' }) },
+    { id: 'history-search', title: 'Search text or directory history…', category: 'Repository', icon: Search, enabled: hasRepo, run: () => setDialog({ kind: 'history-search' }) },
+    { id: 'branch-timeline', title: 'Branch timeline', category: 'Branches', icon: History, enabled: hasRepo && repository.branches.length > 0, run: () => { const branch = repository.branches.find((item) => item.name === selectedBranch) ?? repository.branches.find((item) => item.current); if (branch) setDialog({ kind: 'branch-timeline', branch }); } },
     { id: 'worktrees', title: 'Worktrees', category: 'Repository', icon: Layers, enabled: hasRepo, run: () => setDialog({ kind: 'worktrees' }) },
     { id: 'gitflow', title: 'Gitflow', category: 'Branches', icon: Workflow, enabled: hasRepo, run: () => setDialog({ kind: 'gitflow' }) },
     { id: 'new-branch', title: 'New branch', category: 'Branches', icon: GitBranch, shortcut: 'Mod+Shift+N', enabled: hasRepo, run: () => setDialog({ kind: 'create-branch', startPoint: repoState?.currentBranch || 'HEAD' }) },
@@ -702,6 +708,7 @@ export const App: React.FC = () => {
                 currentBranch={repoState?.currentBranch ?? ''}
                 selectedBranch={selectedBranch}
                 onSelectBranch={(branch) => void selectBranch(branch)}
+                onBranchTimeline={(branch) => setDialog({ kind: 'branch-timeline', branch })}
                 onCheckoutBranch={(name) => quietly(actions.checkout(name))}
                 onDeleteBranch={(name) => void actions.deleteBranch(name)}
                 onRenameBranch={(name) => void actions.renameBranch(name)}
@@ -840,6 +847,7 @@ export const App: React.FC = () => {
                           onStash={() => setDialog({ kind: 'stash' })}
                           onOpenBlame={(file) => setDialog({ kind: 'blame', file })}
                           onOpenFileHistory={(file) => setDialog({ kind: 'file-history', file })}
+                          onResolveConflict={(file) => setDialog({ kind: 'conflict', file })}
                           onRevealInExplorer={(file) => quietly(run('Could not open the folder', () => api.revealInFileManager({ repo, file }), { refresh: false }))}
                           onOpenInVsCode={(file) => quietly(run('Could not open the editor', () => api.openInEditor({ repo, file }), { refresh: false }))}
                           onOpenExternalDiff={(file, staged) => quietly(actions.externalDiff(file, staged))}
@@ -948,11 +956,16 @@ export const App: React.FC = () => {
             revision={dialog.revision}
             onClose={close}
             onSelectionHistory={(file, revision) => setDialog({ kind: 'selection-history', file, revision })}
+            onSearchHistory={(path) => setDialog({ kind: 'history-search', path })}
             onOpenCommit={(hash) => void showHistoryCommit(hash)}
           />
         );
       case 'selection-history':
         return <SelectionHistoryModal file={dialog.file} repo={repo} revision={dialog.revision} onClose={close} onOpenCommit={(hash) => void showHistoryCommit(hash)} />;
+      case 'history-search':
+        return <HistorySearchModal repo={repo} initialPath={dialog.path} onClose={close} onOpenCommit={(hash) => void showHistoryCommit(hash)} />;
+      case 'branch-timeline':
+        return <BranchTimelineModal repo={repo} branch={dialog.branch} pulls={repository.pullRequests} agents={live.reviews} onClose={close} onOpenCommit={(hash) => void showHistoryCommit(hash)} onOpenPr={(pr) => setDialog({ kind: 'pull-request', pr })} onOpenAgent={(agentId) => setDialog({ kind: 'agent-run', agentId })} />;
       case 'conflict':
         return <ThreeWayConflictResolverModal file={dialog.file} repo={repo} rebasing={Boolean(repoState?.isRebasing)} onClose={close} onResolved={afterChange} />;
       case 'explanation':

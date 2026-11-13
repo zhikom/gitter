@@ -1,7 +1,7 @@
 {
   "name": "gitter",
   "productName": "Gitter",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "description": "High-performance GitKraken alternative with visual commit graph and deep AI agent integration",
   "type": "module",
   "scripts": {
@@ -25,6 +25,7 @@
     "cors": "^2.8.5",
     "diff": "^7.0.0",
     "express": "^4.21.2",
+    "highlight.js": "^11.12.0",
     "lucide-react": "^0.475.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

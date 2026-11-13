@@ -30,6 +30,7 @@ interface StagingPanelProps {
   onStash?: () => void;
   onOpenBlame?: (file: string) => void;
   onOpenFileHistory?: (file: string) => void;
+  onResolveConflict?: (file: string) => void;
   onRevealInExplorer?: (file: string) => void;
   onOpenInVsCode?: (file: string) => void;
   onOpenExternalDiff?: (file: string, staged: boolean) => void;
@@ -58,6 +59,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
   onStash,
   onOpenBlame,
   onOpenFileHistory,
+  onResolveConflict,
   onRevealInExplorer,
   onOpenInVsCode,
   onOpenExternalDiff,
@@ -413,6 +415,8 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
           <div className="px-3 py-1 font-mono text-[11px] text-teal-400 border-b border-[#2a3447] truncate">
             {contextMenu.file.path}
           </div>
+
+          {contextMenu.file.status === 'conflicted' && onResolveConflict && <button onClick={() => { onResolveConflict(contextMenu.file.path); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-rose-300"><AlertTriangle className="w-3.5 h-3.5" /><span>Resolve conflict</span></button>}
 
           {contextMenu.file.staged ? (
             <button

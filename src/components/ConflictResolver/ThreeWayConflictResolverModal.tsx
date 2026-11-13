@@ -1,7 +1,9 @@
 // Resolves one conflicted file: pick ours, theirs or both for each conflict, or
 // edit the result directly, then save it and mark the file resolved.
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Check, Sparkles } from 'lucide-react';
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
+import hljs from 'highlight.js/lib/common';
+import 'highlight.js/styles/github-dark.css';
 import { api } from '../../api/client';
 import { toast } from '../../utils/toast';
 import { ask } from '../ui/ask';
@@ -22,6 +24,14 @@ const SIDE_STYLE = {
   theirs: { dot: 'bg-purple-500', text: 'text-purple-300', chosen: 'border-purple-500/60 bg-purple-500/10', button: 'bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border-purple-500/40' },
 };
 
+/** Highlight only known languages; unknown files stay plain text. */
+const CodePreview: React.FC<{ file: string; code: string }> = ({ file, code }) => {
+  const ext = file.split('.').pop()?.toLowerCase() || '';
+  const language = ({ tsx: 'typescript', jsx: 'javascript', yml: 'yaml', rs: 'rust', py: 'python', sh: 'bash', zsh: 'bash', md: 'markdown' } as Record<string, string>)[ext] || ext;
+  const highlighted = hljs.getLanguage(language) ? hljs.highlight(code, { language, ignoreIllegals: true }).value : null;
+  return <pre className="hljs whitespace-pre-wrap break-words leading-relaxed p-2 rounded select-text">{highlighted === null ? code || '(no lines)' : <code dangerouslySetInnerHTML={{ __html: highlighted }} />}</pre>;
+};
+
 export const ThreeWayConflictResolverModal: React.FC<ThreeWayConflictResolverModalProps> = ({ file, repo, rebasing, onClose, onResolved }) => {
   const sideLabel = { ours: rebasing ? 'Rebasing onto' : 'Yours (checked out)', theirs: rebasing ? 'Your commit' : 'Incoming' };
   const [parsed, setParsed] = useState<ConflictedFile | null>(null);
@@ -29,6 +39,9 @@ export const ThreeWayConflictResolverModal: React.FC<ThreeWayConflictResolverMod
   const [rationale, setRationale] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [source, setSource] = useState('');
+  const [activeConflict, setActiveConflict] = useState(0);
+  const [preview, setPreview] = useState(true);
 
   useEffect(() => {
     let current = true;
@@ -37,8 +50,10 @@ export const ThreeWayConflictResolverModal: React.FC<ThreeWayConflictResolverMod
       .then((content) => {
         if (!current) return;
         const next = parseConflicts(content);
+        setSource(content);
         setParsed(next);
         setResult(mergeConflicts(next));
+        setActiveConflict(0);
       })
       .catch((e) => toast.error(`Could not read ${file}: ${e.message}`));
     return () => {
@@ -50,11 +65,13 @@ export const ThreeWayConflictResolverModal: React.FC<ThreeWayConflictResolverMod
   const unresolved = conflicts.filter((c) => c.resolution === 'unresolved').length;
 
   // Choosing a side rebuilds the result; edits typed into it before are replaced.
-  const choose = (conflict: Conflict, resolution: Resolution) => {
+  const choose = async (conflict: Conflict, resolution: Resolution) => {
     if (!parsed) return;
+    if (result !== mergeConflicts(parsed) && !(await ask.confirm({ title: 'Replace edited result?', message: 'Choosing a side rebuilds the preview and replaces your manual or AI edits.', confirmLabel: 'Replace edits', danger: true }))) return;
     const next = { ...parsed, sections: parsed.sections.map((s) => (s === conflict ? { ...conflict, resolution } : s)) };
     setParsed(next);
     setResult(mergeConflicts(next));
+    setPreview(true);
   };
 
   const resolveWithAi = async () => {
@@ -64,6 +81,7 @@ export const ThreeWayConflictResolverModal: React.FC<ThreeWayConflictResolverMod
       const answer = await api.resolveConflict({ file, content: mergeConflicts({ ...parsed, sections: parsed.sections.map((s) => (s.kind === 'conflict' ? { ...s, resolution: 'unresolved' } : s)) }) });
       setResult(answer.resolved);
       setRationale(answer.rationale);
+      setPreview(true);
     } catch (e: any) {
       toast.error(`AI resolution failed: ${e.message}`);
     } finally {
@@ -80,7 +98,7 @@ export const ThreeWayConflictResolverModal: React.FC<ThreeWayConflictResolverMod
     }
     setSaving(true);
     try {
-      await api.saveConflictResolution({ repo, file, content: result, stage: true });
+      await api.saveConflictResolution({ repo, file, content: result, stage: true, expectedContent: source });
       toast.success(`${file} is resolved and staged.`);
       onResolved();
       onClose();
@@ -102,17 +120,18 @@ export const ThreeWayConflictResolverModal: React.FC<ThreeWayConflictResolverMod
         </div>
         <div className="flex-1 p-3 overflow-y-auto font-mono text-xs space-y-3">
           {conflicts.map((c, i) => {
+            if (i !== activeConflict) return null;
             const chosen = c.resolution === which || c.resolution === (which === 'ours' ? 'ours-then-theirs' : 'theirs-then-ours');
             return (
               <div key={i} className={`border rounded-lg p-2.5 ${chosen ? style.chosen : 'border-[#263345] bg-[#161d28]'}`}>
                 <div className="flex items-center justify-between mb-2 font-sans">
                   <span className={`text-[11px] font-semibold ${style.text}`}>Conflict {i + 1}</span>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => choose(c, which)} className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${style.button}`}>
+                    <button onClick={() => void choose(c, which)} className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${style.button}`}>
                       Use this
                     </button>
                     <button
-                      onClick={() => choose(c, which === 'ours' ? 'ours-then-theirs' : 'theirs-then-ours')}
+                      onClick={() => void choose(c, which === 'ours' ? 'ours-then-theirs' : 'theirs-then-ours')}
                       title={`Keep both, ${sideLabel[which].toLowerCase()} first`}
                       className="px-2 py-0.5 rounded text-[10px] bg-[#1d2636] hover:bg-[#253147] text-slate-300"
                     >
@@ -120,7 +139,7 @@ export const ThreeWayConflictResolverModal: React.FC<ThreeWayConflictResolverMod
                     </button>
                   </div>
                 </div>
-                <pre className="whitespace-pre-wrap leading-relaxed text-slate-200 bg-[#0d121a] p-2 rounded">{c[which].join('\n') || <span className="text-slate-500 italic">(no lines)</span>}</pre>
+                <CodePreview file={file} code={c[which].join('\n')} />
               </div>
             );
           })}
@@ -135,7 +154,7 @@ export const ThreeWayConflictResolverModal: React.FC<ThreeWayConflictResolverMod
       tall
       icon={<AlertTriangle className="w-4 h-4 text-rose-400" />}
       title={<span className="font-mono">{file}</span>}
-      subtitle={parsed ? (unresolved ? `${unresolved} of ${conflicts.length} conflicts left` : `All ${conflicts.length} conflicts resolved`) : 'Loading…'}
+      subtitle={parsed ? (unresolved ? `${unresolved} of ${conflicts.length} conflicts without a side selected` : `${conflicts.length} conflicts have a side selected`) : 'Loading…'}
       onClose={onClose}
       actions={
         <>
@@ -159,20 +178,27 @@ export const ThreeWayConflictResolverModal: React.FC<ThreeWayConflictResolverMod
           </span>
         </div>
       )}
+      <div className="px-3 py-2 flex items-center gap-2 border-b border-[#2a3447] text-xs text-slate-400">
+        <Button aria-label="Previous conflict" disabled={activeConflict <= 0} onClick={() => setActiveConflict((index) => index - 1)}><ChevronLeft className="w-3.5 h-3.5" /></Button>
+        <span>{conflicts.length ? `Conflict ${activeConflict + 1} of ${conflicts.length}` : 'No conflict blocks found'}</span>
+        <Button aria-label="Next conflict" disabled={activeConflict >= conflicts.length - 1} onClick={() => setActiveConflict((index) => index + 1)}><ChevronRight className="w-3.5 h-3.5" /></Button>
+        <span className="ml-auto">Preview the complete result before saving.</span>
+      </div>
       <div className="flex-1 min-h-0 grid grid-cols-3 divide-x divide-[#232c3d]">
         {side('ours')}
         <div className="flex flex-col min-h-0 bg-[#0e1218]">
           <div className="h-9 flex-shrink-0 bg-[#171c26] border-b border-[#232c3d] px-4 flex items-center gap-2">
             <span className="text-xs font-semibold text-emerald-300">Result</span>
-            <span className="text-[10px] text-slate-500">editable; this is what gets saved</span>
+            <span className="text-[10px] text-slate-500">this is what gets saved</span>
+            <span className="ml-auto flex gap-1"><button onClick={() => setPreview(true)} className={preview ? 'text-teal-300' : 'text-slate-500'}>Preview</button><span>/</span><button onClick={() => setPreview(false)} className={!preview ? 'text-teal-300' : 'text-slate-500'}>Edit</button></span>
           </div>
-          <textarea
+          {preview ? <div className="flex-1 overflow-auto p-2"><CodePreview file={file} code={result} /></div> : <textarea
             value={result}
             onChange={(e) => setResult(e.target.value)}
             spellCheck={false}
             aria-label="Merged result"
             className="flex-1 bg-transparent p-4 font-mono text-xs text-slate-200 resize-none focus:outline-none leading-relaxed"
-          />
+          />}
         </div>
         {side('theirs')}
       </div>

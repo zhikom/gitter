@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-11-13
+
+### Pull request reviews
+
+- Review GitHub and Bitbucket Server/Data Center pull request diffs, inline
+  discussions, review states, and CI results. Post line comments and approve
+  a pull request directly from its review screen.
+- Ask an installed Codex CLI or Claude Code CLI for review suggestions, then
+  edit and post selected comments. Suggestions stay as drafts until posted;
+  the selected CLI may send the diff to its configured AI provider.
+- Detect changed source or target revisions when loading or submitting a
+  review and ask for a refresh before using an outdated diff.
+
+### History and conflict resolution
+
+- Search committed changes for literal text additions or removals, and browse
+  the history of a directory or file. Open matching commits and inspect diffs.
+- Open a branch timeline from its context menu to see its recent commits,
+  related pull requests, build checks, and Gitter agent activity.
+- Navigate conflict blocks and preview a syntax-highlighted result before
+  saving. Open the resolver directly from a conflicted file's context menu;
+  Gitter protects edits made on disk while the resolver is open.
+- Expand the illustrated user guide for the new workflows.
+
+### Downloads
+
+- Windows x64 and macOS ARM64 (Apple Silicon) installers are available. The
+  Windows installer is unsigned; the Mac app is ad-hoc signed but not
+  notarized, so the operating system may show a security warning.
+
 ## [1.7.1] - 2026-11-13
 
 ### Navigation

@@ -1,5 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { BitbucketPage, BitbucketPullRequest, BitbucketRepository, Integration, IntegrationKind } from '../types/integration';
+import type { ReviewAnchor } from '../../shared/types/review';
 
 export interface SshPublicKey {
   path: string;
@@ -36,6 +37,10 @@ export const desktopApi = {
     desktop<BitbucketPage<BitbucketPullRequest>>('bitbucket_pull_requests', { id, project, slug, start }),
   getBitbucketPullRequest: (id: string, project: string, slug: string, number: number) =>
     desktop<BitbucketPullRequest>('bitbucket_pull_request', { id, project, slug, number }),
+  getBitbucketReview: (id: string, project: string, slug: string, number: number) =>
+    desktop<{ pull: any; diff: string; activities: any[]; builds: any[]; warnings: string[] }>('bitbucket_review', { id, project, slug, number }),
+  bitbucketReviewAction: (id: string, project: string, slug: string, number: number, head: string, base: string, action: 'approve' | 'comment', body?: string, anchor?: ReviewAnchor) =>
+    desktop<void>('bitbucket_review_action', { id, project, slug, number, head, base, action, body, anchor }),
   createBitbucketPullRequest: (id: string, project: string, slug: string, pullRequest: { title: string; description: string; source: string; target: string }) =>
     desktop<BitbucketPullRequest>('create_bitbucket_pull_request', { id, project, slug, pullRequest }),
 };

@@ -113,7 +113,8 @@ export const changeHandlers = {
   workingFile: inRepo((repo, { file }: { file: string }) => fs.promises.readFile(insideRepo(repo, file), 'utf8')),
 
   /** Writes a resolved conflict to disk and, unless told otherwise, marks it resolved. */
-  saveConflictResolution: inRepo(async (repo, { file, content, stage = true }: { file: string; content: string; stage?: boolean }) => {
+  saveConflictResolution: inRepo(async (repo, { file, content, stage = true, expectedContent }: { file: string; content: string; stage?: boolean; expectedContent?: string }) => {
+    if (expectedContent !== undefined && await fs.promises.readFile(insideRepo(repo, file), 'utf8') !== expectedContent) throw new UserError('The file changed on disk. Reopen the conflict resolver before saving.');
     await fs.promises.writeFile(insideRepo(repo, file), content, 'utf8');
     if (stage) await git(repo, ['add', '--', file]);
   }),

@@ -7,6 +7,9 @@ import path from 'node:path';
 import { after, describe, test } from 'node:test';
 import { git, useGitHubCliForGit } from './git';
 import { createGitHubHandlers } from './github';
+import { createGitHubReviewHandlers, githubPullTarget } from './pullReview';
+import { validateSuggestions } from './reviewAgent';
+import { bitbucketReviewSnapshot } from '../src/utils/pullReview';
 import { createHandlers } from './handlers';
 import { combine, UserError } from './http';
 import { parseDiff } from './gitParse';
@@ -859,4 +862,91 @@ describe('parsers and wiring', () => {
   test('two handlers with one name are a startup error', () => {
     assert.throws(() => combine({ same: () => 1 }, { same: () => 2 }), /Two handlers/);
   });
+});
+
+const reviewDiff = 'diff --git a/a.txt b/a.txt\nindex 1234567..abcdef0 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n one\n-two\n+changed\n';
+
+test('GitHub review reads pages, anchors comments, and rejects stale approvals', async () => {
+  const repo = await newRepo();
+  const head = 'a'.repeat(40);
+  const base = 'c'.repeat(40);
+  let currentHead = head;
+  const calls: Array<{ args: string[]; input?: string }> = [];
+  const gh = createGitHubReviewHandlers(async (_repo, args, input) => {
+    calls.push({ args, input });
+    const url = args.find((arg) => arg.startsWith('/repos/')) || '';
+    if (args.includes('POST')) return '{}';
+    if (url.endsWith('/pulls/9') && args.includes('Accept: application/vnd.github.v3.diff')) return reviewDiff;
+    if (url.endsWith('/pulls/9')) return JSON.stringify({ head: { sha: currentHead }, base: { sha: base } });
+    if (url.includes('/pulls/9/comments?')) return JSON.stringify([[{ id: 1, user: { login: 'alice' }, body: 'Please fix', path: 'a.txt', line: 2, side: 'RIGHT', position: 1 }], [{ id: 2, user: { login: 'bob' }, body: 'old', path: 'a.txt', original_line: 2, side: 'LEFT', position: null }]]);
+    if (url.includes('/issues/9/comments?')) return JSON.stringify([[{ id: 3, user: { login: 'sam' }, body: 'Hello' }]]);
+    if (url.includes('/reviews?')) return JSON.stringify([[{ user: { login: 'alice' }, state: 'APPROVED' }]]);
+    if (url.includes('/check-runs?')) return JSON.stringify([{ check_runs: [{ name: 'tests', status: 'completed', conclusion: 'success' }] }]);
+    if (url.endsWith('/status')) return JSON.stringify({ statuses: [{ context: 'lint', state: 'pending' }] });
+    throw Error(`Unexpected test endpoint ${url}`);
+  });
+  const url = 'https://github.com/team/project/pull/9';
+  const review = await gh.githubReview({ repo, url, number: 9 });
+  assert.equal(review.files[0].path, 'a.txt');
+  assert.equal(review.comments.length, 3);
+  assert.equal(review.comments[1].outdated, true);
+  assert.equal(review.approvals[0].state, 'APPROVED');
+  assert.deepEqual(review.checks.map((check) => check.name), ['tests', 'lint']);
+  await gh.githubReviewComment({ repo, url, number: 9, headHash: head, baseHash: base, anchor: { path: 'a.txt', line: 2, side: 'RIGHT', lineType: 'add' }, body: 'Please fix' });
+  const post = calls.find((call) => call.args.includes('POST'))!;
+  assert.deepEqual(JSON.parse(post.input!), { body: 'Please fix', commit_id: head, path: 'a.txt', line: 2, side: 'RIGHT' });
+  currentHead = 'b'.repeat(40);
+  await assert.rejects(gh.githubApproveReview({ repo, url, number: 9, headHash: head, baseHash: base }), /changed/);
+  assert.equal(calls.filter((call) => call.args.includes('POST')).length, 1);
+  assert.throws(() => githubPullTarget('https://github.com.attacker.test/team/project/pull/9', 9));
+  assert.throws(() => githubPullTarget('https://github.com/team/project/pull/8', 9));
+});
+
+test('Bitbucket review maps nested comments and build statuses', () => {
+  const snapshot = bitbucketReviewSnapshot({
+    pull: { fromRef: { latestCommit: 'a'.repeat(40) }, toRef: { latestCommit: 'c'.repeat(40) }, reviewers: [{ user: { name: 'alice', displayName: 'Alice' }, approved: true }], participants: [] },
+    diff: reviewDiff,
+    activities: [{ commentAnchor: { path: { components: ['a.txt'] }, line: 2, fileType: 'TO' }, comment: { id: 1, text: 'Review', author: { displayName: 'Alice' }, comments: [{ id: 2, text: 'Reply', author: { name: 'bob' } }] } }],
+    builds: [{ key: 'CI', state: 'SUCCESSFUL', url: 'https://example.test/build' }], warnings: [],
+  });
+  assert.deepEqual(snapshot.comments.map((comment) => [comment.path, comment.line, comment.side]), [['a.txt', 2, 'RIGHT'], ['a.txt', 2, 'RIGHT']]);
+  assert.equal(snapshot.approvals[0].state, 'APPROVED');
+  assert.equal(snapshot.checks[0].state, 'SUCCESSFUL');
+});
+
+test('local review accepts only actual diff anchors', () => {
+  const result = validateSuggestions({ summary: 'Review', suggestions: [
+    { path: 'a.txt', line: 2, side: 'RIGHT', body: 'Fix this' },
+    { path: 'a.txt', line: 2, side: 'LEFT', body: 'Old line' },
+    { path: '../outside', line: 1, side: 'RIGHT', body: 'Bad path' },
+    { path: 'a.txt', line: 7, side: 'RIGHT', body: 'Missing line' },
+  ] }, reviewDiff);
+  assert.deepEqual(result.suggestions.map((item) => item.lineType), ['add', 'delete']);
+  assert.equal(result.omitted, 2);
+});
+
+test('history searches literal changed text and follows the selected branch without checkout', async () => {
+  const repo = await newRepo();
+  write(repo, 'src/test.txt', 'literal [value] one\n');
+  await git(repo, ['add', '-A']); await git(repo, ['commit', '-qm', 'add literal']);
+  await git(repo, ['checkout', '-qb', 'feature']);
+  write(repo, 'src/test.txt', 'literal [value] two\n');
+  await git(repo, ['add', '-A']); await git(repo, ['commit', '-qm', 'replace literal']);
+  const tip = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+  await git(repo, ['checkout', '-q', 'main']);
+  const found = await api.searchHistory({ repo, text: '[value]', directory: 'src' });
+  assert.deepEqual(found.map((item) => item.summary), ['replace literal', 'add literal']);
+  const folder = await api.searchHistory({ repo, directory: 'src' });
+  assert.equal(folder.length, 2);
+  await assert.rejects(api.searchHistory({ repo, directory: '../outside' }), /inside the repository/);
+  const branch = await api.branchHistory({ repo, hash: tip });
+  assert.equal(branch[0].summary, 'replace literal');
+  assert.equal((await api.repoState({ repo })).currentBranch, 'main');
+});
+
+test('conflict resolution refuses to overwrite a file changed since preview', async () => {
+  const repo = await newRepo();
+  write(repo, 'a.txt', 'newer work\n');
+  await assert.rejects(api.saveConflictResolution({ repo, file: 'a.txt', content: 'resolution\n', expectedContent: 'old work\n' }), /changed on disk/);
+  assert.equal(read(repo, 'a.txt'), 'newer work\n');
 });

@@ -13,10 +13,11 @@ interface FileHistoryModalProps {
   onClose: () => void;
   onOpenCommit: (hash: string) => void;
   onSelectionHistory: (file: string, revision?: string) => void;
+  onSearchHistory: (path: string) => void;
 }
 
 /** Every commit that changed a file, following renames, with each one's change to it. */
-export const FileHistoryModal: React.FC<FileHistoryModalProps> = ({ file, repo, revision, onClose, onOpenCommit, onSelectionHistory }) => {
+export const FileHistoryModal: React.FC<FileHistoryModalProps> = ({ file, repo, revision, onClose, onOpenCommit, onSelectionHistory, onSearchHistory }) => {
   const [history, setHistory] = useState<FileCommitHistory[] | null>(null);
   const [selected, setSelected] = useState<FileCommitHistory | null>(null);
   const [diff, setDiff] = useState<FileDiff | undefined>();
@@ -66,7 +67,7 @@ export const FileHistoryModal: React.FC<FileHistoryModalProps> = ({ file, repo, 
   const shown = (history ?? []).filter((h) => !needle || `${h.summary} ${h.author} ${h.shortHash}`.toLowerCase().includes(needle));
 
   return (
-    <Modal width="xl" tall icon={<History className="w-4 h-4" />} title="File history" subtitle={revision ? `${file} · through ${revision.slice(0, 7)}` : file} onClose={onClose} actions={<><Button disabled={!selected} aria-pressed={compareWorking} onClick={() => setCompareWorking(!compareWorking)}>{compareWorking ? 'Show commit change' : 'Compare with working tree'}</Button><Button disabled={!selected} onClick={() => selected && onOpenCommit(selected.hash)}>Open commit</Button><Button onClick={() => onSelectionHistory(selected?.path ?? file, selected?.hash ?? revision)}>History for selection</Button></>}>
+    <Modal width="xl" tall icon={<History className="w-4 h-4" />} title="File history" subtitle={revision ? `${file} · through ${revision.slice(0, 7)}` : file} onClose={onClose} actions={<><Button disabled={!selected} aria-pressed={compareWorking} onClick={() => setCompareWorking(!compareWorking)}>{compareWorking ? 'Show commit change' : 'Compare with working tree'}</Button><Button disabled={!selected} onClick={() => selected && onOpenCommit(selected.hash)}>Open commit</Button><Button onClick={() => onSearchHistory(file)}>Search history</Button><Button onClick={() => onSelectionHistory(selected?.path ?? file, selected?.hash ?? revision)}>History for selection</Button></>}>
       <div className="flex-1 min-h-0 flex">
         <div className="w-80 flex-shrink-0 flex flex-col border-r border-[#2a3447] bg-[#181d26]">
           <input

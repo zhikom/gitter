@@ -22,6 +22,7 @@ import {
   DownloadCloud,
   SlidersHorizontal,
   Workflow,
+  History,
   Search,
   X,
 } from 'lucide-react';
@@ -53,6 +54,7 @@ interface SidebarProps {
   currentBranch: string;
   selectedBranch: string | null;
   onSelectBranch: (branch: Branch) => void;
+  onBranchTimeline?: (branch: Branch) => void;
   onCheckoutBranch: (name: string) => void;
   onDeleteBranch: (name: string) => void;
   /** Asks for the new name itself. */
@@ -98,6 +100,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentBranch,
   selectedBranch,
   onSelectBranch,
+  onBranchTimeline,
   onCheckoutBranch,
   onDeleteBranch,
   onRenameBranch,
@@ -989,6 +992,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="px-3 py-1 font-mono text-[11px] text-teal-400 border-b border-[#2a3447] truncate">
                 {contextMenu.item.name}
               </div>
+              {onBranchTimeline && <button onClick={() => { onBranchTimeline(contextMenu.item); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"><History className="w-3.5 h-3.5" /><span>Branch timeline</span></button>}
               <button
                 onClick={() => {
                   onCheckoutBranch(contextMenu.item.name);
@@ -1100,6 +1104,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="px-3 py-1 font-mono text-[11px] text-blue-400 border-b border-[#2a3447] truncate">
                 {contextMenu.item.name}
               </div>
+              {onBranchTimeline && <button onClick={() => { onBranchTimeline(contextMenu.item); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"><History className="w-3.5 h-3.5" /><span>Branch timeline</span></button>}
               <button
                 onClick={() => {
                   onCheckoutBranch(contextMenu.item.name);

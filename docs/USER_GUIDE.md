@@ -59,6 +59,15 @@ private key.
   switch back with **Show commit change**.
 - **Blame** shows the most recent commit and author for each line. Lines that
   have not been committed yet are marked with a zero commit ID.
+- Open **Search text or directory history…** from the command palette to find
+  commits that add or remove a literal line of text. Add a repository-relative
+  directory or file to narrow the search, or leave the text blank to browse a
+  directory's history. Select a commit and file to inspect the patch. Search
+  covers reachable branches, tags, and remotes and shows up to 300 commits.
+- Right-click a local or remote branch and choose **Branch timeline** to see
+  its recent commits, related pull requests and checks, and matching Gitter
+  agent activity. Pull requests are matched by branch name; compare the PR
+  head with the selected branch tip before assuming they are identical.
 
 ## Review, stage, and commit
 
@@ -98,17 +107,46 @@ very large and binary files are not available in this view.
 
 ## Pull requests
 
+![Illustration of the pull request review screen](guide/pull-request-review.svg)
+
 For a repository with a supported connected remote, open **Pull requests** in
-the navigator. Select a PR to inspect its details or open it in the provider.
-Bitbucket Server/Data Center drafts appear alongside open PRs. The **+** can
-start a PR where the provider and branch support it. Gitter's Bitbucket
-integration currently supports PRs within one repository; full review and
-cross-repository PR workflows are not yet available.
+the navigator. Select a PR to view its changes, discussion, reviews, and
+builds. Bitbucket Server/Data Center drafts appear alongside open PRs. The
+**+** can start a PR where the provider and branch support it. Gitter's
+Bitbucket creation flow currently supports PRs within one repository.
+
+1. Select a changed file and click the comment icon beside a diff line. Write
+   the comment, then choose **Post comment**. Existing inline comments appear
+   beneath their lines; **Discussion** also lists comments and replies.
+2. Use **Checks** to inspect CI results and review states. Select **Approve**
+   when you are ready to approve the displayed PR revision. Refresh the review
+   when the source branch changes.
+3. To get suggestions, choose **Codex CLI** or **Claude Code CLI** and select
+   **Review with agent**. The CLI must be installed and signed in. A local
+   invocation sends the displayed diff to the CLI's configured AI provider;
+   suggestions are drafts and are never posted automatically. Select a
+   suggestion to edit it, then use **Post comment**. Only locations present
+   in the diff can be suggested, and reviews support diffs up to 200,000
+   characters.
+
+The provider controls review permissions and which checks are available. A
+comment or approval can fail if the PR changes, your token lacks permission, or
+the provider cannot anchor that line. Refresh and inspect the latest diff.
 
 If a Bitbucket token expires, use **Settings → Integrations → Update token**.
 On macOS, Gitter stores the token unencrypted in a file restricted to your user
 account, without using Keychain. Removing the connection deletes the saved
 token. Other applications running as your user may be able to read it.
+
+## Resolve a conflict
+
+Right-click a conflicted working-tree file and choose **Resolve conflict**.
+Use the arrows to navigate conflict blocks, then choose either side or keep
+both in the desired order. The middle pane previews the entire result with
+syntax highlighting for supported file types; choose **Edit** to adjust it.
+Review the preview before **Save and mark resolved** writes and stages the
+file. Gitter refuses to overwrite the file if it changed on disk while the
+resolver was open.
 
 ## Choose a theme and external apps
 

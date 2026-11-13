@@ -6,6 +6,7 @@ import { desktopApi } from '../../api/desktop';
 import type { BitbucketTarget } from '../../utils/bitbucketRemote';
 import { toast } from '../../utils/toast';
 import { Button, Field, inputClass, Modal } from '../ui/Modal';
+import { PullRequestReview } from './PullRequestReview';
 
 const openInBrowser = (url: string) => api.openUrl({ url }).catch(() => window.open(url, '_blank'));
 
@@ -45,7 +46,8 @@ export const PullRequestModal: React.FC<ViewProps> = ({ repo, pr, onClose, onChe
 
   return (
     <Modal
-      width="lg"
+      width="full"
+      tall
       icon={<GitPullRequest className="w-4 h-4" />}
       title={`#${details.number} ${details.title}`}
       subtitle={`${details.author.login} · ${details.headRefName} → ${details.baseRefName}`}
@@ -62,7 +64,7 @@ export const PullRequestModal: React.FC<ViewProps> = ({ repo, pr, onClose, onChe
         </>
       }
     >
-      <div className="p-4 space-y-3">
+      <div className="px-4 py-2 space-y-2 border-b border-[#2a3447]">
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
           <span className="px-1.5 py-0.5 rounded font-bold bg-emerald-500/20 text-emerald-300">{details.isDraft ? 'DRAFT' : details.state}</span>
           {details.changedFiles !== undefined && (
@@ -72,10 +74,9 @@ export const PullRequestModal: React.FC<ViewProps> = ({ repo, pr, onClose, onChe
           )}
           {details.mergeable && <span>mergeable: {details.mergeable.toLowerCase()}</span>}
         </div>
-        <div className="bg-[#14181f] p-4 rounded border border-[#2a3447] text-xs text-slate-200 whitespace-pre-wrap leading-relaxed select-text">
-          {details.body || <span className="text-slate-500">No description.</span>}
-        </div>
+        <details className="text-xs text-slate-400"><summary className="cursor-pointer">Description</summary><div className="py-2 text-slate-200 whitespace-pre-wrap select-text">{details.body || 'No description.'}</div></details>
       </div>
+      <PullRequestReview repo={repo} pr={details} />
     </Modal>
   );
 };

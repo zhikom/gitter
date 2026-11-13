@@ -94,6 +94,32 @@ async function committedFile(repo: string, file: string, revision?: string): Pro
 export const historyHandlers = {
   commits: inRepo((repo, { limit = 300 }: { limit?: number }) => commits(repo, limit)),
 
+  /** Search changed lines as a literal string, optionally inside a directory. */
+  searchHistory: inRepo(async (repo, { text = '', directory = '' }: { text?: string; directory?: string }): Promise<FileCommitHistory[]> => {
+    if (typeof text !== 'string' || text.length > 200 || /[\0\r\n]/.test(text)) throw new UserError('Enter one line of search text (up to 200 characters).');
+    if (directory) historyPath(directory);
+    if (!text && !directory) throw new UserError('Enter text or a directory to search.');
+    // -G matches additions and removals, including replacements where the number
+    // of occurrences is unchanged. Escape POSIX extended-regex metacharacters.
+    const literal = text.replace(/[\\.\[\]{}()*+?^$|]/g, '\\$&');
+    const out = await git(repo, ['log', '--branches', '--tags', '--remotes', 'HEAD', '--date=short', '-n300', '--format=%x1e%H%x1f%h%x1f%an%x1f%ad%x1f%s', ...(text ? [`-G${literal}`] : []), '--', ...(directory ? [directory] : [])]);
+    return out.split('\x1e').filter((chunk) => chunk.trim()).map((chunk) => {
+      const [hash, shortHash, author, date, summary] = chunk.trim().split('\x1f');
+      return { hash, shortHash, author, date, summary, path: directory };
+    });
+  }),
+
+  /** A branch timeline follows the selected tip without checking it out. */
+  branchHistory: inRepo(async (repo, { hash }: { hash: string }): Promise<Commit[]> => {
+    if (!/^(?:[a-f\d]{40}|[a-f\d]{64})$/i.test(hash)) throw new UserError('Invalid branch commit.');
+    const out = await git(repo, ['log', '--topo-order', '-n100', '--date=iso', format('%H', '%h', '%P', '%an', '%ae', '%ad', '%at', '%s', '%b', '%D'), '--end-of-options', hash]);
+    return records(out).map(([id, shortHash, parents, name, email, date, at, summary, body, refs]) => ({
+      hash: id, shortHash, parents: parents ? parents.split(' ') : [], author: { name, email }, date, timestamp: Number(at) * 1000,
+      summary, body: body.trim(), message: body.trim() ? `${summary}\n\n${body.trim()}` : summary,
+      refs: refs ? refs.split(',').map((r) => r.trim()).filter(Boolean) : [],
+    }));
+  }),
+
   /** Extend the graph to include a branch tip without changing the checkout. */
   commitsThrough: inRepo(async (repo, { hash }: { hash: string }) => {
     if (!/^[a-f\d]{40,64}$/i.test(hash)) throw new UserError('Invalid branch commit.');

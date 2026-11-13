@@ -245,6 +245,92 @@ pub async fn bitbucket_pull_request(path: &Path, id: &str, project: &str, slug: 
     Ok(map_bitbucket_pull_request(&pull))
 }
 
+async fn bitbucket_pages(client: &Client, mut url: Url, token: &str) -> Result<Vec<Value>, String> {
+    let mut start = 0u64;
+    let mut values = Vec::new();
+    for _ in 0..100 {
+        url.set_query(None);
+        url.query_pairs_mut().append_pair("limit", "100").append_pair("start", &start.to_string());
+        let page = request_json(client, Method::GET, url.clone(), token, None).await?;
+        values.extend(page.get("values").and_then(Value::as_array).ok_or("The server did not return a page")?.iter().cloned());
+        if page.get("isLastPage").and_then(Value::as_bool).unwrap_or(true) { return Ok(values); }
+        let next = page.get("nextPageStart").and_then(Value::as_u64).ok_or("The server returned invalid pagination")?;
+        if next <= start { return Err("The server returned invalid pagination".into()); }
+        start = next;
+    }
+    Err("The server returned too many pages".into())
+}
+
+fn pull_url(integration: &Integration, project: &str, slug: &str, number: u64, suffix: Option<&str>) -> Result<Url, String> {
+    if number == 0 || project.is_empty() || slug.is_empty() { return Err("A repository and pull request number are required".into()); }
+    let number = number.to_string();
+    let mut parts = vec!["rest", "api", "1.0", "projects", project, "repos", slug, "pull-requests", &number];
+    if let Some(suffix) = suffix { parts.push(suffix); }
+    endpoint(&integration.base_url, &integration.kind, &parts)
+}
+
+pub async fn bitbucket_review(path: &Path, id: &str, project: &str, slug: &str, number: u64) -> Result<Value, String> {
+    let integration = find(path, id, "bitbucket_dc")?;
+    let token = read_secret(path, id)?;
+    let client = client()?;
+    let pull = request_json(&client, Method::GET, pull_url(&integration, project, slug, number, None)?, &token, None).await?;
+    let head = pull.pointer("/fromRef/latestCommit").and_then(Value::as_str).ok_or("The server did not return the pull request head")?;
+    let base = pull.pointer("/toRef/latestCommit").and_then(Value::as_str).ok_or("The server did not return the pull request target")?;
+    if !valid_hash(head) || !valid_hash(base) { return Err("The server returned invalid pull request revisions".into()); }
+    let diff_path = format!("{number}.diff");
+    let diff_url = endpoint(&integration.base_url, &integration.kind, &["rest", "api", "1.0", "projects", project, "repos", slug, "pull-requests", &diff_path])?;
+    let response = client.get(diff_url).bearer_auth(&*token).header("Accept", "text/plain").send().await.map_err(|e| format!("Could not reach the server: {e}"))?;
+    if !response.status().is_success() { return Err(format!("Could not load the diff: HTTP {}", response.status())); }
+    let diff = response.text().await.map_err(|e| format!("Could not read the diff: {e}"))?;
+    if diff.len() > 8_000_000 { return Err("The pull request diff exceeds 8 MB".into()); }
+    let activities_url = pull_url(&integration, project, slug, number, Some("activities"))?;
+    let builds_url = endpoint(&integration.base_url, &integration.kind, &["rest", "build-status", "1.0", "commits", head])?;
+    let (activities, builds) = tokio::join!(bitbucket_pages(&client, activities_url, &token), bitbucket_pages(&client, builds_url, &token));
+    let mut warnings = Vec::new();
+    let activities = activities.unwrap_or_else(|e| { warnings.push(format!("Could not load review activity: {e}")); Vec::new() });
+    let builds = builds.unwrap_or_else(|e| { warnings.push(format!("Could not load builds: {e}")); Vec::new() });
+    let latest = request_json(&client, Method::GET, pull_url(&integration, project, slug, number, None)?, &token, None).await?;
+    if latest.pointer("/fromRef/latestCommit").and_then(Value::as_str) != Some(head) || latest.pointer("/toRef/latestCommit").and_then(Value::as_str) != Some(base) { return Err("The pull request changed while loading. Refresh and try again".into()); }
+    Ok(json!({ "pull": pull, "diff": diff, "activities": activities, "builds": builds, "warnings": warnings }))
+}
+
+fn valid_hash(hash: &str) -> bool { (hash.len() == 40 || hash.len() == 64) && hash.bytes().all(|c| c.is_ascii_hexdigit()) }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewAnchor {
+    path: String,
+    old_path: Option<String>,
+    line: u64,
+    side: String,
+    line_type: String,
+}
+
+pub async fn bitbucket_review_action(path: &Path, id: &str, project: &str, slug: &str, number: u64, head: &str, base: &str, action: &str, body: Option<&str>, anchor: Option<ReviewAnchor>) -> Result<(), String> {
+    if !valid_hash(head) || !valid_hash(base) { return Err("Reload the pull request before reviewing".into()); }
+    let integration = find(path, id, "bitbucket_dc")?;
+    let token = read_secret(path, id)?;
+    let client = client()?;
+    let pull = request_json(&client, Method::GET, pull_url(&integration, project, slug, number, None)?, &token, None).await?;
+    if pull.pointer("/fromRef/latestCommit").and_then(Value::as_str) != Some(head) || pull.pointer("/toRef/latestCommit").and_then(Value::as_str) != Some(base) { return Err("The pull request changed. Refresh the review before continuing".into()); }
+    let (suffix, payload) = match action {
+        "approve" => ("approve", None),
+        "comment" => {
+            let text = body.ok_or("Enter a comment")?.trim();
+            let anchor = anchor.ok_or("Choose a diff line")?;
+            if text.is_empty() || text.len() > 65_000 || anchor.path.is_empty() || anchor.path.contains('\0') || anchor.line == 0 { return Err("Enter a comment and choose a diff line".into()); }
+            let file_type = match anchor.side.as_str() { "LEFT" => "FROM", "RIGHT" => "TO", _ => return Err("Invalid diff side".into()) };
+            let line_type = match anchor.line_type.as_str() { "add" => "ADDED", "delete" => "REMOVED", "context" => "CONTEXT", _ => return Err("Invalid diff line".into()) };
+            let mut a = json!({ "path": anchor.path, "line": anchor.line, "lineType": line_type, "fileType": file_type, "diffType": "EFFECTIVE" });
+            if let Some(old) = anchor.old_path { a["srcPath"] = json!(old); }
+            ("comments", Some(json!({ "text": text, "anchor": a })))
+        },
+        _ => return Err("Unknown review action".into()),
+    };
+    request_json(&client, Method::POST, pull_url(&integration, project, slug, number, Some(suffix))?, &token, payload).await?;
+    Ok(())
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewPullRequest {
@@ -302,11 +388,11 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
 
-    fn mock_server(responses: Vec<(&'static str, &'static str)>) -> (String, std::thread::JoinHandle<()>) {
+    fn mock_server(mut responses: Vec<(&'static str, &'static str)>) -> (String, std::thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let handle = std::thread::spawn(move || {
-            for (expected, body) in responses {
+            while !responses.is_empty() {
                 let (mut socket, _) = listener.accept().unwrap();
                 socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
                 let mut request = Vec::new();
@@ -326,10 +412,22 @@ mod tests {
                     if count == 0 { break; }
                     request.extend_from_slice(&buffer[..count]);
                 }
+                let index = responses.iter().enumerate().filter(|(_, (expected, _))| {
+                    let (method, path) = expected.split_once(' ').unwrap_or(("GET", expected));
+                    headers.starts_with(&format!("{method} {path}"))
+                }).max_by_key(|(_, (expected, _))| expected.len()).map(|(i, _)| i).unwrap_or_else(|| panic!("unexpected request: {headers}"));
+                let (expected, body) = responses.remove(index);
                 let (method, path) = expected.split_once(' ').unwrap_or(("GET", expected));
-                assert!(headers.starts_with(&format!("{method} {path}")), "unexpected request: {headers}");
                 assert!(headers.to_ascii_lowercase().contains("authorization: bearer fake-token"));
-                if method == "POST" {
+                if method == "POST" && path.ends_with("/comments") {
+                    let posted: Value = serde_json::from_slice(&request[header_end..]).unwrap();
+                    assert_eq!(posted["text"], "Please fix");
+                    assert_eq!(posted["anchor"]["path"], "src/a.txt");
+                    assert_eq!(posted["anchor"]["line"], 12);
+                    assert_eq!(posted["anchor"]["lineType"], "REMOVED");
+                    assert_eq!(posted["anchor"]["fileType"], "FROM");
+                    assert_eq!(posted["anchor"]["diffType"], "EFFECTIVE");
+                } else if method == "POST" && path.ends_with("/pull-requests") {
                     let posted: Value = serde_json::from_slice(&request[header_end..]).unwrap();
                     assert_eq!(posted["title"], "Ship it");
                     assert_eq!(posted["fromRef"]["id"], "refs/heads/feature/PRJ-42");
@@ -409,6 +507,35 @@ mod tests {
         assert!(pull_request_payload("PRJ", "repo", &input).is_err());
         input.source = "refs/heads/feature/PRJ-1".into();
         assert_eq!(pull_request_payload("PRJ", "repo", &input).unwrap()["fromRef"]["id"], "refs/heads/feature/PRJ-1");
+    }
+
+    #[tokio::test]
+    async fn reviews_comments_and_approvals_use_the_checked_pull_request_head() {
+        let (base, server) = mock_server(vec![
+            ("/bitbucket/rest/api/1.0/projects", "{\"values\":[]}"),
+            ("/bitbucket/rest/api/1.0/projects/PRJ/repos/example/pull-requests/7", "{\"fromRef\":{\"latestCommit\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"toRef\":{\"latestCommit\":\"cccccccccccccccccccccccccccccccccccccccc\"},\"reviewers\":[]}"),
+            ("/bitbucket/rest/api/1.0/projects/PRJ/repos/example/pull-requests/7.diff", "diff --git a/a b/a\n"),
+            ("/bitbucket/rest/api/1.0/projects/PRJ/repos/example/pull-requests/7/activities?", "{\"values\":[{\"comment\":{\"id\":1}}],\"isLastPage\":true}"),
+            ("/bitbucket/rest/build-status/1.0/commits/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?", "{\"values\":[{\"key\":\"CI\",\"state\":\"SUCCESSFUL\"}],\"isLastPage\":true}"),
+            ("/bitbucket/rest/api/1.0/projects/PRJ/repos/example/pull-requests/7", "{\"fromRef\":{\"latestCommit\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"toRef\":{\"latestCommit\":\"cccccccccccccccccccccccccccccccccccccccc\"}}"),
+            ("/bitbucket/rest/api/1.0/projects/PRJ/repos/example/pull-requests/7", "{\"fromRef\":{\"latestCommit\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"toRef\":{\"latestCommit\":\"cccccccccccccccccccccccccccccccccccccccc\"}}"),
+            ("POST /bitbucket/rest/api/1.0/projects/PRJ/repos/example/pull-requests/7/comments", "{\"id\":2}"),
+            ("/bitbucket/rest/api/1.0/projects/PRJ/repos/example/pull-requests/7", "{\"fromRef\":{\"latestCommit\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"toRef\":{\"latestCommit\":\"cccccccccccccccccccccccccccccccccccccccc\"}}"),
+            ("POST /bitbucket/rest/api/1.0/projects/PRJ/repos/example/pull-requests/7/approve", "{\"approved\":true}"),
+            ("/bitbucket/rest/api/1.0/projects/PRJ/repos/example/pull-requests/7", "{\"fromRef\":{\"latestCommit\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"toRef\":{\"latestCommit\":\"cccccccccccccccccccccccccccccccccccccccc\"}}"),
+        ]);
+        let directory = std::env::temp_dir().join(format!("gitter-review-test-{}", Uuid::new_v4()));
+        let config = directory.join("settings.json");
+        let connection = connect(&config, "bitbucket_dc", &base, "Test", "fake-token").await.unwrap();
+        let review = bitbucket_review(&config, &connection.id, "PRJ", "example", 7).await.unwrap();
+        assert_eq!(review["builds"][0]["state"], "SUCCESSFUL");
+        assert_eq!(review["activities"][0]["comment"]["id"], 1);
+        let anchor = ReviewAnchor { path: "src/a.txt".into(), old_path: None, line: 12, side: "LEFT".into(), line_type: "delete".into() };
+        bitbucket_review_action(&config, &connection.id, "PRJ", "example", 7, &"a".repeat(40), &"c".repeat(40), "comment", Some("Please fix"), Some(anchor)).await.unwrap();
+        bitbucket_review_action(&config, &connection.id, "PRJ", "example", 7, &"a".repeat(40), &"c".repeat(40), "approve", None, None).await.unwrap();
+        assert!(bitbucket_review_action(&config, &connection.id, "PRJ", "example", 7, &"b".repeat(40), &"c".repeat(40), "approve", None, None).await.unwrap_err().contains("changed"));
+        server.join().unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[tokio::test]
