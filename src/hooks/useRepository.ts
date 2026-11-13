@@ -41,7 +41,7 @@ export interface Repository extends RepositoryData {
   busy: boolean;
   /** Why the repository could not be read, e.g. the folder is not a repository. */
   problem: string | null;
-  refresh: () => Promise<void>;
+  refresh: (options?: { pullRequests?: boolean }) => Promise<void>;
   /**
    * Runs one user action: reports a failure as "<label>: <reason>" and rethrows
    * it (so dialogs can stay open), and reloads the repository either way,
@@ -62,12 +62,14 @@ export function useRepository(repo: string): Repository {
   const [pullRequestTick, setPullRequestTick] = useState(0);
   const pullRequestsLoadedAt = useRef(0);
 
-  const refresh = useCallback(async () => {
-    if (!repo) return;
+  /** `pullRequests`: reload them now, not just when the last load is a minute old. */
+  const refresh = useCallback(async (options?: { pullRequests?: boolean }) => {
+    // A refresh for a repository that is no longer open (after a slow action) must not supersede the open one's.
+    if (!repo || current.current !== repo) return;
     const id = ++latestRefresh.current;
     setRunning((n) => n + 1);
-    // gh is slow and rate-limited, so pull requests reload at most once a minute.
-    if (Date.now() - pullRequestsLoadedAt.current > 60_000) setPullRequestTick((t) => t + 1);
+    // gh is slow and rate-limited, so pull requests reload at most once a minute unless asked.
+    if (options?.pullRequests === true || Date.now() - pullRequestsLoadedAt.current > 60_000) setPullRequestTick((t) => t + 1);
     try {
       const [state, commits, statuses, branches, tags, stashes, remotes, worktrees, submodules] = await Promise.all([
         api.repoState({ repo }),

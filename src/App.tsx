@@ -288,7 +288,7 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!repo || !autoFetch) return;
     const timer = setInterval(() => {
-      api.fetch({ repo }).then(repository.refresh, () => undefined);
+      api.fetch({ repo }).then(() => repository.refresh(), () => undefined);
     }, autoFetch * 60_000);
     return () => clearInterval(timer);
   }, [repo, autoFetch, repository.refresh]);
@@ -847,7 +847,15 @@ export const App: React.FC = () => {
       case 'pull-request':
         return <PullRequestModal repo={repo} pr={dialog.pr} onClose={close} onCheckout={actions.checkoutPullRequest} />;
       case 'create-pull-request':
-        return <CreatePullRequestModal repo={repo} head={dialog.head ?? repoState?.currentBranch ?? ''} defaultBase={defaultBase} onClose={close} onCreated={afterChange} />;
+        return (
+          <CreatePullRequestModal
+            repo={repo}
+            head={dialog.head ?? repoState?.currentBranch ?? ''}
+            defaultBase={defaultBase}
+            onClose={close}
+            onCreated={() => void repository.refresh({ pullRequests: true })}
+          />
+        );
       case 'fleet':
         return (
           <AgentFleetModal

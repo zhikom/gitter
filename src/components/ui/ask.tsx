@@ -64,10 +64,11 @@ const ConfirmDialog: React.FC<{ q: ConfirmQuestion }> = ({ q }) => {
       onClose={() => answer(false)}
       footer={
         <>
-          <Button tone="quiet" onClick={() => answer(false)}>
+          {/* A dangerous confirmation starts on Cancel, so a stray Enter does not confirm it. */}
+          <Button tone="quiet" autoFocus={q.danger} onClick={() => answer(false)}>
             Cancel
           </Button>
-          <Button tone={q.danger ? 'danger' : 'primary'} autoFocus onClick={() => answer(true)}>
+          <Button tone={q.danger ? 'danger' : 'primary'} autoFocus={!q.danger} onClick={() => answer(true)}>
             {q.confirmLabel ?? 'OK'}
           </Button>
         </>

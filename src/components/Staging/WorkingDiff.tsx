@@ -46,8 +46,10 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
   // A selection belongs to one loaded diff. Any reload (a save in your editor,
   // another file, the other side) starts afresh, so a highlighted line is always
   // the line an action will take.
-  const [selection, setSelection] = useState<{ diff: FileDiff | undefined; lines: Map<number, Set<number>> }>({ diff: undefined, lines: new Map() });
-  const lines = selection.diff === diff ? selection.lines : new Map<number, Set<number>>();
+  // Keyed by content, not by object: a refresh that leaves the file as it was keeps the selection.
+  const diffKey = diff ? `${staged}\0${diff.path}\0${diff.rawDiff}` : '';
+  const [selection, setSelection] = useState<{ key: string; lines: Map<number, Set<number>> }>({ key: '', lines: new Map() });
+  const lines = selection.key === diffKey ? selection.lines : new Map<number, Set<number>>();
   const selectedCount = [...lines.values()].reduce((n, s) => n + s.size, 0);
   const [busy, setBusy] = useState(false);
   // With whitespace hidden, git shows changed lines as context, and patches built from that do not apply.
@@ -60,7 +62,7 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
     else set.add(line);
     if (set.size) next.set(hunk, set);
     else next.delete(hunk);
-    setSelection({ diff, lines: next });
+    setSelection({ key: diffKey, lines: next });
   };
 
   const apply = async (action: PatchAction, chosen: LineSelection) => {
@@ -77,7 +79,7 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
     setBusy(true);
     try {
       await onPatch(action, patch);
-      setSelection({ diff: undefined, lines: new Map() });
+      setSelection({ key: '', lines: new Map() });
     } catch {
       // Reported by the action; the selection stays for another try.
     } finally {
@@ -199,7 +201,7 @@ export const WorkingDiff: React.FC<WorkingDiffProps> = ({
               {label[action]}
             </button>
           ))}
-          <button onClick={() => setSelection({ diff: undefined, lines: new Map() })} className="text-xs text-slate-400 hover:text-slate-200 underline">
+          <button onClick={() => setSelection({ key: '', lines: new Map() })} className="text-xs text-slate-400 hover:text-slate-200 underline">
             Clear
           </button>
         </div>

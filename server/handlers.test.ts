@@ -211,6 +211,23 @@ describe('history and branches', () => {
     assert.deepEqual([remote?.name, remote?.remoteName], ['upstream/main', 'upstream']);
   });
 
+  test('a branch started from origin/main is pushed under its own name, not onto main', async () => {
+    const repo = await newRepo();
+    const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'gitter-test-remote-'));
+    temps.push(remote);
+    await git(remote, ['init', '-q', '--bare']);
+    await git(repo, ['remote', 'add', 'origin', remote]);
+    await git(repo, ['push', '-q', '-u', 'origin', 'main']);
+    await git(repo, ['fetch', '-q', 'origin']);
+    await git(repo, ['checkout', '-q', '-b', 'feature', '--track', 'origin/main']);
+    write(repo, 'a.txt', 'feature\n');
+    await api.stageAll({ repo });
+    await api.commit({ repo, summary: 'feature work' });
+    await api.push({ repo });
+    assert.equal((await git(remote, ['log', '-1', '--format=%s', 'main'])).trim(), 'init');
+    assert.equal((await git(remote, ['log', '-1', '--format=%s', 'feature'])).trim(), 'feature work');
+  });
+
   test('push sends a branch to the remote it tracks, not to origin', async () => {
     const repo = await newRepo();
     const upstream = fs.mkdtempSync(path.join(os.tmpdir(), 'gitter-test-remote-'));
@@ -273,6 +290,17 @@ describe('history and branches', () => {
     );
     const [first] = await api.fileCommitDiff({ repo, hash: history[2].hash, file: history[2].path });
     assert.deepEqual(first.hunks[0].lines.map((l) => l.text), ['one', 'two']);
+  });
+
+  test('undo after a mixed reset moves the branch back', async () => {
+    const repo = await newRepo();
+    write(repo, 'a.txt', 'second\n');
+    await api.stageAll({ repo });
+    await api.commit({ repo, summary: 'second' });
+    await api.reset({ repo, hash: 'HEAD~1', mode: 'mixed' });
+    await api.undo({ repo });
+    assert.equal((await git(repo, ['log', '-1', '--format=%s'])).trim(), 'second');
+    assert.ok((await api.repoState({ repo })).isClean);
   });
 
   test('undo restores what a hard reset threw away', async () => {
@@ -444,6 +472,7 @@ describe('git console', () => {
     assert.deepEqual(consoleArgs('git commit -m "two words"'), ['commit', '-m', 'two words']);
     assert.deepEqual(consoleArgs('git checkout -b feature/x'), ['checkout', '-b', 'feature/x']);
     assert.deepEqual(consoleArgs('git log --format=%h -n 2'), ['log', '--format=%h', '-n', '2']);
+    assert.deepEqual(consoleArgs('git merge -Xtheirs topic'), ['merge', '-Xtheirs', 'topic']);
   });
 
   test('refuses commands that rewrite history or run other programs', () => {

@@ -233,15 +233,17 @@ export const aiHandlers = {
   /** `context`: more for the assistant to see with this message, such as an agent's diff. */
   chat: inRepo(async (repo, { message, history = [], context }: { message: string; history?: ChatTurn[]; context?: string }) => {
     const turns = history.slice(-MAX_HISTORY).map((t) => `${t.role === 'user' ? 'User' : 'Assistant'}: ${t.text}`);
-    const prompt = [
-      `Repository state:\n${await repositoryState(repo)}`,
-      context ? `Also shown for this question:\n${context}` : '',
-      turns.length ? `Conversation so far:\n${turns.join('\n\n')}` : '',
-      `User: ${message}`,
-    ]
-      .filter(Boolean)
-      .join('\n\n---\n\n');
-    const reply = await ask(chatTask, clip(prompt));
+    // Background is cut to fit; the question itself never is.
+    const background = clip(
+      [
+        `Repository state:\n${await repositoryState(repo)}`,
+        context ? `Also shown for this question:\n${context}` : '',
+        turns.length ? `Conversation so far:\n${turns.join('\n\n')}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n---\n\n')
+    );
+    const reply = await ask(chatTask, `${background}\n\n---\n\nUser: ${message}`);
     const command = reply.match(/^COMMAND:\s*(git\s+.+)$/im)?.[1].trim();
     return { reply, suggestedCommand: command && isRunnable(command) ? command : undefined };
   }),

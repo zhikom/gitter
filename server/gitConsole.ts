@@ -39,7 +39,11 @@ function blockedFlag(subcommand: string, arg: string): boolean {
   if (arg.startsWith('-') && arg.length > 1) {
     if (arg.startsWith('-c')) return true; // -c sets configuration, which can name programs
     const letters = BLOCKED_SHORT[subcommand] ?? '';
-    return [...arg.slice(1)].some((ch) => letters.includes(ch));
+    for (const ch of arg.slice(1)) {
+      if (letters.includes(ch)) return true;
+      if (ch === 'X' || ch === 'm') return false; // the rest is this option's value (-Xtheirs, -mmessage)
+    }
+    return false;
   }
   return subcommand === 'push' && arg.startsWith('+'); // +refspec forces the update
 }

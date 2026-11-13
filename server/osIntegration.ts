@@ -64,9 +64,36 @@ function launchTool(tool: string, args: string[]): Promise<void> {
   });
 }
 
-/** Splits a command template like `"C:\\Tools\\diff.exe" --two %1 %2` into words. */
-function words(template: string): string[] {
-  return (template.match(/"[^"]*"|\S+/g) ?? []).map((w) => w.replace(/^"|"$/g, ''));
+/**
+ * Splits a diff-tool command template into words and fills in the files: %1 and
+ * %2 are replaced anywhere in a word (`/base:%1`). Quotes may sit anywhere in a
+ * word (`/title="Old file"`); outside Windows a backslash escapes the next
+ * character (`Beyond\\ Compare`). On Windows a backslash is a path separator.
+ */
+function words(template: string, oldFile: string, newFile: string): string[] {
+  const out: string[] = [];
+  let word = '';
+  let inWord = false;
+  let quoted = false;
+  for (let i = 0; i < template.length; i++) {
+    const ch = template[i];
+    if (ch === '"') {
+      quoted = !quoted;
+      inWord = true;
+    } else if (ch === '\\' && platform() !== 'win32' && i + 1 < template.length) {
+      word += template[++i];
+      inWord = true;
+    } else if (/\s/.test(ch) && !quoted) {
+      if (inWord) out.push(word);
+      word = '';
+      inWord = false;
+    } else {
+      word += ch;
+      inWord = true;
+    }
+  }
+  if (inWord) out.push(word);
+  return out.map((w) => w.replace(/%1/g, () => oldFile).replace(/%2/g, () => newFile));
 }
 
 // The modern Explorer folder picker (IFileOpenDialog), not the legacy tree
@@ -234,11 +261,11 @@ export async function openDiffTool(oldFile: string, newFile: string, customComma
       ? ['code --diff %1 %2', 'WinMergeU %1 %2', 'bcomp %1 %2']
       : ['code --diff %1 %2', 'opendiff %1 %2'];
   for (const template of templates) {
-    const [tool, ...args] = words(template).map((w) => (w === '%1' ? oldFile : w === '%2' ? newFile : w));
+    const [tool, ...args] = words(template, oldFile, newFile);
     if (tool && (await installed(tool))) return launchTool(tool, args);
   }
   throw new UserError(
-    customCommand?.trim() ? `The diff tool in Settings was not found: ${words(customCommand)[0]}` : 'No diff tool found. Install VS Code or set a diff tool in Settings.'
+    customCommand?.trim() ? `The diff tool in Settings was not found: ${words(customCommand, '', '')[0]}` : 'No diff tool found. Install VS Code or set a diff tool in Settings.'
   );
 }
 

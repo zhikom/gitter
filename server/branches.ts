@@ -73,20 +73,36 @@ async function undo(repo: string): Promise<string> {
   // Resets, merges, pulls, cherry-picks: go back to the previous position. After a
   // soft reset the index already holds that commit's content, so only the branch moves;
   // otherwise --keep updates the files and refuses to overwrite uncommitted changes.
-  const soft = await gitSucceeds(repo, ['diff', '--cached', '--quiet', 'HEAD@{1}']);
-  await git(repo, ['reset', soft ? '--soft' : '--keep', 'HEAD@{1}']);
+  if (await gitSucceeds(repo, ['diff', '--cached', '--quiet', 'HEAD@{1}'])) {
+    await git(repo, ['reset', '--soft', 'HEAD@{1}']);
+  } else {
+    try {
+      await git(repo, ['reset', '--keep', 'HEAD@{1}']);
+    } catch (e) {
+      // After a mixed reset the files already hold that commit's content, unstaged,
+      // and --keep refuses them; moving the branch and index back is the undo.
+      if (!action.startsWith('reset:')) throw e;
+      await git(repo, ['reset', '--mixed', 'HEAD@{1}']);
+    }
+  }
   return `Undid "${action}".`;
 }
 
-/** Cherry-picks a commit; one whose change is already there (it would come out empty) is skipped. */
-async function pick(repo: string, hash: string, noCommit = false): Promise<void> {
+/**
+ * Cherry-picks a commit and reports whether it brought anything: a commit
+ * whose change is already there (it would come out empty) is skipped. With
+ * `noCommit` the change is only staged.
+ */
+async function pick(repo: string, hash: string, noCommit = false): Promise<boolean> {
   try {
     await git(repo, ['cherry-pick', ...(noCommit ? ['-n'] : []), '--end-of-options', hash]);
   } catch (e) {
     const empty = fs.existsSync(path.join(worktreeGitDir(repo), 'CHERRY_PICK_HEAD')) && (await git(repo, STATUS_ARGS)).length === 0;
     if (!empty) throw e;
     await git(repo, ['cherry-pick', '--skip']);
+    return false;
   }
+  return noCommit ? !(await gitSucceeds(repo, ['diff', '--cached', '--quiet'])) : true;
 }
 
 const fullMessage = async (repo: string, hash: string) => (await git(repo, ['log', '-1', '--format=%B', '--end-of-options', hash])).trim();
@@ -100,24 +116,31 @@ async function runRebasePlan(repo: string, base: string, plan: RebaseCommitItem[
   const start = (await git(repo, ['rev-parse', 'HEAD'])).trim();
   try {
     await git(repo, ['reset', '--hard', '--end-of-options', base]);
+    // Squash and fixup amend the previous commit of the plan; while none has been
+    // made (the first picks were empty), amending would rewrite `base` itself.
+    let made = 0;
     for (const item of plan) {
       if (item.action === 'drop') continue;
       if (item.action === 'pick') {
-        await pick(repo, item.hash);
+        if (await pick(repo, item.hash)) made++;
       } else if (item.action === 'reword') {
         // A new summary replaces the first line; the body stays.
         const [, ...body] = (await fullMessage(repo, item.hash)).split('\n');
-        await pick(repo, item.hash);
-        await git(repo, ['commit', '--amend', '-F', '-'], { input: [item.newSummary?.trim() || item.summary, ...body].join('\n') });
-      } else if (item.action === 'squash') {
-        // Like git: the messages of both commits, the squashed one's possibly reworded.
-        const squashed = item.newSummary?.trim() || (await fullMessage(repo, item.hash));
-        await pick(repo, item.hash, true);
-        const previous = await fullMessage(repo, 'HEAD');
-        await git(repo, ['commit', '--amend', '--allow-empty', '-F', '-'], { input: `${previous}\n\n${squashed}` });
-      } else if (item.action === 'fixup') {
-        await pick(repo, item.hash, true);
-        await git(repo, ['commit', '--amend', '--allow-empty', '--no-edit']);
+        if (await pick(repo, item.hash)) {
+          made++;
+          await git(repo, ['commit', '--amend', '-F', '-'], { input: [item.newSummary?.trim() || item.summary, ...body].join('\n') });
+        }
+      } else {
+        // squash: like git, both messages, the squashed one possibly reworded; fixup: the previous message only.
+        const message = item.action === 'squash' ? item.newSummary?.trim() || (await fullMessage(repo, item.hash)) : await fullMessage(repo, item.hash);
+        const staged = await pick(repo, item.hash, true);
+        if (made > 0) {
+          const amended = item.action === 'squash' ? `${await fullMessage(repo, 'HEAD')}\n\n${message}` : await fullMessage(repo, 'HEAD');
+          await git(repo, ['commit', '--amend', '--allow-empty', '-F', '-'], { input: amended });
+        } else if (staged) {
+          await git(repo, ['commit', '-F', '-'], { input: message });
+          made++;
+        }
       }
     }
     return `Rewrote ${branch || 'HEAD'} onto ${base.slice(0, 7)}.`;
@@ -176,9 +199,10 @@ export const branchHandlers = {
   undo: inRepo((repo) => undo(repo)),
 
   /** Commits after `base` on the current branch, oldest first, for the interactive rebase editor. */
-  rebaseCommits: inRepo(async (repo, { base }: { base: string }): Promise<RebaseCommitItem[]> => {
+  /** Commits on `head` (HEAD by default) that `base` lacks, oldest first. */
+  rebaseCommits: inRepo(async (repo, { base, head = 'HEAD' }: { base: string; head?: string }): Promise<RebaseCommitItem[]> => {
     // Merge commits are left out: like `git rebase`, the rewrite replays the commits merged in instead.
-    const out = await git(repo, ['log', '--reverse', '--no-merges', format('%H', '%h', '%an', '%s'), '--end-of-options', `${base}..HEAD`]);
+    const out = await git(repo, ['log', '--reverse', '--no-merges', format('%H', '%h', '%an', '%s'), '--end-of-options', `${base}..${head}`]);
     return records(out).map(([hash, shortHash, author, summary]) => ({ hash, shortHash, author, summary, action: 'pick' }));
   }),
 

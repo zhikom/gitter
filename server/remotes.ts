@@ -63,10 +63,13 @@ export const remoteHandlers = {
     const config = (key: string) => git(repo, ['config', '--get', `branch.${target}.${key}`]).then((v) => v.trim(), () => '');
     const [trackedRemote, trackedRef] = await Promise.all([config('remote'), config('merge')]);
     const force = forceWithLease ? ['--force-with-lease'] : [];
-    if (trackedRemote && trackedRef) {
+    // Only a remote branch of the same name counts: a branch started from
+    // origin/main tracks main, and pushing there would put its commits on main.
+    if (trackedRemote && trackedRemote !== '.' && trackedRef === `refs/heads/${target}`) {
       return git(repo, ['push', ...force, '--end-of-options', trackedRemote, `refs/heads/${target}:${trackedRef}`]);
     }
-    return git(repo, ['push', '-u', ...force, '--end-of-options', 'origin', target]);
+    const remote = trackedRemote && trackedRemote !== '.' ? trackedRemote : 'origin';
+    return git(repo, ['push', '-u', ...force, '--end-of-options', remote, target]);
   }),
 
   pullRequests: inRepo(async (repo, { state = 'open' }: { state?: 'open' | 'closed' | 'all' }) =>

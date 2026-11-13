@@ -126,7 +126,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // switches on or off is kept, so a section with data loaded later still appears.
   const [overrides, setOverrides] = useState<Partial<SidebarSectionConfig>>(() => {
     try {
-      return JSON.parse(localStorage.getItem('gitter_sidebar_sections') || '{}');
+      // A new key: earlier versions saved every section's state, which would pin data-dependent sections off.
+      return JSON.parse(localStorage.getItem('gitter_sidebar_section_overrides') || '{}');
     } catch {
       return {};
     }
@@ -146,7 +147,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const saveOverrides = (next: Partial<SidebarSectionConfig>) => {
     setOverrides(next);
     try {
-      localStorage.setItem('gitter_sidebar_sections', JSON.stringify(next));
+      localStorage.setItem('gitter_sidebar_section_overrides', JSON.stringify(next));
     } catch {
       // Kept for this session only.
     }
