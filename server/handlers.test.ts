@@ -9,7 +9,7 @@ import { git, useGitHubCliForGit } from './git';
 import { createGitHubHandlers } from './github';
 import { createGitHubReviewHandlers, githubPullTarget } from './pullReview';
 import { validateSuggestions } from './reviewAgent';
-import { bitbucketReviewSnapshot } from '../src/utils/pullReview';
+import { bitbucketReviewSnapshot, reviewAnchorPage, reviewPageDiff, REVIEW_PAGE_ROWS } from '../src/utils/pullReview';
 import { createHandlers } from './handlers';
 import { combine, UserError } from './http';
 import { parseDiff } from './gitParse';
@@ -923,6 +923,21 @@ test('local review accepts only actual diff anchors', () => {
   ] }, reviewDiff);
   assert.deepEqual(result.suggestions.map((item) => item.lineType), ['add', 'delete']);
   assert.equal(result.omitted, 2);
+});
+
+test('large review pages preserve diff line numbers and open suggestions on the correct page', () => {
+  const content = Array.from({ length: 700 }, (_, i) => `${i % 3 === 0 ? '-' : i % 3 === 1 ? '+' : ' '}line-${i}`).join('\n');
+  const original = parseDiff(`diff --git a/large.txt b/large.txt\n--- a/large.txt\n+++ b/large.txt\n@@ -1,467 +1,466 @@\n${content}\n`)[0];
+  for (const index of [0, 1, 2]) {
+    const page = parseDiff(reviewPageDiff(original, index))[0];
+    const first = Math.max(0, index * REVIEW_PAGE_ROWS - 1);
+    const last = (index + 1) * REVIEW_PAGE_ROWS - 1;
+    const expected = original.hunks[0].lines.slice(first, last);
+    assert.deepEqual(page.hunks[0].lines.map((line) => [line.type, line.oldLineNumber, line.newLineNumber, line.text]), expected.map((line) => [line.type, line.oldLineNumber, line.newLineNumber, line.text]));
+  }
+  const expected = original.hunks[0].lines.slice(REVIEW_PAGE_ROWS - 1, REVIEW_PAGE_ROWS * 2 - 1);
+  const chosen = expected.find((line) => line.type === 'add')!;
+  assert.equal(reviewAnchorPage(original, { path: 'large.txt', line: chosen.newLineNumber!, side: 'RIGHT', lineType: 'add' }), 1);
 });
 
 test('history searches literal changed text and follows the selected branch without checkout', async () => {

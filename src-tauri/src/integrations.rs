@@ -281,8 +281,9 @@ pub async fn bitbucket_review(path: &Path, id: &str, project: &str, slug: &str, 
     let diff_url = endpoint(&integration.base_url, &integration.kind, &["rest", "api", "1.0", "projects", project, "repos", slug, "pull-requests", &diff_path])?;
     let response = client.get(diff_url).bearer_auth(&*token).header("Accept", "text/plain").send().await.map_err(|e| format!("Could not reach the server: {e}"))?;
     if !response.status().is_success() { return Err(format!("Could not load the diff: HTTP {}", response.status())); }
+    if response.content_length().unwrap_or(0) > 20_000_000 { return Err("The pull request diff exceeds 20 MB".into()); }
     let diff = response.text().await.map_err(|e| format!("Could not read the diff: {e}"))?;
-    if diff.len() > 8_000_000 { return Err("The pull request diff exceeds 8 MB".into()); }
+    if diff.len() > 20_000_000 { return Err("The pull request diff exceeds 20 MB".into()); }
     let activities_url = pull_url(&integration, project, slug, number, Some("activities"))?;
     let builds_url = endpoint(&integration.base_url, &integration.kind, &["rest", "build-status", "1.0", "commits", head])?;
     let (activities, builds) = tokio::join!(bitbucket_pages(&client, activities_url, &token), bitbucket_pages(&client, builds_url, &token));

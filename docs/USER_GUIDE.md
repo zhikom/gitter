@@ -115,19 +115,20 @@ builds. Bitbucket Server/Data Center drafts appear alongside open PRs. The
 **+** can start a PR where the provider and branch support it. Gitter's
 Bitbucket creation flow currently supports PRs within one repository.
 
-1. Select a changed file and click the comment icon beside a diff line. Write
-   the comment, then choose **Post comment**. Existing inline comments appear
-   beneath their lines; **Discussion** also lists comments and replies.
+1. Filter and select a changed file, then use **Previous** and **Next** to move
+   through long diffs. Click the comment icon beside a line, write a comment,
+   and choose **Post comment**. Existing inline comments appear beneath their
+   lines; **Discussion** also lists comments and replies.
 2. Use **Checks** to inspect CI results and review states. Select **Approve**
    when you are ready to approve the displayed PR revision. Refresh the review
    when the source branch changes.
 3. To get suggestions, choose **Codex CLI** or **Claude Code CLI** and select
    **Review with agent**. The CLI must be installed and signed in. A local
-   invocation sends the displayed diff to the CLI's configured AI provider;
-   suggestions are drafts and are never posted automatically. Select a
-   suggestion to edit it, then use **Post comment**. Only locations present
-   in the diff can be suggested, and reviews support diffs up to 200,000
-   characters.
+   invocation may send the chosen scope to the CLI's AI provider.
+   Choose the visible diff page, current file, or entire pull request;
+   scopes are limited to 200,000 characters. Suggestions are drafts and are
+   never posted automatically. Select a suggestion to edit it, then use
+   **Post comment**. Only locations present in the chosen diff can be suggested.
 
 The provider controls review permissions and which checks are available. A
 comment or approval can fail if the PR changes, your token lacks permission, or

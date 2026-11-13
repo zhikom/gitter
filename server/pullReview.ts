@@ -51,6 +51,7 @@ export function createGitHubReviewHandlers(command: Gh = gh) {
         get(repo, `${root}/commits/${headHash}/status`, []),
       ]);
       if (jobs[0].status === 'rejected') throw new UserError(`Could not load the pull request diff: ${jobs[0].reason?.message || jobs[0].reason}`);
+      if (Buffer.byteLength(jobs[0].value, 'utf8') > 20_000_000) throw new UserError('The pull request diff exceeds 20 MB.');
       const warnings: string[] = [];
       const value = (index: number, label: string) => {
         const result = jobs[index];

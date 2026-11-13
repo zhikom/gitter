@@ -11,7 +11,10 @@
   a pull request directly from its review screen.
 - Ask an installed Codex CLI or Claude Code CLI for review suggestions, then
   edit and post selected comments. Suggestions stay as drafts until posted;
-  the selected CLI may send the diff to its configured AI provider.
+  the selected CLI may send the diff to its configured AI provider. Review
+  the visible diff page, one file, or an entire smaller pull request.
+- Filter changed files and page through large diffs while retaining the
+  original line numbers used for comments.
 - Detect changed source or target revisions when loading or submitting a
   review and ask for a refresh before using an outdated diff.
 
