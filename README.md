@@ -58,7 +58,9 @@ sent to the UI.
 
 Download the installer for your platform from
 [Releases](https://github.com/zhikom/gitter/releases): the `-setup.exe` for
-Windows, the `.dmg` for macOS (universal). Gitter checks for new releases at
+Windows x64, or the `.dmg` for macOS ARM64 (Apple Silicon). The macOS app is
+ad-hoc signed but not notarized, and the Windows installer is unsigned, so the
+operating system may show a security warning. Gitter checks for new releases at
 startup and can install them (Settings → General).
 
 Gitter uses the `git` on your `PATH`, with your own credentials, hooks and

@@ -1,64 +1,60 @@
-name: "CI / Desktop Build Artifacts"
+name: CI / Desktop Build Artifacts
 
 on:
   push:
-    branches:
-      - main
-    tags:
-      - 'v*'
+    branches: [main]
+    tags: ['v*']
   pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   build-tauri:
     name: Build (${{ matrix.name }})
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: 'windows-latest'
-            name: 'Windows x64'
-            artifact_name: 'gitter-windows-x64'
-            os: 'windows'
-            args: ''
-          - platform: 'macos-latest'
-            name: 'macOS Universal'
-            artifact_name: 'gitter-macos-universal'
-            os: 'macos'
-            args: '--target universal-apple-darwin'
+          - platform: windows-latest
+            name: Windows x64
+            target: x86_64-pc-windows-msvc
+            args: --target x86_64-pc-windows-msvc --bundles nsis
+            artifact_name: gitter-windows-x64
+            artifact_path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*_x64-setup.exe
+            signing_identity: ''
+          - platform: macos-latest
+            name: macOS ARM64
+            target: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin --bundles dmg
+            artifact_name: gitter-macos-arm64
+            artifact_path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*_aarch64.dmg
+            signing_identity: '-'
 
     runs-on: ${{ matrix.platform }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
+          cache: npm
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.os == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.target }}
 
-      - name: Rust Cache
-        uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
 
-      # The backend ships inside the app as a Bun-compiled sidecar (scripts/build-sidecar.mjs).
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
 
@@ -70,73 +66,97 @@ jobs:
           npm run build:sidecar
           cargo test --manifest-path src-tauri/Cargo.toml --lib
 
-      # Build with tauri-action (with release publishing when pushing tags)
-      - name: Build Tauri App (Release Tag)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Build installer
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Gitter v__VERSION__'
-          releaseBody: 'See the release assets below to download Gitter for your platform.'
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
-
-      # Build with tauri-action (without release publishing on normal push/PR)
-      - name: Build Tauri App (CI Build)
-        if: "!startsWith(github.ref, 'refs/tags/v')"
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_SIGNING_IDENTITY: ${{ matrix.signing_identity }}
         with:
           args: ${{ matrix.args }}
 
-      # Upload Artifacts: Windows
-      - name: Upload Windows Artifacts
-        if: matrix.os == 'windows'
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: |
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/msi/*.msi
-          if-no-files-found: warn
-
-      # Upload Artifacts: macOS
-      - name: Upload macOS Artifacts
-        if: matrix.os == 'macos'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: |
-            src-tauri/target/**/bundle/dmg/*.dmg
-            src-tauri/target/**/bundle/macos/*.app
-          if-no-files-found: warn
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
 
   check:
     name: Type check and tests
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'npm'
+          cache: npm
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Type check
-        run: npx tsc --noEmit
-
-      # Behavior tests run real git in temporary repositories.
-      - name: Tests
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - name: Validate release notes and version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: node scripts/release-notes.mjs "$GITHUB_REF_NAME" > /dev/null
+      - name: Behavior tests
         run: |
           git config --global user.name "CI"
           git config --global user.email "ci@example.invalid"
           npm test
+
+  publish:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-tauri, check]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Prepare release notes
+        run: node scripts/release-notes.mjs "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: gitter-windows-x64
+          path: release
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: gitter-macos-arm64
+          path: release
+
+      - name: Publish the two installers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          windows=(release/*_x64-setup.exe)
+          mac=(release/*_aarch64.dmg)
+          if [[ ${#windows[@]} -ne 1 || ${#mac[@]} -ne 1 ]]; then
+            echo 'Expected exactly one Windows x64 installer and one macOS ARM64 disk image.' >&2
+            exit 1
+          fi
+          if gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft > "$RUNNER_TEMP/draft-status" 2>/dev/null; then
+            if [[ "$(cat "$RUNNER_TEMP/draft-status")" != true ]]; then
+              echo 'This release is already published; refusing to replace its assets.' >&2
+              exit 1
+            fi
+            gh release edit "$GITHUB_REF_NAME" --title "Gitter $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md"
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft --title "Gitter $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
+          gh release upload "$GITHUB_REF_NAME" "${windows[0]}" "${mac[0]}" --clobber
+          expected=$(printf '%s\n' "$(basename "${windows[0]}")" "$(basename "${mac[0]}")" | sort)
+          actual=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets | map(.name) | sort | .[]')
+          if [[ "$actual" != "$expected" ]]; then
+            echo 'The draft contains unexpected or missing assets; leaving it unpublished.' >&2
+            exit 1
+          fi
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest
