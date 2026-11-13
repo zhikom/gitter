@@ -47,6 +47,13 @@ const GIT_ENV = {
   }),
 };
 
+let githubCredentialHelperEnabled = false;
+
+/** gh handles GitHub HTTPS credentials without changing the user's Git config. */
+export function useGitHubCliForGit(enabled: boolean) {
+  githubCredentialHelperEnabled = enabled;
+}
+
 function configEnv(settings: Record<string, string>): Record<string, string> {
   const entries = Object.entries(settings);
   const env: Record<string, string> = { GIT_CONFIG_COUNT: String(entries.length) };
@@ -91,7 +98,11 @@ export function run(command: string, cwd: string, args: string[], options: RunOp
 }
 
 export function git(cwd: string, args: string[], options: RunOptions = {}): Promise<string> {
-  return run('git', cwd, withPlainDiffs(args), { ...options, env: { ...GIT_ENV, ...options.env } });
+  const github = githubCredentialHelperEnabled ? [
+    '-c', 'credential.https://github.com.helper=',
+    '-c', 'credential.https://github.com.helper=!gh auth git-credential',
+  ] : [];
+  return run('git', cwd, [...github, ...withPlainDiffs(args)], { ...options, env: { ...GIT_ENV, GH_PROMPT_DISABLED: '1', ...options.env } });
 }
 
 /** For commands whose failure means "no": `rev-parse --verify`, `merge-base --is-ancestor`. */

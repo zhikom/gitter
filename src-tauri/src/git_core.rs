@@ -29,7 +29,7 @@ fn relative_file(raw: &str) -> Result<&str, String> {
 fn git(cwd: &Path, args: &[&str], input: Option<&str>) -> Result<String, String> {
     let mut cmd = Command::new("git");
     cmd.current_dir(cwd).args(args).env("GIT_LITERAL_PATHSPECS", "1")
-        .env("GIT_OPTIONAL_LOCKS", "0").env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_OPTIONAL_LOCKS", "0").env("GIT_TERMINAL_PROMPT", "0").env("GH_PROMPT_DISABLED", "1")
         .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(target_os = "macos")]
@@ -52,7 +52,12 @@ fn git(cwd: &Path, args: &[&str], input: Option<&str>) -> Result<String, String>
     String::from_utf8(output.stdout).map_err(|_| "Git returned invalid UTF-8".into())
 }
 
-fn clone_remote(remote: &str, destination: &Path) -> Result<(), String> {
+fn is_github_https(remote: &str) -> bool {
+    url::Url::parse(remote).is_ok_and(|url| url.scheme() == "https" && url.host_str() == Some("github.com")
+        && url.username().is_empty() && url.password().is_none() && matches!(url.port(), None | Some(443)))
+}
+
+fn clone_remote(remote: &str, destination: &Path, github_auth: bool) -> Result<(), String> {
     if remote.is_empty() || remote.starts_with('-') || remote.contains('\0') { return Err("Invalid repository URL".into()); }
     if remote.split_once("::").is_some_and(|(prefix, _)| !prefix.is_empty() && prefix.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '+' | '.'))) {
         return Err("Git remote helpers are not supported in the clone dialog".into());
@@ -66,14 +71,19 @@ fn clone_remote(remote: &str, destination: &Path) -> Result<(), String> {
     let parent = destination.parent().ok_or("Invalid clone destination")?;
     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let target = destination.to_str().ok_or("Invalid clone destination")?;
-    git(parent, &["clone", "--", remote, target], None)?;
+    let mut args = Vec::new();
+    if github_auth && is_github_https(remote) {
+        args.extend(["-c", "credential.https://github.com.helper=", "-c", "credential.https://github.com.helper=!gh auth git-credential"]);
+    }
+    args.extend(["clone", "--", remote, target]);
+    git(parent, &args, None)?;
     Ok(())
 }
 
 pub fn dispatch(operation: &str, input: &Value) -> Result<Value, String> {
     if operation == "cloneRepo" {
         let target = absolute_path(required(input, "folder")?)?;
-        clone_remote(required(input, "url")?, &target)?;
+        clone_remote(required(input, "url")?, &target, input.get("githubAuth").and_then(Value::as_bool).unwrap_or(false))?;
         return Ok(json!(target.to_string_lossy().replace('\\', "/")));
     }
     let repo = absolute_path(required(input, "repo")?)?;
@@ -140,8 +150,11 @@ mod tests {
         let result = dispatch("cloneRepo", &json!({"url":source.to_str().unwrap(),"folder":target.to_str().unwrap()})).unwrap();
         assert_eq!(result.as_str().unwrap(), target.to_string_lossy().replace('\\', "/"));
         assert!(target.join(".git").is_dir());
-        assert!(clone_remote("https://user:secret@example.com/repo.git", &root.join("unsafe")).is_err());
-        assert!(clone_remote("ext::unsafe", &root.join("unsafe")).is_err());
+        assert!(clone_remote("https://user:secret@example.com/repo.git", &root.join("unsafe"), false).is_err());
+        assert!(clone_remote("ext::unsafe", &root.join("unsafe"), false).is_err());
+        assert!(is_github_https("https://github.com/owner/repo.git"));
+        assert!(!is_github_https("https://github.com.attacker.invalid/owner/repo.git"));
+        assert!(!is_github_https("https://github.com:8443/owner/repo.git"));
         std::fs::remove_dir_all(root).unwrap();
     }
 

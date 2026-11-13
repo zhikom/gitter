@@ -23,9 +23,10 @@ interface SettingsModalProps {
   onClose: () => void;
   onCheckForUpdates: () => void;
   onCloneRepository: (url: string) => void;
+  onCreateGitHub: () => void;
 }
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab = 'general', onClose, onCheckForUpdates, onCloneRepository }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab = 'general', onClose, onCheckForUpdates, onCloneRepository, onCreateGitHub }) => {
   const [tab, setTab] = useState<Tab>(initialTab);
   const tabs: Array<{ id: Tab; label: string; icon: React.ReactNode; hidden?: boolean }> = [
     { id: 'general', label: 'General', icon: <SlidersHorizontal className="w-3.5 h-3.5" /> },
@@ -58,7 +59,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab =
           {tab === 'general' && <GeneralSettings />}
           {tab === 'repository' && repo && <RepositorySettings repo={repo} />}
           {tab === 'ssh' && <SshSettings />}
-          {tab === 'integrations' && <IntegrationsPanel onCloneRepository={onCloneRepository} />}
+          {tab === 'integrations' && <IntegrationsPanel onCloneRepository={onCloneRepository} onCreateGitHub={onCreateGitHub} />}
           {tab === 'ai' && <AiSettingsForm />}
           {tab === 'about' && (
             <div className="space-y-3 text-xs text-slate-300">
@@ -156,6 +157,7 @@ const SshSettings: React.FC = () => {
   const [keys, setKeys] = useState<SshPublicKey[]>([]);
   const [connections, setConnections] = useState<Integration[]>([]);
   const [connectionId, setConnectionId] = useState('');
+  const [githubAuthenticated, setGithubAuthenticated] = useState(false);
   const [showGenerate, setShowGenerate] = useState(false);
   const [keyName, setKeyName] = useState('id_ed25519');
   const [comment, setComment] = useState('');
@@ -174,6 +176,7 @@ const SshSettings: React.FC = () => {
       const bitbucket = items.filter((item) => item.kind === 'bitbucket_dc');
       setConnections(bitbucket); setConnectionId(bitbucket[0]?.id ?? '');
     }).catch(() => undefined);
+    api.githubStatus().then((status) => { if (live) setGithubAuthenticated(status.authenticated); }).catch(() => undefined);
     return () => { live = false; };
   }, []);
   const connection = connections.find((item) => item.id === connectionId);
@@ -191,10 +194,13 @@ const SshSettings: React.FC = () => {
     } catch (e) { setResult(`Could not create the SSH key: ${String(e)}`); }
     finally { setGenerating(false); }
   };
-  const copyKey = async (key: SshPublicKey, openBitbucket: boolean) => {
+  const copyKey = async (key: SshPublicKey, destination: 'bitbucket' | 'github' | null) => {
     try {
       await desktopApi.copySshPublicKey(key.publicKey);
-      if (openBitbucket && connection) {
+      if (destination === 'github') {
+        try { await api.openUrl({ url: 'https://github.com/settings/ssh/new' }); toast.success('Public key copied. Paste it into GitHub.'); }
+        catch (e) { toast.error(`Public key copied, but GitHub could not be opened: ${String(e)}`); }
+      } else if (destination === 'bitbucket' && connection) {
         try {
           await api.openUrl({ url: `${connection.baseUrl.replace(/\/+$/, '')}/plugins/servlet/ssh/account/keys/add` });
           toast.success('Public key copied. Paste it into Bitbucket.');
@@ -227,7 +233,7 @@ const SshSettings: React.FC = () => {
       {keys.map((key) => <div key={key.path} className="p-3 rounded bg-[#14181f] border border-[#2a3447] break-all">
         <div className="font-semibold">{key.path}</div><div>{key.fingerprint}</div>
         <div className="text-slate-500">{key.privateKeyExists ? 'Private key present' : 'No matching private key'} · {key.loadedInAgent ? 'Loaded in SSH agent' : 'Not listed by SSH agent'}</div>
-        <div className="mt-2 flex flex-wrap gap-2"><Button type="button" onClick={() => void copyKey(key, false)}>Copy public key</Button>{connection && <Button type="button" onClick={() => void copyKey(key, true)}>Copy and open Bitbucket</Button>}</div>
+        <div className="mt-2 flex flex-wrap gap-2"><Button type="button" onClick={() => void copyKey(key, null)}>Copy public key</Button>{connection && <Button type="button" onClick={() => void copyKey(key, 'bitbucket')}>Copy and open Bitbucket</Button>}{githubAuthenticated && <Button type="button" onClick={() => void copyKey(key, 'github')}>Copy and open GitHub</Button>}</div>
       </div>)}
       <Field label="Test an SSH repository" hint="Uses known hosts without accepting new host keys.">
         <input value={remote} onChange={(e) => setRemote(e.target.value)} placeholder="git@example.com:project/repository.git" className={`${inputClass} font-mono`} />

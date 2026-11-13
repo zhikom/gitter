@@ -42,6 +42,7 @@ export interface Repository extends RepositoryData {
   /** Why the repository could not be read, e.g. the folder is not a repository. */
   problem: string | null;
   refresh: (options?: { pullRequests?: boolean }) => Promise<void>;
+  commitForBranch: (hash: string) => Promise<Commit | null>;
   /**
    * Runs one user action: reports a failure as "<label>: <reason>" and rethrows
    * it (so dialogs can stay open), and reloads the repository either way,
@@ -59,6 +60,7 @@ export function useRepository(repo: string): Repository {
   current.current = repo;
   // Refreshes can overlap (two quick clicks); only the newest one's answer is shown.
   const latestRefresh = useRef(0);
+  const historyLimit = useRef(500);
   const [pullRequestTick, setPullRequestTick] = useState(0);
   const pullRequestsLoadedAt = useRef(0);
 
@@ -73,7 +75,7 @@ export function useRepository(repo: string): Repository {
     try {
       const [state, commits, statuses, branches, tags, stashes, remotes, worktrees, submodules] = await Promise.all([
         api.repoState({ repo }),
-        api.commits({ repo, limit: 500 }),
+        api.commits({ repo, limit: historyLimit.current }),
         api.fileStatuses({ repo }),
         api.branches({ repo }),
         api.tags({ repo }),
@@ -92,6 +94,17 @@ export function useRepository(repo: string): Repository {
     }
   }, [repo]);
 
+  const commitForBranch = useCallback(async (hash: string): Promise<Commit | null> => {
+    const existing = data.commits.find((commit) => commit.hash === hash);
+    if (existing) return existing;
+    ++latestRefresh.current;
+    const commits = await api.commitsThrough({ repo, hash });
+    if (current.current !== repo) return null;
+    historyLimit.current = Math.max(historyLimit.current, commits.length);
+    setData((previous) => ({ ...previous, commits }));
+    return commits.find((commit) => commit.hash === hash) ?? null;
+  }, [repo, data.commits]);
+
   // Pull requests come from the GitHub CLI, so only repositories with a GitHub remote ask.
   const hasGitHubRemote = data.remotes.some((r) => /github\.com[/:]/i.test(r.fetchUrl));
   useEffect(() => {
@@ -99,6 +112,7 @@ export function useRepository(repo: string): Repository {
       setData((prev) => (prev.pullRequests.length ? { ...prev, pullRequests: [] } : prev));
       return;
     }
+    void api.githubStatus().catch(() => undefined);
     pullRequestsLoadedAt.current = Date.now();
     api
       .pullRequests({ repo })
@@ -109,6 +123,7 @@ export function useRepository(repo: string): Repository {
   useEffect(() => {
     setData(EMPTY);
     setProblem(null);
+    historyLimit.current = 500;
     pullRequestsLoadedAt.current = 0;
     void refresh();
   }, [refresh]);
@@ -144,5 +159,5 @@ export function useRepository(repo: string): Repository {
     [refresh]
   );
 
-  return { ...data, busy: running > 0, problem, refresh, run };
+  return { ...data, busy: running > 0, problem, refresh, commitForBranch, run };
 }

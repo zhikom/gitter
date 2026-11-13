@@ -10,7 +10,7 @@ import { worktreeGitDir } from './repoStore';
 async function branches(repo: string): Promise<Branch[]> {
   const out = await git(repo, [
     'for-each-ref', 'refs/heads', 'refs/remotes',
-    refFormat('%(refname)', '%(HEAD)', '%(upstream:short)', '%(upstream:track)', '%(objectname:short)', '%(symref)'),
+    refFormat('%(refname)', '%(HEAD)', '%(upstream:short)', '%(upstream:track)', '%(objectname)', '%(symref)'),
   ]);
   return records(out)
     .filter(([, , , , , symref]) => !symref) // refs/remotes/<remote>/HEAD only points at another branch

@@ -30,7 +30,7 @@ import {
   Undo2,
   Workflow,
 } from 'lucide-react';
-import type { AIExplanation, Commit, FileDiff, PullRequest, Stash } from '../shared/types/git';
+import type { AIExplanation, Branch, Commit, FileDiff, PullRequest, Stash } from '../shared/types/git';
 import { buildPatch, type LineSelection } from '../shared/patch';
 import type { UpdateInfo } from '../shared/types/update';
 import type { AgentFleetState } from '../shared/types/agentFleet';
@@ -84,7 +84,7 @@ import { toast } from './utils/toast';
 
 /** The one open dialog, if any. */
 type Dialog =
-  | { kind: 'repositories'; tab?: RepositoriesTab; cloneUrl?: string }
+  | { kind: 'repositories'; tab?: RepositoriesTab; cloneUrl?: string; githubCreate?: boolean }
   | { kind: 'palette' }
   | { kind: 'settings'; tab?: 'integrations' }
   | { kind: 'update' }
@@ -215,6 +215,9 @@ export const App: React.FC = () => {
   // --- Selection ---------------------------------------------------------------
   const [selectedFile, setSelectedFile] = useState<{ path: string; staged: boolean } | null>(null);
   const [selectedCommit, setSelectedCommit] = useState<Commit | null>(null);
+  const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
+  const [graphReveal, setGraphReveal] = useState<{ hash: string; sequence: number } | null>(null);
+  const branchRequest = useRef(0);
   const [selectedCommitFile, setSelectedCommitFile] = useState<string | null>(null);
   const [loadedCommitDiff, setLoadedCommitDiff] = useState<{ key: string; diffs: FileDiff[] } | null>(null);
   const commitDiffKey = selectedCommit ? `${repo}\0${selectedCommit.hash}` : '';
@@ -239,6 +242,18 @@ export const App: React.FC = () => {
     setStagingOpen(true);
     setDialog(null);
   };
+  const selectBranch = async (branch: Branch) => {
+    const request = ++branchRequest.current;
+    setSelectedBranch(branch.name);
+    try {
+      const commit = await repository.commitForBranch(branch.targetHash);
+      if (request !== branchRequest.current || !commit) return;
+      showCommit(commit);
+      setGraphReveal({ hash: commit.hash, sequence: request });
+    } catch (error: any) {
+      if (request === branchRequest.current) toast.error(`Could not find ${branch.name} in the graph: ${error.message}`);
+    }
+  };
   const showWorkingChanges = () => {
     setSelectedCommit(null);
     setSelectedCommitFile(null);
@@ -253,6 +268,9 @@ export const App: React.FC = () => {
   };
 
   useEffect(() => {
+    ++branchRequest.current;
+    setSelectedBranch(null);
+    setGraphReveal(null);
     setSelectedFile(null);
     setSelectedCommit(null);
     setSelectedCommitFile(null);
@@ -656,6 +674,8 @@ export const App: React.FC = () => {
                 worktrees={repository.worktrees}
                 submodules={repository.submodules}
                 currentBranch={repoState?.currentBranch ?? ''}
+                selectedBranch={selectedBranch}
+                onSelectBranch={(branch) => void selectBranch(branch)}
                 onCheckoutBranch={(name) => quietly(actions.checkout(name))}
                 onDeleteBranch={(name) => void actions.deleteBranch(name)}
                 onRenameBranch={(name) => void actions.renameBranch(name)}
@@ -716,9 +736,13 @@ export const App: React.FC = () => {
               commits={repository.commits}
               hasWip={hasWip}
               selectedHash={selectedCommit?.hash ?? (hasWip ? 'wip' : null)}
+              reveal={graphReveal}
               agentBranchNames={live.reviews.map((r) => r.branchName)}
               hasAgentCollisions={(live.fleet?.collisions.length ?? 0) > 0}
               onSelectCommit={(commit) => {
+                ++branchRequest.current;
+                setSelectedBranch(null);
+                setGraphReveal(null);
                 if (commit.isWip) showWorkingChanges();
                 else showCommit(commit);
               }}
@@ -831,7 +855,7 @@ export const App: React.FC = () => {
     const afterChange = () => void repository.refresh();
     switch (dialog.kind) {
       case 'repositories':
-        return <RepositoriesModal initialTab={dialog.tab} initialCloneUrl={dialog.cloneUrl} onClose={close} onOpen={(path) => void openRepo(path)} onConnectBitbucket={() => setDialog({ kind: 'settings', tab: 'integrations' })} />;
+        return <RepositoriesModal initialTab={dialog.tab} initialCloneUrl={dialog.cloneUrl} initialGitHubCreate={dialog.githubCreate} onClose={close} onOpen={(path) => void openRepo(path)} onConnectBitbucket={() => setDialog({ kind: 'settings', tab: 'integrations' })} />;
       case 'palette':
         return (
           <CommandPalette
@@ -847,7 +871,7 @@ export const App: React.FC = () => {
           />
         );
       case 'settings':
-        return <SettingsModal repo={repo} initialTab={dialog.tab} onClose={close} onCheckForUpdates={() => setDialog({ kind: 'update' })} onCloneRepository={(url) => setDialog({ kind: 'repositories', tab: 'clone', cloneUrl: url })} />;
+        return <SettingsModal repo={repo} initialTab={dialog.tab} onClose={close} onCheckForUpdates={() => setDialog({ kind: 'update' })} onCloneRepository={(url) => setDialog({ kind: 'repositories', tab: 'clone', cloneUrl: url })} onCreateGitHub={() => setDialog({ kind: 'repositories', tab: 'create', githubCreate: true })} />;
       case 'update':
         return <UpdateModal initial={update} onClose={close} />;
       case 'create-branch':

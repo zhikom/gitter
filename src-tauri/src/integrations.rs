@@ -6,8 +6,6 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use uuid::Uuid;
 
-#[cfg(all(target_os = "macos", not(test)))]
-const KEYCHAIN_SERVICE: &str = "com.gitter.integrations";
 static CONFIG_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -17,6 +15,8 @@ pub struct Integration {
     pub kind: String,
     pub base_url: String,
     pub label: String,
+    #[serde(default)]
+    pub authenticated: bool,
 }
 
 fn config_lock() -> &'static Mutex<()> { CONFIG_LOCK.get_or_init(|| Mutex::new(())) }
@@ -108,116 +108,41 @@ fn write_config(path: &Path, integrations: &[Integration]) -> Result<(), String>
     Ok(())
 }
 
-#[cfg(all(target_os = "macos", not(test)))]
-pub(crate) fn store_secret(id: &str, token: &str) -> Result<(), String> {
-    security_framework::passwords::set_generic_password(KEYCHAIN_SERVICE, id, token.as_bytes())
-        .map_err(|error| format!("Could not save the token in Keychain: {error}"))
-}
-#[cfg(all(not(target_os = "macos"), not(test)))]
-pub(crate) fn store_secret(_id: &str, _token: &str) -> Result<(), String> {
-    Err("Secure integration storage is currently available on macOS".into())
-}
-
-#[cfg(all(target_os = "macos", not(test)))]
-pub(crate) fn read_secret(id: &str) -> Result<String, String> {
-    use security_framework::passwords::{generic_password, PasswordOptions};
-    let bytes = generic_password(PasswordOptions::new_generic_password(KEYCHAIN_SERVICE, id))
-        .map_err(|error| format!("Could not read the token from Keychain: {error}"))?;
-    String::from_utf8(bytes).map_err(|_| "The Keychain token is invalid".into())
-}
-#[cfg(all(not(target_os = "macos"), not(test)))]
-pub(crate) fn read_secret(_id: &str) -> Result<String, String> {
-    Err("Secure integration storage is currently available on macOS".into())
-}
-
-#[cfg(all(target_os = "macos", not(test)))]
-fn delete_secret(id: &str) -> Result<(), String> {
-    security_framework::passwords::delete_generic_password(KEYCHAIN_SERVICE, id)
-        .map_err(|error| format!("Could not remove the token from Keychain: {error}"))
-}
-#[cfg(all(not(target_os = "macos"), not(test)))]
-fn delete_secret(_id: &str) -> Result<(), String> {
-    Err("Secure integration storage is currently available on macOS".into())
-}
-
-#[cfg(test)]
-fn test_secrets() -> &'static Mutex<std::collections::HashMap<String, String>> {
-    static SECRETS: OnceLock<Mutex<std::collections::HashMap<String, String>>> = OnceLock::new();
+// Tokens stay in memory for the lifetime of this process. Existing Keychain
+// entries from older versions are neither read nor changed.
+fn session_secrets() -> &'static Mutex<std::collections::HashMap<String, zeroize::Zeroizing<String>>> {
+    static SECRETS: OnceLock<Mutex<std::collections::HashMap<String, zeroize::Zeroizing<String>>>> = OnceLock::new();
     SECRETS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
-#[cfg(test)]
-pub(crate) fn store_secret(id: &str, token: &str) -> Result<(), String> {
-    test_secrets().lock().unwrap().insert(id.into(), token.into());
+
+fn store_secret(id: &str, token: &str) -> Result<(), String> {
+    session_secrets().lock().map_err(|_| "Session credentials are busy")?
+        .insert(id.into(), zeroize::Zeroizing::new(token.into()));
     Ok(())
 }
-#[cfg(test)]
-pub(crate) fn read_secret(id: &str) -> Result<String, String> {
-    test_secrets().lock().unwrap().get(id).cloned().ok_or_else(|| "Secret not found".into())
+
+fn read_secret(id: &str) -> Result<zeroize::Zeroizing<String>, String> {
+    session_secrets().lock().map_err(|_| "Session credentials are busy")?
+        .get(id).cloned().ok_or_else(|| "Enter your Bitbucket token in Integrations to connect for this session".into())
 }
-#[cfg(test)]
+
 fn delete_secret(id: &str) -> Result<(), String> {
-    test_secrets().lock().unwrap().remove(id);
+    session_secrets().lock().map_err(|_| "Session credentials are busy")?.remove(id);
     Ok(())
 }
 
 pub fn list(path: &Path) -> Result<Vec<Integration>, String> {
     let _guard = config_lock().lock().map_err(|_| "Integration settings are busy")?;
-    Ok(read_config(path)?.into_iter().filter(|entry| entry.kind == "bitbucket_dc").collect())
+    let secrets = session_secrets().lock().map_err(|_| "Session credentials are busy")?;
+    Ok(read_config(path)?.into_iter().filter(|entry| entry.kind == "bitbucket_dc").map(|mut entry| {
+        entry.authenticated = secrets.contains_key(&entry.id);
+        entry
+    }).collect())
 }
 
 pub(crate) fn find(path: &Path, id: &str, expected: &str) -> Result<Integration, String> {
     list(path)?.into_iter().find(|entry| entry.id == id && entry.kind == expected)
         .ok_or_else(|| "Integration not found".into())
-}
-
-fn git_credential_input(base_url: &str, username: &str, password: Option<&str>) -> Result<String, String> {
-    let url = normalize_url(base_url, "bitbucket_dc")?;
-    if url.scheme() != "https" { return Err("Git credentials require an HTTPS server".into()); }
-    let username = username.trim();
-    if username.is_empty() || username.contains(['\r', '\n']) {
-        return Err("Enter your Bitbucket username".into());
-    }
-    let mut host = url.host_str().ok_or("The server URL needs a host")?.to_string();
-    if host.contains(':') { host = format!("[{host}]"); }
-    if let Some(port) = url.port() { host.push_str(&format!(":{port}")); }
-    let mut input = format!("protocol=https\nhost={host}\nusername={username}\n");
-    if let Some(secret) = password {
-        if secret.is_empty() || secret.contains(['\r', '\n']) { return Err("Invalid token".into()); }
-        input.push_str(&format!("password={secret}\n"));
-    }
-    input.push('\n');
-    Ok(input)
-}
-
-/// Save a separate Git credential only after an explicit user action. Do not
-/// replace an existing credential or change the user's global Git config.
-#[cfg(target_os = "macos")]
-pub fn save_git_https_credential(path: &Path, id: &str, username: &str) -> Result<(), String> {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-    let integration = find(path, id, "bitbucket_dc")?;
-    let run_helper = |action: &str, input: &str| -> Result<std::process::Output, String> {
-        let mut child = Command::new("git").args(["credential-osxkeychain", action])
-            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null())
-            .spawn().map_err(|_| "Could not start the macOS Git Keychain helper".to_string())?;
-        child.stdin.take().ok_or("Could not open the Git credential helper")?
-            .write_all(input.as_bytes()).map_err(|_| "Could not pass the credential to the Keychain helper".to_string())?;
-        child.wait_with_output().map_err(|_| "The Git Keychain helper failed".to_string())
-    };
-    let existing = run_helper("get", &git_credential_input(&integration.base_url, username, None)?)?;
-    if !existing.status.success() { return Err("Could not check the macOS Git Keychain".into()); }
-    if !existing.stdout.is_empty() {
-        return Err("A Git Keychain credential already exists for this username and server. Manage it in Keychain Access before saving another.".into());
-    }
-    let secret = read_secret(id)?;
-    let result = run_helper("store", &git_credential_input(&integration.base_url, username, Some(&secret))?)?;
-    if !result.status.success() { return Err("Could not save the Git credential in macOS Keychain".into()); }
-    Ok(())
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn save_git_https_credential(_path: &Path, _id: &str, _username: &str) -> Result<(), String> {
-    Err("Saving Git credentials is currently available on macOS".into())
 }
 
 pub async fn connect(path: &Path, kind: &str, base: &str, label: &str, token: &str) -> Result<Integration, String> {
@@ -235,25 +160,37 @@ pub async fn connect(path: &Path, kind: &str, base: &str, label: &str, token: &s
         kind: kind.into(),
         base_url,
         label: if label.trim().is_empty() { base.trim().into() } else { label.trim().into() },
+        authenticated: false,
     };
     let _guard = config_lock().lock().map_err(|_| "Integration settings are busy")?;
     let mut integrations = read_config(path)?;
-    store_secret(&entry.id, token)?;
     integrations.push(entry.clone());
-    if let Err(error) = write_config(path, &integrations) {
-        let _ = delete_secret(&entry.id);
-        return Err(error);
+    write_config(path, &integrations)?;
+    store_secret(&entry.id, token)?;
+    Ok(Integration { authenticated: true, ..entry })
+}
+
+pub async fn reconnect(path: &Path, id: &str, token: &str) -> Result<(), String> {
+    if token.trim().is_empty() || token.contains(['\r', '\n']) {
+        return Err("Enter a valid personal access token".into());
     }
-    Ok(entry)
+    let entry = find(path, id, "bitbucket_dc")?;
+    let url = endpoint(&entry.base_url, &entry.kind, &["rest", "api", "1.0", "projects"])?;
+    request_json(&client()?, Method::GET, url, token, None).await?;
+    let _guard = config_lock().lock().map_err(|_| "Integration settings are busy")?;
+    if !read_config(path)?.iter().any(|connection| connection.id == id && connection.kind == "bitbucket_dc") {
+        return Err("Integration not found".into());
+    }
+    store_secret(id, token)
 }
 
 pub fn disconnect(path: &Path, id: &str) -> Result<(), String> {
     let _guard = config_lock().lock().map_err(|_| "Integration settings are busy")?;
     let mut entries = read_config(path)?;
     if !entries.iter().any(|entry| entry.id == id) { return Err("Integration not found".into()); }
-    delete_secret(id)?;
     entries.retain(|entry| entry.id != id);
-    write_config(path, &entries)
+    write_config(path, &entries)?;
+    delete_secret(id)
 }
 
 pub async fn bitbucket_repositories(path: &Path, id: &str, start: u64, search: &str) -> Result<Value, String> {
@@ -414,17 +351,10 @@ mod tests {
         assert!(endpoint("https://example.com", "bitbucket_dc", &["projects", "..", "repos"]).is_err());
     }
 
-    #[test]
-    fn git_credential_input_scopes_to_https_host_and_rejects_injection() {
-        assert_eq!(git_credential_input("https://git.example.com:8443/bitbucket", "alice", Some("test-token")).unwrap(),
-            "protocol=https\nhost=git.example.com:8443\nusername=alice\npassword=test-token\n\n");
-        assert!(git_credential_input("https://git.example.com", "alice\npassword=oops", None).is_err());
-        assert!(git_credential_input("http://localhost", "alice", Some("token")).is_err());
-    }
-
     #[tokio::test]
     async fn connects_and_browses_bitbucket_without_persisting_the_token_in_config() {
         let (base, server) = mock_server(vec![
+            ("/bitbucket/rest/api/1.0/projects", "{\"values\":[]}"),
             ("/bitbucket/rest/api/1.0/projects", "{\"values\":[]}"),
             ("/bitbucket/rest/api/1.0/repos?", "{\"values\":[{\"name\":\"Example\",\"slug\":\"example\",\"project\":{\"key\":\"PRJ\"},\"links\":{\"clone\":[{\"name\":\"ssh\",\"href\":\"git@example.com:PRJ/example.git\"}]}}],\"isLastPage\":true}"),
             ("/bitbucket/rest/api/1.0/repos?limit=50&start=50&name=Exam+ple", "{\"values\":[],\"isLastPage\":true}"),
@@ -435,6 +365,12 @@ mod tests {
         let config = directory.join("settings.json");
         let connection = connect(&config, "bitbucket_dc", &base, "Test", "fake-token").await.unwrap();
         assert!(!std::fs::read_to_string(&config).unwrap().contains("fake-token"));
+        assert!(list(&config).unwrap()[0].authenticated);
+        delete_secret(&connection.id).unwrap();
+        assert!(!list(&config).unwrap()[0].authenticated);
+        assert!(bitbucket_repositories(&config, &connection.id, 0, "").await.is_err());
+        reconnect(&config, &connection.id, "fake-token").await.unwrap();
+        assert!(list(&config).unwrap()[0].authenticated);
         let repos = bitbucket_repositories(&config, &connection.id, 0, "").await.unwrap();
         assert_eq!(repos["values"][0]["projectKey"], "PRJ");
         assert_eq!(repos["values"][0]["sshUrl"], "git@example.com:PRJ/example.git");

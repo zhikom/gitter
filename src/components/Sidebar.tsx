@@ -48,6 +48,8 @@ interface SidebarProps {
   worktrees?: Worktree[];
   submodules?: Submodule[];
   currentBranch: string;
+  selectedBranch: string | null;
+  onSelectBranch: (branch: Branch) => void;
   onCheckoutBranch: (name: string) => void;
   onDeleteBranch: (name: string) => void;
   /** Asks for the new name itself. */
@@ -88,6 +90,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   worktrees = [],
   submodules = [],
   currentBranch,
+  selectedBranch,
+  onSelectBranch,
   onCheckoutBranch,
   onDeleteBranch,
   onRenameBranch,
@@ -452,6 +456,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               return (
                 <div
                   key={branch.name}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Select branch ${branch.name}`}
+                  onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectBranch(branch); } }}
                   draggable={true}
                   onDragStart={(e) => {
                     setDraggedBranch(branch.name);
@@ -490,13 +498,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       onBranchDrop(source, branch.name);
                     }
                   }}
+                  onClick={() => onSelectBranch(branch)}
                   onDoubleClick={() => onCheckoutBranch(branch.name)}
                   onContextMenu={(e) => handleBranchContextMenu(e, branch)}
                   title={`Double click to checkout ${branch.name}. Drag another branch to merge/rebase, or drag a commit here to cherry-pick.`}
                   className={`group flex items-center justify-between px-3 py-1.5 text-xs cursor-pointer transition select-none ${
                     isCurrent
                       ? 'bg-teal-500/15 text-teal-300 font-semibold border-l-2 border-teal-400'
-                      : 'hover:bg-[#202735] text-slate-300'
+                      : selectedBranch === branch.name ? 'bg-[#263245] text-white' : 'hover:bg-[#202735] text-slate-300'
                   } ${isDragOver ? 'ring-2 ring-teal-400 bg-teal-500/20' : ''}`}
                 >
                   <div className="flex items-center space-x-2 truncate">
@@ -574,15 +583,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {filteredRemoteBranches.map((branch) => (
                 <div
                   key={branch.name}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Select branch ${branch.name}`}
+                  onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectBranch(branch); } }}
                   draggable={true}
                   onDragStart={(e) => {
                     e.dataTransfer.setData('text/plain', branch.name);
                     e.dataTransfer.setData('application/x-gitter-branch', branch.name);
                   }}
+                  onClick={() => onSelectBranch(branch)}
                   onDoubleClick={() => onCheckoutBranch(branch.name)}
                   onContextMenu={(e) => handleBranchContextMenu(e, branch)}
                   title={`Double click to checkout ${branch.name}`}
-                  className="group flex items-center justify-between px-3 py-1.5 text-xs cursor-pointer hover:bg-[#202735] text-slate-400 hover:text-slate-200 transition"
+                  className={`group flex items-center justify-between px-3 py-1.5 text-xs cursor-pointer hover:bg-[#202735] text-slate-400 hover:text-slate-200 transition ${selectedBranch === branch.name ? 'bg-[#263245] text-white' : ''}`}
                 >
                   <div className="flex items-center space-x-2 truncate">
                     <div className="w-3.5 h-3.5 flex items-center justify-center">

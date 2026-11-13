@@ -23,6 +23,7 @@ interface CommitGraphProps {
   commits: Commit[];
   hasWip: boolean;
   selectedHash: string | null;
+  reveal: { hash: string; sequence: number } | null;
   onSelectCommit: (commit: Commit) => void;
   onCheckout: (hash: string) => void;
   onCreateBranchAt: (hash: string) => void;
@@ -52,6 +53,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
   commits,
   hasWip,
   selectedHash,
+  reveal,
   onSelectCommit,
   onCheckout,
   onCreateBranchAt,
@@ -68,6 +70,8 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
 }) => {
   const agentBranchSet = new Set(agentBranchNames);
   const [searchQuery, setSearchQuery] = useState('');
+  const revealedRow = useRef<HTMLDivElement>(null);
+  const lastRevealedSequence = useRef<number | null>(null);
   const [density, setDensity] = usePreference('graphDensity');
   // The checked-out commit; the list is newest first across all branches, so it need not be first.
   const headCommit = commits.find((c) => c.refs.some((r) => r === 'HEAD' || r.startsWith('HEAD ->')));
@@ -121,6 +125,15 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
   }, [graphNodes, searchQuery]);
 
   const searching = searchQuery.trim() !== '';
+  useEffect(() => {
+    if (reveal) setSearchQuery('');
+  }, [reveal]);
+  useEffect(() => {
+    if (reveal && !searchQuery && lastRevealedSequence.current !== reveal.sequence && revealedRow.current) {
+      revealedRow.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      lastRevealedSequence.current = reveal.sequence;
+    }
+  }, [reveal, searchQuery, filteredNodes]);
 
   // Max lanes for graph SVG width calculation
   const maxLanes = useMemo(() => {
@@ -253,6 +266,8 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             return (
               <div
                 key={commit.hash}
+                ref={reveal?.hash === commit.hash ? revealedRow : undefined}
+                data-commit-hash={commit.hash}
                 draggable={!isWip}
                 onDragStart={(e) => {
                   e.dataTransfer.setData('text/plain', commit.hash);

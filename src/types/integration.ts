@@ -5,6 +5,7 @@ export interface Integration {
   kind: IntegrationKind;
   baseUrl: string;
   label: string;
+  authenticated: boolean;
 }
 
 export interface BitbucketRepository {

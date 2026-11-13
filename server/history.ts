@@ -70,6 +70,15 @@ function blame(output: string): BlameLine[] {
 export const historyHandlers = {
   commits: inRepo((repo, { limit = 300 }: { limit?: number }) => commits(repo, limit)),
 
+  /** Extend the graph to include a branch tip without changing the checkout. */
+  commitsThrough: inRepo(async (repo, { hash }: { hash: string }) => {
+    if (!/^[a-f\d]{40,64}$/i.test(hash)) throw new UserError('Invalid branch commit.');
+    const hashes = (await git(repo, ['rev-list', '--topo-order', '--branches', '--tags', '--remotes', 'HEAD'])).trim().split('\n');
+    const index = hashes.indexOf(hash);
+    if (index < 0) throw new UserError('The branch commit is not in the current graph. Refresh the repository.');
+    return commits(repo, index + 1);
+  }),
+
   /** A commit's changes; merges are shown against their first parent. */
   commitDiff: inRepo(async (repo, { hash }: { hash: string }) =>
     parseDiff(await git(repo, ['show', '--format=', '--diff-merges=first-parent', '--end-of-options', hash]))

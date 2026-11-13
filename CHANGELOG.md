@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-13
+
+### GitHub and navigation
+
+- Detect and reuse an existing GitHub CLI login, browse repositories for HTTPS
+  or SSH cloning, create private or public repositories, and open GitHub's SSH
+  key settings. GitHub HTTPS operations can use the existing `gh` credentials.
+- Select a local or remote branch with one click to reveal its tip in the graph;
+  double-click to check it out.
+- Keep Bitbucket integration tokens in memory for the current session instead
+  of reading or writing the operating system Keychain. Reconnect after restart.
+
+### Downloads
+
+- Windows x64 and macOS ARM64 (Apple Silicon) installers are available. The
+  Windows installer is unsigned; the Mac app is ad-hoc signed but not
+  notarized, so the operating system may show a security warning.
+
 ## [1.4.2] - 2026-11-13
 
 ### Repositories and coding apps

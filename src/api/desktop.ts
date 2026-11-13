@@ -22,8 +22,8 @@ export const desktopApi = {
   listIntegrations: () => desktop<Integration[]>('list_integrations'),
   connectIntegration: (kind: IntegrationKind, baseUrl: string, label: string, token: string) =>
     desktop<Integration>('connect_integration', { kind, baseUrl, label, token }),
+  reconnectIntegration: (id: string, token: string) => desktop<void>('reconnect_integration', { id, token }),
   disconnectIntegration: (id: string) => desktop<void>('disconnect_integration', { id }),
-  saveGitHttpsCredential: (id: string, username: string) => desktop<void>('save_git_https_credential', { id, username }),
   getBitbucketRepositories: (id: string, start: number, search = '') =>
     desktop<BitbucketPage<BitbucketRepository>>('bitbucket_repositories', { id, start, search }),
   getBitbucketPullRequests: (id: string, project: string, slug: string, start: number) =>

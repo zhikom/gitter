@@ -5,7 +5,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, describe, test } from 'node:test';
-import { git } from './git';
+import { git, useGitHubCliForGit } from './git';
+import { createGitHubHandlers } from './github';
 import { createHandlers } from './handlers';
 import { combine, UserError } from './http';
 import { parseDiff } from './gitParse';
@@ -73,6 +74,47 @@ test('clone returns the actual destination so it can be opened', async () => {
   const cloned = await api.cloneRepo({ url: repo, folder: target });
   assert.equal(cloned, target.replace(/\\/g, '/'));
   assert.equal((await api.repoState({ repo: cloned })).currentBranch, 'main');
+});
+
+test('GitHub browsing and creation use gh without embedding credentials', async () => {
+  const calls: string[][] = [];
+  const github = createGitHubHandlers(async (args) => {
+    calls.push(args);
+    if (args[0] === '--version') return 'gh version 2';
+    if (args.includes('user')) return 'alice\n';
+    if (args[0] === 'api') return JSON.stringify([{ full_name: 'team/project', private: true, description: null, clone_url: 'https://github.com/team/project.git', ssh_url: 'git@github.com:team/project.git', html_url: 'https://github.com/team/project' }]);
+    return 'https://github.com/team/new-project\n';
+  });
+  try {
+    const status = await github.githubStatus();
+    assert.equal(status.login, 'alice');
+    assert.equal(status.authenticated, true);
+    const page = await github.githubRepositories({ page: 1 });
+    assert.equal(page.repositories[0].fullName, 'team/project');
+    assert.equal(page.repositories[0].private, true);
+    const created = await github.githubCreateRepository({ owner: 'team', name: 'new-project', description: 'A project', visibility: 'private', addReadme: true });
+    assert.equal(created.sshUrl, 'git@github.com:team/new-project.git');
+    assert.deepEqual(calls.at(-1), ['repo', 'create', 'team/new-project', '--private', '--description', 'A project', '--add-readme']);
+    await assert.rejects(() => github.githubCreateRepository({ owner: '--bad', name: 'repo', visibility: 'public' }));
+    await assert.rejects(() => github.githubRepositories({ page: 0 }));
+  } finally { useGitHubCliForGit(false); }
+});
+
+test('GitHub HTTPS Git operations use gh only for the GitHub host', { skip: process.platform === 'win32' }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitter-gh-helper-'));
+  temps.push(dir);
+  const helper = path.join(dir, 'gh');
+  fs.writeFileSync(helper, '#!/bin/sh\nif [ "$3" = get ]; then printf "username=gh-user\\npassword=gh-token\\n"; fi\n', { mode: 0o700 });
+  const config = path.join(dir, 'gitconfig');
+  fs.writeFileSync(config, '[credential]\n helper = "!f() { if [ \\"$1\\" = get ]; then printf \\"username=other-user\\\\npassword=other-token\\\\n\\"; fi; }; f"\n');
+  const env = { HOME: dir, GIT_CONFIG_GLOBAL: config, GIT_CONFIG_NOSYSTEM: '1', PATH: `${dir}${path.delimiter}${process.env.PATH}` };
+  useGitHubCliForGit(true);
+  try {
+    const github = await git(dir, ['credential', 'fill'], { input: 'protocol=https\nhost=github.com\n\n', env });
+    assert.match(github, /password=gh-token/);
+    const other = await git(dir, ['credential', 'fill'], { input: 'protocol=https\nhost=github.com.attacker.invalid\n\n', env });
+    assert.match(other, /password=other-token/);
+  } finally { useGitHubCliForGit(false); }
 });
 
 describe('working tree', () => {
@@ -307,6 +349,21 @@ describe('commit file actions', () => {
 });
 
 describe('history and branches', () => {
+  test('finds an older branch tip in the graph without checking it out', async () => {
+    const repo = await newRepo();
+    const old = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+    await git(repo, ['branch', 'older']);
+    write(repo, 'later.txt', 'later\n');
+    await git(repo, ['add', 'later.txt']);
+    await git(repo, ['commit', '-q', '-m', 'later']);
+    const branch = (await api.branches({ repo })).find((item) => item.name === 'older');
+    assert.equal(branch?.targetHash, old);
+    const graph = await api.commitsThrough({ repo, hash: branch!.targetHash });
+    assert.ok(graph.some((commit) => commit.hash === old));
+    assert.equal((await git(repo, ['branch', '--show-current'])).trim(), 'main');
+    await assert.rejects(() => api.commitsThrough({ repo, hash: '--all' }));
+  });
+
   test('the graph lists branch commits but not other tools\' private refs', async () => {
     const repo = await newRepo();
     const tree = (await git(repo, ['write-tree'])).trim();

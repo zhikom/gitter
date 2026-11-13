@@ -3,15 +3,17 @@ import { api } from '../../api/client';
 import { desktopApi } from '../../api/desktop';
 import { BitbucketPullRequest, BitbucketRepository, Integration } from '../../types/integration';
 import { toast } from '../../utils/toast';
+import { GitHubIntegration } from './GitHubRepositories';
 
 interface Props {
   onCloneRepository?: (url: string) => void;
+  onCreateGitHub?: () => void;
 }
 
 const field = 'w-full bg-[#14181f] border border-[#2a3447] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-teal-500';
 const button = 'px-3 py-1.5 rounded border border-[#2a3447] text-teal-300 hover:bg-[#202735] disabled:opacity-40';
 
-export const IntegrationsPanel: React.FC<Props> = ({ onCloneRepository }) => {
+export const IntegrationsPanel: React.FC<Props> = ({ onCloneRepository, onCreateGitHub }) => {
   const [connections, setConnections] = useState<Integration[]>([]);
   const [baseUrl, setBaseUrl] = useState('');
   const [label, setLabel] = useState('');
@@ -28,7 +30,8 @@ export const IntegrationsPanel: React.FC<Props> = ({ onCloneRepository }) => {
   const [pullDescription, setPullDescription] = useState('');
   const [pullSource, setPullSource] = useState('');
   const [pullTarget, setPullTarget] = useState('');
-  const [gitUsername, setGitUsername] = useState('');
+  const [reconnectId, setReconnectId] = useState('');
+  const [reconnectToken, setReconnectToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -48,7 +51,7 @@ export const IntegrationsPanel: React.FC<Props> = ({ onCloneRepository }) => {
   };
 
   const disconnect = async (connection: Integration) => {
-    if (!confirm(`Disconnect ${connection.label} and remove its saved token from Keychain?`)) return;
+    if (!confirm(`Remove the ${connection.label} connection?`)) return;
     setBusy(true); setError('');
     try {
       await desktopApi.disconnectIntegration(connection.id);
@@ -92,12 +95,19 @@ export const IntegrationsPanel: React.FC<Props> = ({ onCloneRepository }) => {
 
   return (
     <div className="space-y-4 max-w-2xl">
-      <p className="text-slate-400">Connect Bitbucket Server / Data Center using a personal access token. Tokens are stored in macOS Keychain.</p>
+      <GitHubIntegration onClone={() => onCloneRepository?.('')} onCreate={onCreateGitHub} />
+      <p className="text-slate-400">Bitbucket tokens stay in memory for this session. Re-enter your token after restarting Gitter.</p>
       {error && <div role="alert" className="p-2 border border-red-500/40 rounded text-red-300 whitespace-pre-wrap break-words">{error}</div>}
       {connections.map((connection) => (
         <div key={connection.id} className="p-3 bg-[#14181f] border border-[#2a3447] rounded-lg flex flex-wrap items-center justify-between gap-2">
-          <div><div className="font-semibold text-slate-100">{connection.label}</div><div className="text-slate-500 break-all">Bitbucket Server / Data Center · {connection.baseUrl}</div></div>
-          <div className="flex gap-2"><button type="button" className={button} disabled={busy} onClick={() => openConnection(connection)}>Browse</button><button type="button" className={button} disabled={busy} onClick={() => disconnect(connection)}>Disconnect</button></div>
+          <div><div className="font-semibold text-slate-100">{connection.label}</div><div className="text-slate-500 break-all">Bitbucket Server / Data Center · {connection.baseUrl} · {connection.authenticated ? 'Connected for this session' : 'Token required'}</div></div>
+          <div className="flex gap-2">{connection.authenticated ? <button type="button" className={button} disabled={busy} onClick={() => openConnection(connection)}>Browse</button> : <button type="button" className={button} disabled={busy} onClick={() => { setReconnectId(connection.id); setReconnectToken(''); }}>Connect for this session</button>}<button type="button" className={button} disabled={busy} onClick={() => disconnect(connection)}>Remove</button></div>
+          {reconnectId === connection.id && <form className="w-full flex gap-2" onSubmit={async (event) => {
+            event.preventDefault(); setBusy(true); setError('');
+            const secret = reconnectToken; setReconnectToken('');
+            try { await desktopApi.reconnectIntegration(connection.id, secret); setReconnectId(''); await refresh(); toast.success('Connected for this session.'); }
+            catch (e) { setError(String(e)); } finally { setBusy(false); }
+          }}><input type="password" autoComplete="off" aria-label={`Token for ${connection.label}`} className={field} value={reconnectToken} onChange={(event) => setReconnectToken(event.target.value)} placeholder="Personal access token" required /><button type="submit" className={button} disabled={busy || !reconnectToken}>Connect</button><button type="button" className={button} onClick={() => { setReconnectId(''); setReconnectToken(''); }}>Cancel</button></form>}
         </div>
       ))}
 
@@ -129,11 +139,6 @@ export const IntegrationsPanel: React.FC<Props> = ({ onCloneRepository }) => {
             {repos.filter((repo) => `${repo.projectKey}/${repo.name}`.toLowerCase().includes(repoFilter.toLowerCase())).map((repo) => <div key={`${repo.projectKey}/${repo.slug}`} className="p-2 rounded bg-[#14181f] flex flex-wrap items-center justify-between gap-2"><span>{repo.projectKey}/{repo.name}</span><div className="flex gap-1"><button type="button" className={button} disabled={!repo.httpsUrl || !onCloneRepository} onClick={() => repo.httpsUrl && onCloneRepository?.(repo.httpsUrl)}>Clone HTTPS</button><button type="button" className={button} disabled={!repo.sshUrl || !onCloneRepository} onClick={() => repo.sshUrl && onCloneRepository?.(repo.sshUrl)}>Clone SSH</button><button type="button" className={button} disabled={busy} onClick={() => loadPulls(selected, repo)}>Pull requests</button></div></div>)}
             {repoNext !== null && <button type="button" className={button} disabled={busy} onClick={() => loadRepos(selected, repoNext)}>Load more</button>}
             <p className="text-slate-500">Git over HTTPS uses your configured Git credential helper. SSH uses your system SSH configuration.</p>
-            <div className="p-2 border border-[#2a3447] rounded space-y-2">
-              <label className="block text-slate-400">Use this personal token for Git HTTPS (optional)</label>
-              <p className="text-slate-500">This saves a separate credential in macOS Keychain for Git. Your existing Git configuration is unchanged; disconnecting this integration will not remove that Git credential.</p>
-              <div className="flex gap-2"><input className={field} value={gitUsername} onChange={(e) => setGitUsername(e.target.value)} placeholder="Bitbucket username" autoComplete="username" /><button type="button" className={button} disabled={busy || !gitUsername.trim()} onClick={async () => { setBusy(true); setError(''); try { await desktopApi.saveGitHttpsCredential(selected.id, gitUsername.trim()); setGitUsername(''); toast.success('Git HTTPS credential saved in Keychain.'); } catch (e) { setError(String(e)); } finally { setBusy(false); } }}>Save for Git</button></div>
-            </div>
           </>}
         </div>
       )}

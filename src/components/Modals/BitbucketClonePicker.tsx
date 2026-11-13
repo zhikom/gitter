@@ -16,6 +16,7 @@ export const BitbucketClonePicker: React.FC<{ selectedUrl: string; onSelect: (ur
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const generation = useRef(0);
+  const authenticated = Boolean(connections.find((connection) => connection.id === connectionId)?.authenticated);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -33,7 +34,7 @@ export const BitbucketClonePicker: React.FC<{ selectedUrl: string; onSelect: (ur
   useEffect(() => {
     const request = ++generation.current;
     setRepos([]); setNext(null);
-    if (!connectionId) { setLoading(false); return; }
+    if (!connectionId || !authenticated) { setLoading(false); return; }
     setLoading(true); setError('');
     const timer = setTimeout(() => {
       desktopApi.getBitbucketRepositories(connectionId, 0, query.trim()).then((page) => {
@@ -44,7 +45,7 @@ export const BitbucketClonePicker: React.FC<{ selectedUrl: string; onSelect: (ur
         .finally(() => { if (generation.current === request) setLoading(false); });
     }, query.trim() ? 300 : 0);
     return () => { clearTimeout(timer); generation.current++; };
-  }, [connectionId, query, retry]);
+  }, [connectionId, authenticated, query, retry]);
 
   const loadMore = async () => {
     if (!connectionId || next === null || loading) return;
@@ -73,7 +74,8 @@ export const BitbucketClonePicker: React.FC<{ selectedUrl: string; onSelect: (ur
         {connections.length > 1 && <select aria-label="Bitbucket connection" value={connectionId} onChange={(event) => setConnectionId(event.target.value)} className={inputClass}>
           {connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.label}</option>)}
         </select>}
-        <input aria-label="Search Bitbucket repositories" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search repositories by name…" className={inputClass} />
+        {!authenticated && <div className="space-y-2"><p className="text-slate-500">Enter your token to connect for this session.</p><button type="button" className={action} onClick={onConnect}>Connect Bitbucket…</button></div>}
+        {authenticated && <><input aria-label="Search Bitbucket repositories" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search repositories by name…" className={inputClass} />
         <div className="max-h-32 space-y-1 overflow-y-auto">
           {repos.map((repo) => <div key={`${repo.projectKey}/${repo.slug}`} className="flex flex-wrap items-center gap-2 rounded bg-[#14181f] px-2 py-1.5">
             <span title={`${repo.projectKey}/${repo.slug}`} className="min-w-0 flex-1 truncate">{repo.projectKey}/{repo.name}</span>
@@ -85,6 +87,7 @@ export const BitbucketClonePicker: React.FC<{ selectedUrl: string; onSelect: (ur
         {loading && <p className="text-slate-500">Loading repositories…</p>}
         {next !== null && <button type="button" className={action} disabled={loading} onClick={() => void loadMore()}>Load more</button>}
         <p className="text-[10px] text-slate-500">Git uses your SSH agent or Git credential helper when cloning.</p>
+        </>}
       </>}
     </section>
   );

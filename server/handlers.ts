@@ -13,6 +13,7 @@ import * as os from './osIntegration';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { remoteHandlers } from './remotes';
+import { githubHandlers } from './github';
 import { repositoryHandlers } from './repository';
 import { settingsHandlers } from './settings';
 import { stashHandlers } from './stash';
@@ -49,6 +50,7 @@ export function createHandlers(host: Host) {
     historyHandlers,
     branchHandlers,
     remoteHandlers,
+    githubHandlers,
     stashHandlers,
     worktreeHandlers,
     settingsHandlers,

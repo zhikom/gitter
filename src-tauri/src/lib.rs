@@ -41,19 +41,19 @@ fn list_integrations(app: AppHandle) -> Result<Vec<integrations::Integration>, S
 
 #[tauri::command]
 async fn connect_integration(app: AppHandle, kind: String, base_url: String, label: String, token: String) -> Result<integrations::Integration, String> {
+    let token = zeroize::Zeroizing::new(token);
     integrations::connect(&integration_settings_path(&app)?, &kind, &base_url, &label, &token).await
+}
+
+#[tauri::command]
+async fn reconnect_integration(app: AppHandle, id: String, token: String) -> Result<(), String> {
+    let token = zeroize::Zeroizing::new(token);
+    integrations::reconnect(&integration_settings_path(&app)?, &id, &token).await
 }
 
 #[tauri::command]
 fn disconnect_integration(app: AppHandle, id: String) -> Result<(), String> {
     integrations::disconnect(&integration_settings_path(&app)?, &id)
-}
-
-#[tauri::command]
-async fn save_git_https_credential(app: AppHandle, id: String, username: String) -> Result<(), String> {
-    let path = integration_settings_path(&app)?;
-    tauri::async_runtime::spawn_blocking(move || integrations::save_git_https_credential(&path, &id, &username))
-        .await.map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -105,7 +105,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Backend::default())
         .invoke_handler(tauri::generate_handler![
-            list_integrations, connect_integration, disconnect_integration, save_git_https_credential,
+            list_integrations, connect_integration, reconnect_integration, disconnect_integration,
             bitbucket_repositories, bitbucket_pull_requests, create_bitbucket_pull_request,
             list_ssh_keys, copy_ssh_public_key, generate_ssh_key, test_ssh_remote, native_git_request
         ])

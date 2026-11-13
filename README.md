@@ -38,11 +38,14 @@ written by AI coding agents.
   public keys, and reveal repositories in Finder or Explorer.
 - Open a repository in Codex or Claude Code from the repository menu or tab
   menu, with the repository folder selected for a new coding session.
-- On macOS, connect Bitbucket Server / Data Center with a personal access token
-  stored in Keychain to browse repositories and pull requests, create a pull
-  request within one repository, and search for repositories directly from
-  the HTTPS or SSH clone dialog. Copy a public SSH key and open the server's
-  SSH-key page from Settings when you need to add it to Bitbucket.
+- Connect GitHub using an existing GitHub CLI login to browse, clone, and create
+  repositories and work with pull requests. Clone over HTTPS or SSH.
+- Connect Bitbucket Server / Data Center with a personal access token to browse
+  repositories and pull requests, create a pull request within one repository,
+  and search from the clone dialog. The token is kept only in memory for the
+  current Gitter session. Copy a public SSH key and open either provider's
+  SSH-key page from Settings when you need to add it.
+- Single-click a branch to reveal its tip in the graph; double-click to check it out.
 
 **AI agents**
 - Start an agent in its own branch and worktree (`agent/<harness>-<task>`), or
@@ -108,10 +111,12 @@ with the app.
 In the desktop app, cloning, file staging and commits run through Rust and
 system Git. The other Git operations and services still use the sidecar; the
 Rust migration and GitKraken feature parity are ongoing. SSH authentication
-uses the system configuration and agent. Bitbucket API tokens and Git HTTPS
-credentials are separate; the Bitbucket settings offer an optional **Save for
-Git** action for the macOS Keychain helper. Bitbucket Cloud, cross-repository
-pull requests and pull-request reviews are not yet implemented.
+uses the system configuration and agent. Bitbucket API tokens stay in memory
+and must be re-entered after restarting Gitter; Git HTTPS credentials are
+separate and use your configured Git credential helper. For GitHub, Gitter can
+reuse existing GitHub CLI authentication without changing Git configuration.
+Bitbucket Cloud, cross-repository pull requests and pull-request reviews are
+not yet implemented.
 
 Sidecar operations use `POST /api/<name>` with a JSON body. The handler map in
 `server/handlers.ts` is the contract: the UI's client

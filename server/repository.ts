@@ -106,11 +106,14 @@ export const repositoryHandlers = {
     await git(folder, ['init']);
   },
 
-  cloneRepo: async ({ url, folder }: { url: string; folder: string }) => {
+  cloneRepo: async ({ url, folder, githubAuth = false }: { url: string; folder: string; githubAuth?: boolean }) => {
     const expanded = folder === '~' ? homedir() : /^~[\\/]/.test(folder) ? path.join(homedir(), folder.slice(2)) : folder;
     const target = path.resolve(expanded);
     await fs.promises.mkdir(path.dirname(target), { recursive: true });
-    await git(path.dirname(target), ['clone', '--end-of-options', url, target]);
+    let githubHttps = false;
+    try { const remote = new URL(url); githubHttps = remote.protocol === 'https:' && remote.hostname === 'github.com' && !remote.username && !remote.password && (!remote.port || remote.port === '443'); } catch { /* SSH and local remotes */ }
+    const credentials = githubAuth && githubHttps ? ['-c', 'credential.https://github.com.helper=', '-c', 'credential.https://github.com.helper=!gh auth git-credential'] : [];
+    await git(path.dirname(target), [...credentials, 'clone', '--end-of-options', url, target], { env: { GH_PROMPT_DISABLED: '1' } });
     return target.replace(/\\/g, '/');
   },
 

@@ -8,12 +8,14 @@ import { toast } from '../../utils/toast';
 import { joinRepoFolder, repositoryNameFromUrl, repositoryParent } from '../../utils/repositoryPaths';
 import { Button, Field, inputClass, Modal } from '../ui/Modal';
 import { BitbucketClonePicker } from './BitbucketClonePicker';
+import { GitHubClonePicker, GitHubCreateRepository } from './GitHubRepositories';
 
 export type RepositoriesTab = 'recent' | 'scan' | 'clone' | 'create';
 
 interface RepositoriesModalProps {
   initialTab?: RepositoriesTab;
   initialCloneUrl?: string;
+  initialGitHubCreate?: boolean;
   onClose: () => void;
   onConnectBitbucket: () => void;
   /** Opens the repository at `path` in a tab. */
@@ -33,8 +35,9 @@ async function browse(title: string): Promise<string | null> {
   }
 }
 
-export const RepositoriesModal: React.FC<RepositoriesModalProps> = ({ initialTab = 'recent', initialCloneUrl = '', onClose, onOpen, onConnectBitbucket }) => {
+export const RepositoriesModal: React.FC<RepositoriesModalProps> = ({ initialTab = 'recent', initialCloneUrl = '', initialGitHubCreate = false, onClose, onOpen, onConnectBitbucket }) => {
   const [tab, setTab] = useState<RepositoriesTab>(initialTab);
+  const [cloneUrl, setCloneUrl] = useState(initialCloneUrl);
   const open = (path: string) => {
     onOpen(path);
     onClose();
@@ -86,8 +89,8 @@ export const RepositoriesModal: React.FC<RepositoriesModalProps> = ({ initialTab
       <div className="flex-1 min-h-0 overflow-y-auto p-4">
         {tab === 'recent' && <RecentRepositories onOpen={open} onScan={() => setTab('scan')} />}
         {tab === 'scan' && <ScanFolder onOpen={open} />}
-        {tab === 'clone' && <CloneRepository onOpen={open} initialUrl={initialCloneUrl} onConnectBitbucket={onConnectBitbucket} />}
-        {tab === 'create' && <CreateRepository onOpen={open} />}
+        {tab === 'clone' && <CloneRepository onOpen={open} initialUrl={cloneUrl} onConnectBitbucket={onConnectBitbucket} />}
+        {tab === 'create' && <CreateRepository initialGitHub={initialGitHubCreate} onOpen={open} onClone={(url) => { setCloneUrl(url); setTab('clone'); }} />}
       </div>
     </Modal>
   );
@@ -207,6 +210,7 @@ const CloneRepository: React.FC<{ onOpen: (path: string) => void; initialUrl: st
   const [parent, setParent] = useState(recentFolders[0] || defaultFolder);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [githubAuthenticated, setGithubAuthenticated] = useState(false);
   useEffect(() => {
     api.defaultRepoFolder().then((folder) => { setSystemDefault(folder); setParent((current) => current || defaultFolder || folder); }).catch((e) => toast.error(e.message));
   }, []);
@@ -220,7 +224,7 @@ const CloneRepository: React.FC<{ onOpen: (path: string) => void; initialUrl: st
     e.preventDefault();
     setBusy(true);
     try {
-      const cloned = await api.cloneRepo({ url: url.trim(), folder: target });
+      const cloned = await api.cloneRepo({ url: url.trim(), folder: target, githubAuth: githubAuthenticated && /^https:\/\/github\.com\//i.test(url.trim()) });
       const destination = repositoryParent(cloned) || parent.trim();
       setRecentFolders((current) => [destination, ...current.filter((folder) => folder !== destination)].slice(0, 12));
       toast.success(`Cloned into ${cloned}.`);
@@ -234,6 +238,7 @@ const CloneRepository: React.FC<{ onOpen: (path: string) => void; initialUrl: st
 
   return (
     <form onSubmit={clone} className="space-y-3 max-w-xl">
+      <GitHubClonePicker selectedUrl={url} onSelect={(selected) => { setUrl(selected); setName(''); }} onAuthChange={setGithubAuthenticated} />
       <BitbucketClonePicker selectedUrl={url} onSelect={(selected) => { setUrl(selected); setName(''); }} onConnect={onConnectBitbucket} />
       <Field label="URL" hint="HTTPS or SSH; private repositories use your git credentials">
         <input autoFocus value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://github.com/owner/project.git" className={`${inputClass} font-mono`} />
@@ -269,9 +274,10 @@ const CloneRepository: React.FC<{ onOpen: (path: string) => void; initialUrl: st
   );
 };
 
-const CreateRepository: React.FC<{ onOpen: (path: string) => void }> = ({ onOpen }) => {
+const CreateRepository: React.FC<{ onOpen: (path: string) => void; onClone: (url: string) => void; initialGitHub: boolean }> = ({ onOpen, onClone, initialGitHub }) => {
   const [folder, setFolder] = useState('');
   const [busy, setBusy] = useState(false);
+  const [where, setWhere] = useState<'local' | 'github'>(initialGitHub ? 'github' : 'local');
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -285,8 +291,8 @@ const CreateRepository: React.FC<{ onOpen: (path: string) => void }> = ({ onOpen
       setBusy(false);
     }
   };
-  return (
-    <form onSubmit={create} className="space-y-3 max-w-xl">
+  return <div className="space-y-4"><div className="flex gap-2"><Button type="button" tone={where === 'local' ? 'primary' : undefined} onClick={() => setWhere('local')}>Local repository</Button><Button type="button" tone={where === 'github' ? 'primary' : undefined} onClick={() => setWhere('github')}>GitHub repository</Button></div>
+    {where === 'github' ? <GitHubCreateRepository onClone={onClone} /> : <form onSubmit={create} className="space-y-3 max-w-xl">
       <Field label="Folder" hint="Created if it does not exist; an existing folder keeps its files">
         <div className="flex gap-2">
           <input autoFocus value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="Folder for the new repository" className={`${inputClass} font-mono`} />
@@ -305,6 +311,6 @@ const CreateRepository: React.FC<{ onOpen: (path: string) => void }> = ({ onOpen
         <FolderPlus className="w-3.5 h-3.5" />
         Create repository
       </Button>
-    </form>
-  );
+    </form>}
+  </div>;
 };
