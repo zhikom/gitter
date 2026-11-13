@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-- Correct Windows permissions handling when generating SSH keys.
+- Correct Windows account identification and permissions when generating SSH keys.
 
 ## [1.4.1] - 2026-11-13
 

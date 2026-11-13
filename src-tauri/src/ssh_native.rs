@@ -41,6 +41,16 @@ pub fn copy_public_key(key: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(any(windows, test))]
+fn windows_sid_from_whoami(output: &str) -> Option<&str> {
+    let start = output.rfind("S-1-")?;
+    let candidate = &output[start..];
+    let numeric_len = candidate[2..].bytes().take_while(|ch| ch.is_ascii_digit() || *ch == b'-').count();
+    let sid = &candidate[..2 + numeric_len];
+    if sid.ends_with('-') || sid.split('-').count() < 4 { return None; }
+    Some(sid)
+}
+
 #[cfg(windows)]
 fn restrict_private_key(path: &Path) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
@@ -49,8 +59,7 @@ fn restrict_private_key(path: &Path) -> Result<(), String> {
         .map_err(|error| format!("Could not determine the Windows account: {error}"))?;
     if !user.status.success() { return Err("Could not determine the Windows account".into()); }
     let user = String::from_utf8_lossy(&user.stdout);
-    let start = user.find("S-1-").ok_or("Could not determine the Windows account SID")?;
-    let sid = user[start..].split(|ch: char| !ch.is_ascii_digit() && ch != '-').next().unwrap_or("");
+    let sid = windows_sid_from_whoami(&user).ok_or("Could not determine the Windows account SID")?;
     let grant = format!("*{sid}:(F)");
     // Grant the owner access before removing inherited permissions so that a
     // second security update cannot lock the current account out of the file.
@@ -200,6 +209,13 @@ pub fn test_remote(remote: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_windows_account_sid_from_whoami_csv() {
+        assert_eq!(windows_sid_from_whoami("\"runner\\runneradmin\",\"S-1-5-21-123-456-789-1001\"\r\n"), Some("S-1-5-21-123-456-789-1001"));
+        assert_eq!(windows_sid_from_whoami("invalid output"), None);
+        assert_eq!(windows_sid_from_whoami("\"S-1-5-\""), None);
+    }
 
     #[test]
     fn clipboard_accepts_public_keys_but_not_private_key_blocks() {
