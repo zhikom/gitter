@@ -1371,7 +1371,7 @@ dependencies = [
 
 [[package]]
 name = "gitter"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "reqwest",
  "security-framework",

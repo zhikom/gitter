@@ -2,9 +2,7 @@
 
 ## [Unreleased]
 
-- Correct Windows account identification and permissions when generating SSH keys.
-
-## [1.4.1] - 2026-11-13
+## [1.4.2] - 2026-11-13
 
 ### Repositories and coding apps
 
