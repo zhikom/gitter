@@ -2,7 +2,7 @@
 // desktop app ships as its `gitter-server` sidecar. Tauri looks for it at
 // src-tauri/binaries/gitter-server-<target triple>[.exe].
 import { execSync, spawnSync } from 'node:child_process';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -39,7 +39,8 @@ if (triple === 'universal-apple-darwin') {
   const parts = ['x86_64-apple-darwin', 'aarch64-apple-darwin'];
   for (const t of parts) compile(BUN_TARGETS[t], output(t));
   run('lipo', ['-create', '-output', output(triple), ...parts.map(output)]);
-  for (const t of parts) rmSync(output(t));
+  // Tauri compiles each architecture separately before bundling the universal
+  // app, so its build script still needs the two thin sidecars at that point.
 } else if (BUN_TARGETS[triple]) {
   compile(BUN_TARGETS[triple], output(triple));
 } else {
