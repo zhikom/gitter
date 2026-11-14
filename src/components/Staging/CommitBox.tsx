@@ -1,11 +1,16 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Sparkles, Check, ChevronDown, Archive, MessageSquare, ArrowUp, RefreshCw, Bot } from 'lucide-react';
 import type { Commit } from '../../../shared/types/git';
 import type { AgentHarness } from '../../../shared/types/agentFleet';
 import { HARNESSES, HARNESS_TRAILER } from '../../../shared/agents';
 import { toast } from '../../utils/toast';
 import { HARNESS_META } from '../Agent/agentUi';
+import { templateDraft } from '../../templateDraft';
+export interface CommitDraft { summary: string; description: string; amend: boolean; previousDraft: { summary: string; description: string } }
 interface CommitBoxProps {
+  repo: string;
+  initialDraft?: CommitDraft;
+  onDraftChange?: (draft: CommitDraft) => void;
   stagedCount: number;
   currentBranch?: string;
   lastCommit?: Commit | null;
@@ -17,6 +22,9 @@ interface CommitBoxProps {
 const CONVENTIONAL_TAGS = ['feat', 'fix', 'refactor', 'docs', 'chore', 'perf', 'test'];
 
 export const CommitBox: React.FC<CommitBoxProps> = ({
+  repo,
+  initialDraft,
+  onDraftChange,
   stagedCount,
   currentBranch = 'main',
   lastCommit,
@@ -25,15 +33,36 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
   onGenerateAiMessage,
 }) => {
   const [committing, setCommitting] = useState(false);
-  const [summary, setSummary] = useState('');
-  const [description, setDescription] = useState('');
-  const [amend, setAmend] = useState(false);
-  const [previousDraft, setPreviousDraft] = useState<{ summary: string; description: string }>({ summary: '', description: '' });
+  const [summary, setSummary] = useState(initialDraft?.summary ?? '');
+  const [description, setDescription] = useState(initialDraft?.description ?? '');
+  const [amend, setAmend] = useState(initialDraft?.amend ?? false);
+  const [previousDraft, setPreviousDraft] = useState(initialDraft?.previousDraft ?? { summary: '', description: '' });
   const [isAiGenerating, setIsAiGenerating] = useState(false);
-  const [showDesc, setShowDesc] = useState(false);
+  const [showDesc, setShowDesc] = useState(Boolean(initialDraft?.description));
   const [showOptions, setShowOptions] = useState(false);
   const [showAgentMenu, setShowAgentMenu] = useState(false);
   const [commitMode, setCommitMode] = useState<'commit' | 'push' | 'sync'>('commit');
+  const [templateBusy, setTemplateBusy] = useState(false);
+  const latest = useRef({ summary, description, amend, repo, currentBranch });
+  latest.current = { summary, description, amend, repo, currentBranch };
+  const active = useRef(true);
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+  useEffect(() => { onDraftChange?.({ summary, description, amend, previousDraft }); }, [summary, description, amend, previousDraft, onDraftChange]);
+
+  const useTemplate = async () => {
+    setTemplateBusy(true);
+    try {
+      const draft = await templateDraft(repo, 'commit', currentBranch);
+      const now = latest.current;
+      if (!active.current || now.repo !== repo || now.currentBranch !== currentBranch || now.summary.trim() || now.description.trim() || now.amend) return;
+      const lines = draft.text.replace(/\r\n/g, '\n').replace(/^(?:[ \t]*\n)+/, '').split('\n');
+      setSummary(lines.shift() ?? '');
+      const body = lines.join('\n').replace(/^\n+/, '');
+      setDescription(body); setShowDesc(Boolean(body));
+      toast.success(`Inserted template from ${draft.source}.`);
+    } catch (error) { if (active.current) toast.error((error as Error).message); }
+    finally { if (active.current) setTemplateBusy(false); }
+  };
 
   // Records in the commit which agent wrote it, as Gitter's own agent commits do.
   const handleTagAgent = (harness: AgentHarness) => {
@@ -150,6 +179,7 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
           </div>
 
           <div className="flex items-center space-x-1.5">
+            <button type="button" onClick={() => void useTemplate()} disabled={templateBusy || amend || Boolean(summary.trim() || description.trim())} title="Insert a template into an empty commit draft" className="px-2 py-0.5 rounded border border-[#2a3447] text-slate-300 text-xs disabled:opacity-40">Template</button>
             {onStash && (
               <button
                 type="button"

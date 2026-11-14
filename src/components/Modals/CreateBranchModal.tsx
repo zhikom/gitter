@@ -1,9 +1,12 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { GitBranch } from 'lucide-react';
 import { Button, Field, inputClass, Modal } from '../ui/Modal';
+import { templateDraft } from '../../templateDraft';
+import { toast } from '../../utils/toast';
 
 interface CreateBranchModalProps {
   startPoint: string;
+  repo: string;
   onClose: () => void;
   /** Resolves once the branch exists; a failure leaves the dialog open. */
   onCreate: (name: string, startPoint: string, checkout: boolean) => Promise<void>;
@@ -19,10 +22,12 @@ export function branchNameProblem(name: string): string | null {
   return null;
 }
 
-export const CreateBranchModal: React.FC<CreateBranchModalProps> = ({ startPoint, onClose, onCreate }) => {
+export const CreateBranchModal: React.FC<CreateBranchModalProps> = ({ repo, startPoint, onClose, onCreate }) => {
   const [name, setName] = useState('');
   const [checkout, setCheckout] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [templateBusy, setTemplateBusy] = useState(false);
+  const latestName = useRef(name); latestName.current = name;
   const problem = name.trim() ? branchNameProblem(name.trim()) : null;
 
   const submit = async (e: React.FormEvent) => {
@@ -41,6 +46,12 @@ export const CreateBranchModal: React.FC<CreateBranchModalProps> = ({ startPoint
   return (
     <Modal width="sm" icon={<GitBranch className="w-4 h-4 text-emerald-400" />} title="New branch" subtitle={`From ${startPoint.length === 40 ? startPoint.slice(0, 7) : startPoint}`} onClose={onClose}>
       <form onSubmit={submit} className="p-4 space-y-3">
+        <Button type="button" disabled={Boolean(name.trim())} busy={templateBusy} onClick={async () => {
+          setTemplateBusy(true);
+          try { const draft = await templateDraft(repo, 'branch', startPoint, startPoint); if (!latestName.current.trim()) { setName(draft.text.trim()); toast.success(`Inserted template from ${draft.source}.`); } }
+          catch (error) { toast.error((error as Error).message); }
+          finally { setTemplateBusy(false); }
+        }}>Use template</Button>
         <Field label="Name" hint={problem && <span className="text-rose-300">{problem}</span>}>
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="feature/my-change" className={`${inputClass} font-mono`} />
         </Field>

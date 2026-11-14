@@ -5,16 +5,30 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { Toaster } from './components/Toaster';
 import { getPreference, usePreference } from './preferences';
 import { applyFontPreferences } from './fontAppearance';
+import { applyTheme } from './theme';
+import { CURRENT_VERSION } from './services/updateService';
 import './index.css';
 
-document.documentElement.dataset.theme = getPreference('theme');
+applyTheme(document.documentElement, getPreference('theme'), getPreference('themePack'), getPreference('dataPacks'), window.matchMedia('(prefers-color-scheme: dark)').matches, CURRENT_VERSION);
+document.documentElement.style.setProperty('--ui-text-scale', String(getPreference('interfaceTextScale') / 100));
+document.documentElement.dataset.uiTextScale = String(getPreference('interfaceTextScale'));
 applyFontPreferences(getPreference('interfaceFont'), getPreference('codeFont'));
 
 const ThemedApp: React.FC = () => {
   const [theme] = usePreference('theme');
   const [interfaceFont] = usePreference('interfaceFont');
+  const [interfaceTextScale] = usePreference('interfaceTextScale');
+  const [dataPacks] = usePreference('dataPacks');
+  const [themePack] = usePreference('themePack');
   const [codeFont] = usePreference('codeFont');
-  React.useLayoutEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
+  React.useLayoutEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => applyTheme(document.documentElement, theme, themePack, dataPacks, media.matches, CURRENT_VERSION);
+    apply();
+    media.addEventListener('change', apply);
+    return () => media.removeEventListener('change', apply);
+  }, [theme, themePack, dataPacks]);
+  React.useLayoutEffect(() => { document.documentElement.style.setProperty('--ui-text-scale', String(interfaceTextScale / 100)); document.documentElement.dataset.uiTextScale = String(interfaceTextScale); }, [interfaceTextScale]);
   React.useLayoutEffect(() => { applyFontPreferences(interfaceFont, codeFont); }, [interfaceFont, codeFont]);
   return <><App /><Toaster /></>;
 };

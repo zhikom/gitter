@@ -33,8 +33,10 @@ import type { AIExplanation, Branch, Commit, FileDiff, PullRequest, Stash } from
 import { buildPatch, type LineSelection } from '../shared/patch';
 import type { UpdateInfo } from '../shared/types/update';
 import type { AgentFleetState } from '../shared/types/agentFleet';
+import type { LocalAction } from '../shared/types/localAction';
 import { api, pickFolder } from './api/client';
-import { type Command, useShortcuts } from './commands';
+import { applyShortcutOverrides, isMac, type Command, useShortcuts } from './commands';
+import { packCommands } from './dataPacks';
 import { AgentLens } from './components/Agent/AgentLens';
 import { AgentRail } from './components/Agent/AgentRail';
 import { AgentReviewInbox } from './components/Agent/AgentReviewInbox';
@@ -70,7 +72,8 @@ import { RepoTabBar } from './components/Navigation/RepoTabBar';
 import { CreatePullRequestModal, PullRequestModal } from './components/PullRequests/PullRequestModal';
 import { InteractiveRebaseModal } from './components/Rebase/InteractiveRebaseModal';
 import { Sidebar } from './components/Sidebar';
-import { CommitBox } from './components/Staging/CommitBox';
+import { CommitBox, type CommitDraft } from './components/Staging/CommitBox';
+import { LocalActionModal } from './components/Modals/LocalActionModal';
 import { StagingPanel } from './components/Staging/StagingPanel';
 import { type PatchAction, WorkingDiff } from './components/Staging/WorkingDiff';
 import { AskHost, ask } from './components/ui/ask';
@@ -82,7 +85,7 @@ import { useAgentActions } from './hooks/useAgentActions';
 import { useAgentLive } from './hooks/useAgentLive';
 import { useRepository } from './hooks/useRepository';
 import { getPreference, usePreference } from './preferences';
-import { checkForAppUpdate } from './services/updateService';
+import { checkForAppUpdate, CURRENT_VERSION } from './services/updateService';
 import { toast } from './utils/toast';
 
 /** The one open dialog, if any. */
@@ -113,7 +116,8 @@ type Dialog =
   | { kind: 'fleet'; tab?: 'spawn' }
   | { kind: 'inbox' }
   | { kind: 'agent-run'; agentId: string }
-  | { kind: 'agent-lens'; agentId: string };
+  | { kind: 'agent-lens'; agentId: string }
+  | { kind: 'local-action'; action: LocalAction };
 
 const folderName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
 /** The fleet while the first agent snapshot is still loading. */
@@ -136,6 +140,7 @@ export const App: React.FC = () => {
   const [tabs, setTabs] = usePreference('openTabs');
   const [recent, setRecent] = usePreference('recentRepos');
   const [repo, setRepo] = useState(() => getPreference('openTabs')[0]?.path ?? '');
+  const commitDrafts = useRef<Record<string, CommitDraft>>({});
   const repository = useRepository(repo);
   const { state: repoState, statuses, run } = repository;
 
@@ -210,6 +215,8 @@ export const App: React.FC = () => {
   const [laneMode, setLaneMode] = usePreference('laneMode');
   const [railOpen, setRailOpen] = usePreference('agentRailOpen');
   const [assistantOpen, setAssistantOpen] = usePreference('assistantOpen');
+  const [localActions] = usePreference('localActions');
+  const [dataPacks] = usePreference('dataPacks');
   const [diffWorkspace, setDiffWorkspace] = useState<'working' | 'commit' | null>(null);
   const windowWidth = useWindowWidth();
 
@@ -569,7 +576,8 @@ export const App: React.FC = () => {
 
   // --- Commands ------------------------------------------------------------------
   const hasRepo = Boolean(repoState);
-  const commands: Command[] = [
+  const [shortcutOverrides] = usePreference('shortcutOverrides');
+  const defaultCommands: Command[] = [
     { id: 'repositories', title: 'Open repository…', category: 'Repository', icon: FolderOpen, shortcut: 'Mod+L', run: () => setDialog({ kind: 'repositories' }) },
     { id: 'new-tab', title: 'Open repository in a new tab…', category: 'Repository', icon: FolderOpen, shortcut: 'Mod+T', run: () => setDialog({ kind: 'repositories' }) },
     { id: 'close-tab', title: 'Close tab', category: 'Repository', shortcut: 'Mod+W', enabled: hasRepo, run: () => closeTab(repo) },
@@ -617,7 +625,10 @@ export const App: React.FC = () => {
     { id: 'palette', title: 'Command palette', category: 'Gitter', icon: Search, shortcut: 'Mod+P', run: () => setDialog({ kind: 'palette' }) },
     { id: 'settings', title: 'Settings', category: 'Gitter', icon: Settings, shortcut: 'Mod+,', run: () => setDialog({ kind: 'settings' }) },
     { id: 'check-updates', title: 'Check for updates', category: 'Gitter', icon: DownloadCloud, run: () => setDialog({ kind: 'update' }) },
+    ...localActions.filter((action) => action.enabled && action.name.trim() && action.executable.trim()).map((action): Command => ({ id: `local-${action.id}`, title: action.name, category: 'Tools', icon: Workflow, enabled: hasRepo, run: () => setDialog({ kind: 'local-action', action }) })),
   ];
+  const packDefaults = packCommands(defaultCommands, dataPacks, shortcutOverrides, isMac, CURRENT_VERSION);
+  const commands = applyShortcutOverrides(packDefaults, shortcutOverrides);
   useShortcuts(commands);
 
   // --- Rendering -----------------------------------------------------------------
@@ -856,6 +867,9 @@ export const App: React.FC = () => {
                     </div>
                     <CommitBox
                       key={repo}
+                      repo={repo}
+                      initialDraft={commitDrafts.current[repo]}
+                      onDraftChange={(draft) => { commitDrafts.current[repo] = draft; }}
                       stagedCount={repoState?.stagedCount ?? 0}
                       currentBranch={repoState?.currentBranch}
                       lastCommit={repository.commits.find((c) => c.refs.some((r) => r === 'HEAD' || r.startsWith('HEAD ->'))) ?? null}
@@ -907,13 +921,15 @@ export const App: React.FC = () => {
           />
         );
       case 'settings':
-        return <SettingsModal repo={repo} initialTab={dialog.tab} onClose={close} onCheckForUpdates={() => setDialog({ kind: 'update' })} onCloneRepository={(url) => setDialog({ kind: 'repositories', tab: 'clone', cloneUrl: url })} onCreateGitHub={() => setDialog({ kind: 'repositories', tab: 'create', githubCreate: true })} />;
+        return <SettingsModal repo={repo} initialTab={dialog.tab} onClose={close} onCheckForUpdates={() => setDialog({ kind: 'update' })} onCloneRepository={(url) => setDialog({ kind: 'repositories', tab: 'clone', cloneUrl: url })} onCreateGitHub={() => setDialog({ kind: 'repositories', tab: 'create', githubCreate: true })} commands={packDefaults} onRunLocalAction={(action) => setDialog({ kind: 'local-action', action })} />;
+      case 'local-action':
+        return <LocalActionModal repo={repo} action={dialog.action} branch={repoState?.currentBranch ?? ''} file={selectedFile?.path} onClose={close} />;
       case 'open-in':
         return <OpenInModal repo={dialog.path} onClose={close} onConfigure={() => setDialog({ kind: 'settings', tab: 'open-in' })} />;
       case 'update':
         return <UpdateModal initial={update} onClose={close} />;
       case 'create-branch':
-        return <CreateBranchModal startPoint={dialog.startPoint} onClose={close} onCreate={(name, start, checkout) => actions.createBranch(name, start, checkout).then(() => undefined)} />;
+        return <CreateBranchModal repo={repo} startPoint={dialog.startPoint} onClose={close} onCreate={(name, start, checkout) => actions.createBranch(name, start, checkout).then(() => undefined)} />;
       case 'stash':
         return <StashModal files={statuses} onClose={close} onSave={(options) => actions.saveStash(options).then(() => undefined)} />;
       case 'stash-inspector':

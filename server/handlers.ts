@@ -22,6 +22,8 @@ import { settingsHandlers } from './settings';
 import { stashHandlers } from './stash';
 import { virtualBranchHandlers } from './virtualBranches';
 import { worktreeHandlers } from './worktrees';
+import { templateHandlers } from './templates';
+import { localActionHandlers } from './localActions';
 
 export interface Host {
   /** Runs once an update installer has started; the desktop backend exits so its file can be replaced. */
@@ -60,6 +62,8 @@ export function createHandlers(host: Host) {
     stashHandlers,
     worktreeHandlers,
     settingsHandlers,
+    templateHandlers,
+    localActionHandlers,
     virtualBranchHandlers,
     agentHandlers,
     consoleHandlers,

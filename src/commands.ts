@@ -3,11 +3,12 @@
 // or drift from what the palette offers.
 import { useEffect, useRef } from 'react';
 import type { LucideIcon } from 'lucide-react';
+import { shortcutMatches, type ShortcutOverrides } from './shortcutKeys';
 
 export interface Command {
   id: string;
   title: string;
-  category: 'Repository' | 'Changes' | 'Branches' | 'View' | 'Agents' | 'Gitter';
+  category: 'Repository' | 'Changes' | 'Branches' | 'View' | 'Agents' | 'Gitter' | 'Tools';
   icon?: LucideIcon;
   /** Like "Mod+Shift+K"; Mod is Ctrl, or Cmd on macOS. */
   shortcut?: string;
@@ -18,7 +19,7 @@ export interface Command {
   run: () => void;
 }
 
-const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
+export const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
 
 export function shortcutLabel(shortcut: string): string {
   return shortcut
@@ -27,19 +28,10 @@ export function shortcutLabel(shortcut: string): string {
     .join(isMac ? '' : '+');
 }
 
-// "Ctrl" means the Control key on every platform (Ctrl+Tab); "Mod" is Cmd on macOS.
-function matches(e: KeyboardEvent, shortcut: string): boolean {
-  const parts = shortcut.split('+');
-  const key = parts[parts.length - 1].toLowerCase();
-  const wantCtrl = parts.includes('Ctrl') || (!isMac && parts.includes('Mod'));
-  const wantMeta = isMac && parts.includes('Mod');
-  return (
-    e.ctrlKey === wantCtrl &&
-    e.metaKey === wantMeta &&
-    e.shiftKey === parts.includes('Shift') &&
-    e.altKey === parts.includes('Alt') &&
-    e.key.toLowerCase() === key
-  );
+export function applyShortcutOverrides(commands: Command[], overrides: ShortcutOverrides): Command[] {
+  return commands.map((command) => Object.hasOwn(overrides, command.id)
+    ? { ...command, shortcut: overrides[command.id] ?? undefined, notInTextFields: true }
+    : command);
 }
 
 const inTextField = (target: EventTarget | null) =>
@@ -55,7 +47,7 @@ export function useShortcuts(commands: Command[]): void {
       if (e.repeat) return;
       // An open dialog owns the keyboard, except for its own Escape handling.
       if (document.querySelector('[role="dialog"]')) return;
-      const command = latest.current.find((c) => c.shortcut && c.enabled !== false && matches(e, c.shortcut));
+      const command = latest.current.find((c) => c.shortcut && c.enabled !== false && shortcutMatches(e, c.shortcut, isMac));
       if (!command || (command.notInTextFields && inTextField(e.target))) return;
       e.preventDefault();
       command.run();

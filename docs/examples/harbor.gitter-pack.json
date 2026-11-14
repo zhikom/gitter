@@ -1,0 +1,31 @@
+{
+  "format": "gitter-pack",
+  "schemaVersion": 1,
+  "id": "gitter.harbor",
+  "name": "Harbor",
+  "version": "1.0.0",
+  "author": "Gitter",
+  "minGitterVersion": "1.11.0",
+  "contributions": {
+    "theme": {
+      "base": "codex",
+      "colors": {
+        "theme-base": "#192b3b",
+        "theme-surface": "#21394c",
+        "theme-raised": "#2a475d",
+        "theme-border": "#46657a",
+        "slate-200": "#e6f0fa",
+        "slate-400": "#b7cad9",
+        "graph-bg": "#192b3b",
+        "graph-accent": "#8fd3e8"
+      }
+    },
+    "keymap": {
+      "toggle-sidebar": "Mod+Alt+B"
+    },
+    "templates": {
+      "commit": "chore: {branch}\n\nContext: {repository}",
+      "pullRequest": "## Summary\n\n## Testing\n\nBranch: {branch} → {base}"
+    }
+  }
+}

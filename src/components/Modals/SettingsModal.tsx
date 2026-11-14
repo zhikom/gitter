@@ -3,7 +3,7 @@
 // per-repo store), and the AI provider (the per-user config file; the key is
 // never sent back to the UI).
 import React, { useEffect, useState } from 'react';
-import { Bot, Download, FolderGit2, Globe, Info, KeyRound, Search, Settings as SettingsIcon, SlidersHorizontal } from 'lucide-react';
+import { Bot, Download, FileText, FolderGit2, Globe, Info, Keyboard, KeyRound, Package, PanelTop, Search, Settings as SettingsIcon, SlidersHorizontal, Terminal } from 'lucide-react';
 import { AI_PROVIDERS, type AiProvider } from '../../../shared/aiProviders';
 import { api, pickFolder } from '../../api/client';
 import { desktopApi, type SshPublicKey } from '../../api/desktop';
@@ -18,6 +18,15 @@ import { OpenInSettings } from './OpenInSettings';
 import { FontSettings } from './FontSettings';
 import { PreferenceReset, SettingAnchor } from './PreferenceReset';
 import { SettingsSharing } from './SettingsSharing';
+import { KeymapSettings } from './KeymapSettings';
+import { LayoutSettings } from './LayoutSettings';
+import { ToolbarSettings } from './ToolbarSettings';
+import { TemplateSettings } from './TemplateSettings';
+import { LocalActionsSettings } from './LocalActionsSettings';
+import { PackSettings } from './PackSettings';
+import type { Command } from '../../commands';
+import type { LocalAction } from '../../../shared/types/localAction';
+import { compatiblePack } from '../../dataPacks';
 
 type Tab = SettingsTab;
 type RepoSettings = Awaited<ReturnType<typeof api.repoSettings>>['settings'];
@@ -29,9 +38,11 @@ interface SettingsModalProps {
   onCheckForUpdates: () => void;
   onCloneRepository: (url: string) => void;
   onCreateGitHub: () => void;
+  commands: Command[];
+  onRunLocalAction: (action: LocalAction) => void;
 }
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab = 'general', onClose, onCheckForUpdates, onCloneRepository, onCreateGitHub }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab = 'general', onClose, onCheckForUpdates, onCloneRepository, onCreateGitHub, commands, onRunLocalAction }) => {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [search, setSearch] = useState('');
   const results = searchSettings(search, Boolean(repo));
@@ -51,6 +62,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab =
     { id: 'integrations', label: 'Integrations', icon: <Globe className="w-3.5 h-3.5" /> },
     { id: 'open-in', label: 'Open in', icon: <FolderGit2 className="w-3.5 h-3.5" /> },
     { id: 'ai', label: 'AI', icon: <Bot className="w-3.5 h-3.5" /> },
+    { id: 'keymap', label: 'Keyboard shortcuts', icon: <Keyboard className="w-3.5 h-3.5" /> },
+    { id: 'layouts', label: 'Panel layouts', icon: <PanelTop className="w-3.5 h-3.5" /> },
+    { id: 'toolbar', label: 'Toolbar actions', icon: <SlidersHorizontal className="w-3.5 h-3.5" /> },
+    { id: 'templates', label: 'Templates', icon: <FileText className="w-3.5 h-3.5" /> },
+    { id: 'local-actions', label: 'Local actions', icon: <Terminal className="w-3.5 h-3.5" /> },
+    { id: 'packs', label: 'Extension packs', icon: <Package className="w-3.5 h-3.5" /> },
     { id: 'sharing', label: 'Settings backup', icon: <Download className="w-3.5 h-3.5" /> },
     { id: 'about', label: 'About', icon: <Info className="w-3.5 h-3.5" /> },
   ];
@@ -58,7 +75,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab =
   return (
     <Modal width="lg" tall icon={<SettingsIcon className="w-4 h-4" />} title="Settings" onClose={onClose}>
       <div className="flex-1 min-h-0 flex">
-        <nav aria-label="Settings sections" className="w-44 flex-shrink-0 border-r border-[#2a3447] p-2 space-y-0.5 bg-[#171c26]">
+        <nav aria-label="Settings sections" className="w-44 flex-shrink-0 min-h-0 overflow-y-auto border-r border-[#2a3447] p-2 space-y-0.5 bg-[#171c26]">
           <div className="relative mb-3"><Search aria-hidden="true" className="absolute top-2 left-2 w-3.5 h-3.5 text-slate-500" /><input aria-label="Search settings" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search settings" className={`${inputClass} pl-7`} /></div>
           {tabs
             .filter((t) => !t.hidden)
@@ -80,12 +97,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab =
             {results.length === 0 && <p className="text-xs text-slate-500">No settings found. Try another search.</p>}
             {results.map((result) => <button type="button" key={`${result.tab}-${result.id}`} onClick={() => openResult(result)} className="block w-full text-left rounded border border-[#2a3447] px-3 py-2 hover:bg-[#202735] focus-visible:outline focus-visible:outline-teal-400"><span className="block text-xs text-slate-200">{result.label}</span><span className="block mt-1 text-[10px] text-slate-500">{result.detail}</span></button>)}
           </div> : <div id={`settings-tab-${tab}`} tabIndex={-1} className="outline-none">
+          {['general', 'open-in', 'keymap', 'layouts', 'toolbar', 'local-actions', 'packs', 'sharing'].includes(tab) && <p className="mb-4 text-[11px] text-slate-500">Applies to this Gitter installation.</p>}
           {tab === 'general' && <GeneralSettings />}
           {tab === 'repository' && repo && <RepositorySettings repo={repo} />}
           {tab === 'ssh' && <SshSettings />}
           {tab === 'integrations' && <IntegrationsPanel onCloneRepository={onCloneRepository} onCreateGitHub={onCreateGitHub} />}
           {tab === 'open-in' && <OpenInSettings />}
           {tab === 'ai' && <AiSettingsForm />}
+          {tab === 'keymap' && <KeymapSettings commands={commands} />}
+          {tab === 'layouts' && <LayoutSettings />}
+          {tab === 'toolbar' && <ToolbarSettings commands={commands} />}
+          {tab === 'templates' && <TemplateSettings repo={repo} />}
+          {tab === 'local-actions' && <LocalActionsSettings repo={repo} onRun={onRunLocalAction} />}
+          {tab === 'packs' && <PackSettings />}
           {tab === 'sharing' && <SettingsSharing />}
           {tab === 'about' && (
             <div className="space-y-3 text-xs text-slate-300">
@@ -105,7 +129,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab =
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <section className="mb-6">
-    <div className="flex items-center justify-between mb-3"><h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{title}</h3>{SETTINGS.some((setting) => setting.section === title) && <button type="button" onClick={() => SETTINGS.filter((setting) => setting.section === title).forEach((setting) => resetPreference(setting.key))} className="text-[10px] text-slate-400 hover:text-teal-300" aria-label={`Reset ${title} settings`}>Reset section</button>}</div>
+    <div className="flex items-center justify-between mb-3"><h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{title}</h3>{SETTINGS.some((setting) => setting.section === title) && <button type="button" onClick={() => { SETTINGS.filter((setting) => setting.section === title).forEach((setting) => resetPreference(setting.key)); if (title === 'Appearance') resetPreference('themePack'); }} className="text-[10px] text-slate-400 hover:text-teal-300" aria-label={`Reset ${title} settings`}>Reset section</button>}</div>
     <div className="space-y-3">{children}</div>
   </section>
 );
@@ -141,8 +165,10 @@ function Choice<K extends keyof Preferences>({ name, label, options }: { name: K
 const GeneralSettings: React.FC = () => (
   <>
     <Section title="Appearance">
-      <SettingAnchor name="theme"><div className="flex justify-between items-center mb-1"><span className="text-[11px] font-semibold text-slate-400">Theme</span><PreferenceReset name="theme" label="theme" /></div><ThemePicker /></SettingAnchor>
+      <SettingAnchor name="theme"><div className="flex justify-between items-center mb-1"><span className="text-[11px] font-semibold text-slate-400">Theme</span><ThemeReset /></div><ThemePicker /></SettingAnchor>
       <FontSettings />
+      <Choice name="interfaceTextScale" label="Interface text size" options={[[85, '85%'], [100, '100%'], [115, '115%'], [125, '125%']]} />
+      <p className="text-[10px] text-slate-500">Changes interface text independently of the code and diff size.</p>
     </Section>
     <Section title="Repositories">
       <SettingAnchor name="cloneFolder"><div className="flex justify-end"><PreferenceReset name="cloneFolder" label="default clone folder" /></div><RepositoryFolderSettings /></SettingAnchor>
@@ -170,22 +196,31 @@ const GeneralSettings: React.FC = () => (
   </>
 );
 
+const ThemeReset: React.FC = () => {
+  const [theme] = usePreference('theme');
+  const [themePack] = usePreference('themePack');
+  return <button type="button" disabled={theme === 'classic' && !themePack} onClick={() => { resetPreference('themePack'); resetPreference('theme'); }} aria-label="Reset theme" className="shrink-0 text-[10px] text-slate-400 hover:text-teal-300 disabled:opacity-30 disabled:cursor-default">Reset</button>;
+};
+
 const ThemePicker: React.FC = () => {
   const [theme, setTheme] = usePreference('theme');
+  const [themePack, setThemePack] = usePreference('themePack');
+  const [packs] = usePreference('dataPacks');
+  const selectedPack = packs.some((pack) => pack.enabled && pack.manifest.id === themePack && compatiblePack(pack.manifest, CURRENT_VERSION) && pack.manifest.contributions.theme);
   const choices: Array<{ id: Preferences['theme']; name: string; description: string; surface: string; panel: string; text: string; accent: string }> = [
     { id: 'classic', name: 'Gitter dark', description: 'The original look', surface: '#14181f', panel: '#202735', text: '#e2e8f0', accent: '#14b8a6' },
     { id: 'codex', name: 'Codex', description: 'Neutral dark', surface: '#1c1c1c', panel: '#303030', text: '#f1f1ef', accent: '#8baee8' },
     { id: 'claude', name: 'Claude', description: 'Warm light', surface: '#faf9f5', panel: '#e8e4da', text: '#2b2722', accent: '#a44a2d' },
   ];
-  return <div role="group" aria-label="Theme" className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-    {choices.map((choice) => <button key={choice.id} type="button" aria-pressed={theme === choice.id} onClick={() => setTheme(choice.id)} className={`rounded-lg border p-2 text-left transition ${theme === choice.id ? 'border-teal-500 ring-1 ring-teal-500/40' : 'border-[#2a3447] hover:border-teal-500/50'}`}>
+  return <><div role="group" aria-label="Theme" className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+    {choices.map((choice) => <button key={choice.id} type="button" aria-pressed={!selectedPack && theme === choice.id} onClick={() => { setThemePack(''); setTheme(choice.id); }} className={`rounded-lg border p-2 text-left transition ${!selectedPack && theme === choice.id ? 'border-teal-500 ring-1 ring-teal-500/40' : 'border-[#2a3447] hover:border-teal-500/50'}`}>
       <div aria-hidden="true" className="h-12 rounded flex overflow-hidden border border-black/10" style={{ background: choice.surface, color: choice.text }}>
         <div className="w-1/3 p-1.5" style={{ background: choice.panel }}><div className="w-full h-1 rounded" style={{ background: choice.accent }} /><div className="w-3/4 h-1 rounded mt-1 opacity-40" style={{ background: choice.text }} /></div>
         <div className="p-1.5 flex-1"><div className="text-[10px] leading-3" style={{ fontFamily: choice.id === 'claude' ? 'Georgia, serif' : 'system-ui, sans-serif' }}>Aa</div><div className="w-3/4 h-1 rounded mt-1 opacity-25" style={{ background: choice.text }} /></div>
       </div>
       <span className="block mt-2 text-xs font-semibold text-slate-200">{choice.name}</span><span className="block text-[10px] text-slate-500">{choice.description}</span>
     </button>)}
-  </div>;
+  </div><button type="button" aria-pressed={!selectedPack && theme === 'system'} onClick={() => { setThemePack(''); setTheme('system'); }} className={`mt-2 px-3 py-1.5 rounded border text-xs ${!selectedPack && theme === 'system' ? 'border-teal-500 text-teal-200' : 'border-[#2a3447] text-slate-300 hover:border-teal-500/50'}`}>Follow system appearance</button><p className="text-[10px] text-slate-500 mt-1">Uses Gitter dark for dark mode and Claude for light mode.</p></>;
 };
 
 const RepositoryFolderSettings: React.FC = () => {
@@ -345,7 +380,7 @@ const RepositorySettings: React.FC<{ repo: string }> = ({ repo }) => {
 
   return (
     <>
-      <p className="mb-4 text-[11px] text-slate-500">Stored in this repository's .git/config, so git on the command line uses them too. Empty fields use your global git settings.</p>
+      <p className="mb-4 text-[11px] text-slate-500">Identity, behavior, and signing use Git configuration, which command-line Git also reads. The diff tool is stored in Gitter's local repository data. Linked worktrees share repository data, but Git can also have per-worktree overrides. Empty Git fields inherit other configured values.</p>
       <Section title="Identity">
         <Field label="Name">
           <input value={settings.userName} onChange={(e) => set('userName', e.target.value)} placeholder={inherited.userName || 'Not set'} className={inputClass} />

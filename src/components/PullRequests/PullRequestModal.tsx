@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ArrowRight, ExternalLink, GitBranch, GitPullRequest, Sparkles } from 'lucide-react';
 import type { PullRequest } from '../../../shared/types/git';
 import { api } from '../../api/client';
@@ -7,6 +7,7 @@ import type { BitbucketTarget } from '../../utils/bitbucketRemote';
 import { toast } from '../../utils/toast';
 import { Button, Field, inputClass, Modal } from '../ui/Modal';
 import { PullRequestReview } from './PullRequestReview';
+import { templateDraft } from '../../templateDraft';
 
 const openInBrowser = (url: string) => api.openUrl({ url }).catch(() => window.open(url, '_blank'));
 
@@ -98,6 +99,9 @@ export const CreatePullRequestModal: React.FC<CreateProps> = ({ repo, head, defa
   const [draft, setDraft] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [templateBusy, setTemplateBusy] = useState(false);
+  const latestBody = useRef(body); latestBody.current = body;
+  const latestBase = useRef(base); latestBase.current = base;
 
   // The description comes from the branch's own commits and the files they change.
   const describe = async () => {
@@ -151,6 +155,13 @@ export const CreatePullRequestModal: React.FC<CreateProps> = ({ repo, head, defa
         <Field label="Title">
           <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} className={inputClass} />
         </Field>
+        <Button type="button" disabled={Boolean(body.trim())} busy={templateBusy} onClick={async () => {
+          const requestedBase = base;
+          setTemplateBusy(true);
+          try { const template = await templateDraft(repo, 'pullRequest', head, requestedBase); if (!latestBody.current.trim() && latestBase.current === requestedBase) { setBody(template.text); toast.success(`Inserted template from ${template.source}.`); } }
+          catch (error) { toast.error((error as Error).message); }
+          finally { setTemplateBusy(false); }
+        }}>Use template</Button>
         <Field label="Description (Markdown)">
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={10} className={`${inputClass} font-mono resize-y`} />
         </Field>

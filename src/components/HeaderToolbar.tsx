@@ -7,6 +7,7 @@ import type { UpdateInfo } from '../../shared/types/update';
 import { type Command, shortcutLabel } from '../commands';
 import { AttentionBell } from './Agent/AttentionBell';
 import type { AttentionItem } from './Agent/agentUi';
+import { usePreference } from '../preferences';
 
 interface HeaderToolbarProps {
   commands: Command[];
@@ -28,6 +29,11 @@ const plain = `${base} bg-[#202735] hover:bg-[#2d384c] border border-[#2a3447] t
 const icon = 'p-1.5 rounded transition text-slate-400 hover:text-slate-100 hover:bg-[#202735] disabled:opacity-40';
 
 const tooltip = (c: Command) => (c.shortcut ? `${c.title} (${shortcutLabel(c.shortcut)})` : c.title);
+const toolbarLabels: Record<string, string> = {
+  'new-branch': 'Branch', stash: 'Stash', 'pop-stash': 'Pop', undo: 'Undo', fetch: 'Fetch', reflog: 'Reflog',
+  worktrees: 'Worktrees', gitflow: 'Gitflow', 'pull-request': 'PR', lanes: 'Lanes', reveal: 'Reveal',
+  'open-in': 'Open in', 'history-search': 'History', 'stage-all': 'Stage all',
+};
 
 /** A small dropdown that closes on outside click and Escape. */
 const Menu: React.FC<{ button: (toggle: () => void, open: boolean) => React.ReactNode; children: React.ReactNode; align?: 'left' | 'right' }> = ({ button, children, align = 'left' }) => {
@@ -75,6 +81,7 @@ const MenuItem: React.FC<{ command: Command | undefined }> = ({ command }) => {
 };
 
 export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({ commands, repoState, busy, open, agents, attention, acknowledged, onAcknowledge, onAcknowledgeAll, onSelectAttention, update }) => {
+  const [toolbarActions] = usePreference('toolbarActions');
   const byId = new Map(commands.map((c) => [c.id, c]));
   const cmd = (id: string) => byId.get(id);
 
@@ -89,7 +96,7 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({ commands, repoStat
     return (
       <button onClick={c.run} disabled={c.enabled === false || (busy && c.category === 'Repository')} title={tooltip(c)} aria-label={c.title} aria-pressed={pressed} className={className}>
         {Icon && <Icon className="w-3.5 h-3.5" />}
-        {label && <span className="hidden lg:inline">{label}</span>}
+        {label && <span className={Icon ? 'toolbar-action-label hidden lg:inline' : undefined}>{label}</span>}
       </button>
     );
   };
@@ -136,12 +143,7 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({ commands, repoStat
 
       {repoState && (
         <div className="flex items-center gap-1 flex-shrink-0">
-          {splitAction({ main: 'pull', label: 'Pull', more: ['pull', 'pull-rebase', 'fetch'] })}
-          {splitAction({ main: 'push', label: 'Push', more: ['push', 'push-force'] })}
-          {action({ id: 'new-branch', label: 'Branch' })}
-          {action({ id: 'stash', label: 'Stash' })}
-          {action({ id: 'pop-stash', label: 'Pop' })}
-          {action({ id: 'undo', label: 'Undo' })}
+          {toolbarActions.map((id) => <React.Fragment key={id}>{id === 'pull' ? splitAction({ main: 'pull', label: 'Pull', more: ['pull', 'pull-rebase', 'fetch'] }) : id === 'push' ? splitAction({ main: 'push', label: 'Push', more: ['push', 'push-force'] }) : action({ id, label: toolbarLabels[id] ?? cmd(id)?.title })}</React.Fragment>)}
           <Menu
             align="right"
             button={(toggle) => (

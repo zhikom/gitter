@@ -28,4 +28,17 @@ const themeSurfaces = () => ({
   },
 });
 
-export default { plugins: [tailwindcss(), themeSurfaces(), autoprefixer()] };
+// Scale interface text utilities, including arbitrary px sizes. Code views set
+// their own inline font size and line height and therefore remain independent.
+const interfaceTextScale = () => ({
+  postcssPlugin: 'gitter-interface-text-scale',
+  Rule(rule) {
+    const size = rule.nodes?.find((decl) => decl.type === 'decl' && decl.prop === 'font-size');
+    if (!size || !/^\d*\.?\d+(?:px|rem)$/.test(size.value)) return;
+    size.value = `calc(${size.value} * var(--ui-text-scale, 1))`;
+    const lineHeight = rule.nodes?.find((decl) => decl.type === 'decl' && decl.prop === 'line-height');
+    if (lineHeight && /^\d*\.?\d+(?:px|rem)$/.test(lineHeight.value)) lineHeight.value = `calc(${lineHeight.value} * var(--ui-text-scale, 1))`;
+  },
+});
+
+export default { plugins: [tailwindcss(), themeSurfaces(), interfaceTextScale(), autoprefixer()] };

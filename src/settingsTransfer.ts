@@ -47,6 +47,7 @@ export function applySettingsBackup(backup: SettingsBackup, sections: readonly S
     if (!item.valid(value)) throw new Error(`The setting “${item.key}” has an invalid value.`);
     entries.push([item.key, value as Preferences[keyof Preferences]]);
   }
+  if (entries.some(([key]) => key === 'theme')) entries.push(['themePack', '']);
   if (entries.length) setPreferencesBatch(entries);
-  return entries.length;
+  return entries.filter(([key]) => key !== 'themePack').length;
 }

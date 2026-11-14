@@ -79,6 +79,11 @@ body {
 
 pre, code, kbd, samp { font-family: var(--font-code); }
 
+/* Keep the main controls reachable when enlarged labels meet a narrow window. */
+@media (max-width: 1450px) {
+  :root[data-ui-text-scale='125'] .toolbar-action-label { display: none; }
+}
+
 /* Selection and focus */
 ::selection {
   background: rgb(var(--teal-500, 20 184 166) / .3);

@@ -2,6 +2,44 @@
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-11-14
+
+### Appearance
+
+- Follow the system's light or dark appearance and adjust interface text size
+  independently of code and diff text. Large-text layouts keep toolbar actions
+  reachable on narrower windows.
+
+### Workspace
+
+- Remap app-level keyboard shortcuts with conflict and reserved-key checks.
+  Custom shortcuts do not run in text fields or dialogs.
+- Choose and order up to six toolbar actions and save named panel layouts.
+  Layouts preserve repository tabs and commit drafts.
+
+### Templates and local actions
+
+- Configure personal and repository templates for commits, branch names, and
+  pull request descriptions. Insert templates into empty drafts, with Git's
+  configured commit template as a fallback. Commit drafts survive repository
+  tab switches during the session.
+- Configure explicitly launched local actions with separate arguments, a
+  working directory, timeout, output, and cancellation. Actions run with your
+  operating-system permissions; cancellation targets the launched process.
+
+### Extension packs
+
+- Preview and import data-only packs for constrained theme colors, safe view
+  shortcuts, and literal templates. Enable, disable, and remove packs without
+  replacing personal settings; common low-contrast combinations are flagged.
+  Executable plugins are not supported.
+
+### Downloads
+
+- Windows x64 and macOS ARM64 (Apple Silicon) installers are available. The
+  Windows installer is unsigned; the Mac app is ad-hoc signed but not
+  notarized, so the operating system may show a security warning.
+
 ## [1.10.0] - 2026-11-14
 
 ### Settings and appearance

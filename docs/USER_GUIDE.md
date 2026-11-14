@@ -168,6 +168,10 @@ sections, and apply them. Backups omit repository paths, recent repositories,
 accounts, tokens, and Open in commands. Repository Git settings and integration
 credentials stay on the original machine.
 
+Choose **Follow system appearance** to use Gitter dark in dark mode and Claude
+in light mode. **Interface text size** scales interface text independently of
+the code size; it does not scale every icon or window dimension.
+
 The **Anthropic Sans** option uses the font from a local Claude Desktop
 installation on macOS when available, or a matching system-installed family.
 Gitter does not include the font in its installers. If it cannot be found, the
@@ -180,6 +184,57 @@ Use **Open in…** in the toolbar or a repository tab's context menu to open the
 repository in an editor, coding app, or terminal. In **Settings → Open in**,
 enable, reorder, configure, or add applications. For custom commands, put one
 argument on each line and use `{path}` where the repository folder belongs.
+
+## Customize the workspace
+
+In **Settings → Keyboard shortcuts**, search for an action, choose **Record**,
+and press the new combination. Gitter rejects conflicts and reserved keys;
+custom shortcuts do not run in text fields or while a dialog is open. Clear or
+reset an individual assignment from the same list.
+
+In **Settings → Toolbar actions**, choose and order up to six repository
+actions. In **Settings → Panel layouts**, save the current panel widths and
+visibility under a name, then apply, update, or remove that layout. Layouts are
+local to this installation and do not contain repository tabs or commit drafts.
+
+## Templates and local actions
+
+In **Settings → Templates**, enter personal or repository-specific commit,
+branch-name, and pull-request-description templates. Repository templates are
+stored in Gitter's local repository data, shared by linked worktrees. A template
+can use the literal placeholders `{branch}`, `{base}`, `{repository}`, and
+`{date}`; unknown placeholders remain visible. Choose **Template** or **Use
+template** in an empty draft to insert it. Existing text and amend messages are
+not replaced automatically. For commit messages, Gitter falls back to Git's
+configured `commit.template` if no Gitter or enabled-pack template is set.
+Bitbucket Data Center's server-side description template is not fetched.
+
+In **Settings → Local actions**, configure an executable, one argument per
+line, an optional absolute working directory, and a timeout. `{path}`,
+`{branch}`, and `{file}` can be used in an executable, argument, or directory;
+`{file}` requires a selected file. Launch an action from Settings or the command
+palette, review the exact executable and arguments, and choose **Run action**.
+Gitter shows bounded output and the exit status. Cancellation targets the
+launched process; child processes may continue. Actions run with your operating
+system permissions and can access your files and network. Gitter omits inherited
+credential-related environment variables, but actions are not sandboxed.
+Windows batch files are not supported as executables.
+
+## Data-only extension packs
+
+In **Settings → Extension packs**, choose a pack file or paste its JSON and
+preview the contributions before importing it. Imports start disabled. Enable
+the pack and, if it contains a theme, choose **Use theme**; disabling or removing
+it restores the underlying preferences. Personal shortcuts and templates take
+precedence, and conflicting pack shortcuts are skipped.
+
+Packs are limited to validated theme colors, safe view shortcuts, and literal
+templates. They cannot run code or commands, inject CSS or HTML, or fetch network
+resources. Gitter checks a few common text/background pairs for low contrast;
+other color combinations still require review. Pack compatibility is limited to
+the declared minimum Gitter version and the same major version. The
+[Harbor example](examples/harbor.gitter-pack.json) shows the format. Executable
+third-party plugins are not supported.
 
 ## Shortcuts and recovery
 

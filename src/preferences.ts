@@ -5,6 +5,12 @@
 import { useCallback, useSyncExternalStore } from 'react';
 import { DEFAULT_OPEN_IN_APPS, type OpenInApp, type OpenInKind } from '../shared/types/openIn';
 import { normalizeFontName } from '../shared/fonts';
+import { normalizeShortcut, reservedShortcut, type ShortcutOverrides } from './shortcutKeys';
+import { normalizeLayouts, type PanelLayout } from '../shared/types/layout';
+import { DEFAULT_TOOLBAR_ACTIONS, normalizeToolbarActions, type ToolbarAction } from '../shared/types/toolbar';
+import { EMPTY_TEMPLATES, normalizeTemplates, type TemplateSet } from '../shared/templates';
+import { normalizeLocalActions, type LocalAction } from '../shared/types/localAction';
+import { normalizeInstalledPacks, type InstalledPack } from './dataPacks';
 
 export interface RepoTab {
   path: string;
@@ -14,8 +20,9 @@ export interface RepoTab {
 }
 
 export interface Preferences {
-  theme: 'classic' | 'codex' | 'claude';
+  theme: 'classic' | 'codex' | 'claude' | 'system';
   interfaceFont: string;
+  interfaceTextScale: number;
   codeFont: string;
   // Diffs
   diffView: 'unified' | 'split';
@@ -41,6 +48,13 @@ export interface Preferences {
   laneMode: boolean;
   agentRailOpen: boolean;
   assistantOpen: boolean;
+  shortcutOverrides: ShortcutOverrides;
+  panelLayouts: PanelLayout[];
+  toolbarActions: ToolbarAction[];
+  personalTemplates: TemplateSet;
+  localActions: LocalAction[];
+  dataPacks: InstalledPack[];
+  themePack: string;
   // Repositories
   openTabs: RepoTab[];
   recentRepos: string[];
@@ -53,6 +67,7 @@ export interface Preferences {
 const DEFAULTS: Preferences = {
   theme: 'classic',
   interfaceFont: '',
+  interfaceTextScale: 100,
   codeFont: '',
   diffView: 'unified',
   diffFontSize: 12,
@@ -73,6 +88,13 @@ const DEFAULTS: Preferences = {
   laneMode: false,
   agentRailOpen: true,
   assistantOpen: false,
+  shortcutOverrides: {},
+  panelLayouts: [],
+  toolbarActions: DEFAULT_TOOLBAR_ACTIONS,
+  personalTemplates: EMPTY_TEMPLATES,
+  localActions: [],
+  dataPacks: [],
+  themePack: '',
   openTabs: [],
   recentRepos: [],
   scanFolder: '',
@@ -84,6 +106,7 @@ const DEFAULTS: Preferences = {
 const STORAGE_KEYS: Record<keyof Preferences, string> = {
   theme: 'gitter_theme',
   interfaceFont: 'gitter_interface_font',
+  interfaceTextScale: 'gitter_interface_text_scale',
   codeFont: 'gitter_code_font',
   diffView: 'gitter_diff_view',
   diffFontSize: 'gitter_diff_font_size',
@@ -105,6 +128,13 @@ const STORAGE_KEYS: Record<keyof Preferences, string> = {
   laneMode: 'gitter_vb_mode',
   agentRailOpen: 'gitter_agent_rail_open',
   assistantOpen: 'gitter_agent_open',
+  shortcutOverrides: 'gitter_shortcut_overrides',
+  panelLayouts: 'gitter_panel_layouts',
+  toolbarActions: 'gitter_toolbar_actions',
+  personalTemplates: 'gitter_personal_templates',
+  localActions: 'gitter_local_actions',
+  dataPacks: 'gitter_data_packs',
+  themePack: 'gitter_theme_pack',
   openTabs: 'gitter_open_repo_tabs',
   recentRepos: 'gitter_recent_repos',
   scanFolder: 'gitter_scan_parent_folder',
@@ -122,8 +152,9 @@ const strings = (v: unknown) => (Array.isArray(v) && v.every((s) => typeof s ===
 // Stored values are checked on the way in: a value of the wrong shape, written
 // by an earlier version or edited by hand, falls back to the default.
 const NORMALIZE: { [K in keyof Preferences]?: (value: unknown) => Preferences[K] | undefined } = {
-  theme: oneOf('classic', 'codex', 'claude'),
+  theme: oneOf('classic', 'codex', 'claude', 'system'),
   interfaceFont: normalizeFontName,
+  interfaceTextScale: (v) => (typeof v === 'number' && [85, 100, 115, 125].includes(v) ? v : undefined),
   codeFont: normalizeFontName,
   openInApps: (value) => {
     if (!Array.isArray(value)) return undefined;
@@ -134,6 +165,17 @@ const NORMALIZE: { [K in keyof Preferences]?: (value: unknown) => Preferences[K]
   diffView: oneOf('unified', 'split'),
   diffFontSize: (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 10 && v <= 24 ? v : undefined),
   codeLineHeight: (v) => (typeof v === 'number' && [1.2, 1.4, 1.625, 1.8].includes(v) ? v : undefined),
+  shortcutOverrides: (value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const mac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
+    return Object.fromEntries(Object.entries(value).filter(([id, shortcut]) => /^[a-z0-9-]{1,64}$/.test(id) && (shortcut === null || (typeof shortcut === 'string' && normalizeShortcut(shortcut) === shortcut && !reservedShortcut(shortcut, mac)))).slice(0, 200));
+  },
+  panelLayouts: normalizeLayouts,
+  toolbarActions: normalizeToolbarActions,
+  personalTemplates: normalizeTemplates,
+  localActions: normalizeLocalActions,
+  dataPacks: normalizeInstalledPacks,
+  themePack: (value) => typeof value === 'string' && (value === '' || /^[a-z0-9][a-z0-9.-]{1,63}$/.test(value)) ? value : undefined,
   graphDensity: oneOf('compact', 'normal', 'comfortable'),
   // Earlier versions kept objects ({ path, name, … }) per recent repository.
   recentRepos: (v) => (Array.isArray(v) ? v.map((r) => (typeof r === 'string' ? r : r?.path)).filter((p): p is string => typeof p === 'string') : undefined),

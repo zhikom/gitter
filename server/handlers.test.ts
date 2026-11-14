@@ -25,6 +25,14 @@ import { joinRepoFolder, repositoryNameFromUrl, repositoryParent } from '../src/
 import { defaultPreference, getPreference, resetPreference, setPreference } from '../src/preferences';
 import { searchSettings } from '../src/settingsCatalog';
 import { applySettingsBackup, exportSettings, parseSettingsBackup } from '../src/settingsTransfer';
+import { applyTheme, effectiveTheme } from '../src/theme';
+import { applyShortcutOverrides } from '../src/commands';
+import { normalizeShortcut, reservedShortcut, shortcutFromEvent, shortcutIdentity, shortcutMatches } from '../src/shortcutKeys';
+import { applyPanelLayout, capturePanelLayout } from '../src/layoutPreferences';
+import { normalizeLayouts } from '../shared/types/layout';
+import { DEFAULT_TOOLBAR_ACTIONS, normalizeToolbarActions } from '../shared/types/toolbar';
+import { EMPTY_TEMPLATES, expandTemplate } from '../shared/templates';
+import { compatiblePack, normalizeInstalledPacks, packCommands, packContrastProblems, packTemplate, parseDataPack } from '../src/dataPacks';
 
 const api = createHandlers({ onUpdateInstalling: () => {} });
 const temps: string[] = [];
@@ -921,11 +929,138 @@ describe('virtual branches', () => {
 });
 
 describe('settings', () => {
+  test('data packs reject code and commands, validate colors, and preserve personal choices', () => {
+    const raw = { format: 'gitter-pack', schemaVersion: 1, id: 'sample.theme', name: 'Sample', version: '1.0.0', author: 'Example', minGitterVersion: '1.10.0', contributions: { theme: { base: 'codex', colors: { 'theme-base': '#202020', 'slate-200': '#eeeeee' } }, keymap: { 'toggle-sidebar': 'Mod+Shift+Y' }, templates: { commit: 'feat: {branch}' } } };
+    const pack = parseDataPack(JSON.stringify(raw));
+    assert.equal(packContrastProblems(pack).length, 0);
+    const lowContrast = parseDataPack(JSON.stringify({ ...raw, contributions: { theme: { base: 'codex', colors: { 'theme-base': '#aaaaaa', 'slate-200': '#aaaaaa' } } } }));
+    assert.ok(packContrastProblems(lowContrast).some((issue) => issue.includes('1.0:1')));
+    assert.equal(compatiblePack(pack, '1.10.0'), true);
+    assert.equal(compatiblePack(pack, '1.9.0'), false);
+    assert.equal(compatiblePack(pack, '2.0.0'), false);
+    for (const contributions of [
+      { commands: ['touch /tmp/bad'] },
+      { theme: { base: 'codex', colors: { 'theme-base': '#fff; background:url(https://bad)' } } },
+      { keymap: { 'push-force': 'Mod+Shift+Y' } },
+      { keymap: { 'toggle-sidebar': 'Mod+Q' } },
+      { templates: { commit: 'x'.repeat(16_001) } },
+    ]) assert.throws(() => parseDataPack(JSON.stringify({ ...raw, contributions })));
+    const installed = normalizeInstalledPacks([{ manifest: pack, enabled: true }, { manifest: { ...raw, script: 'bad' }, enabled: true }])!;
+    assert.equal(installed.length, 1);
+    assert.equal(packTemplate(installed, 'commit', '1.10.0')?.text, 'feat: {branch}');
+    const run = () => {};
+    const defaults = [{ id: 'toggle-sidebar', title: 'Sidebar', category: 'View' as const, shortcut: 'Mod+B', run }, { id: 'palette', title: 'Palette', category: 'Gitter' as const, shortcut: 'Mod+P', run }];
+    assert.equal(packCommands(defaults, installed, {}, true, '1.10.0')[0].shortcut, 'Mod+Shift+Y');
+    assert.equal(packCommands(defaults, installed, { 'toggle-sidebar': 'Mod+X' }, true, '1.10.0')[0].shortcut, 'Mod+B');
+    const properties = new Map<string, string>();
+    const root = { dataset: {}, style: { removeProperty: (key: string) => properties.delete(key), setProperty: (key: string, value: string) => properties.set(key, value) } } as unknown as HTMLElement;
+    applyTheme(root, 'classic', pack.id, installed, true, '1.10.0');
+    assert.equal(root.dataset.theme, 'codex');
+    assert.equal(properties.get('--theme-base'), '32 32 32');
+    applyTheme(root, 'classic', pack.id, [{ manifest: pack, enabled: false }], true, '1.10.0');
+    assert.equal(root.dataset.theme, 'classic');
+    assert.equal(properties.size, 0, 'disabling a theme pack restores the underlying theme');
+    const example = parseDataPack(fs.readFileSync(path.join(process.cwd(), 'docs/examples/harbor.gitter-pack.json'), 'utf8'));
+    assert.equal(compatiblePack(example, '1.11.0'), true);
+    assert.equal(packContrastProblems(example).length, 0);
+  });
+
+  test('local actions pass literal arguments, filter credential environment, and can be cancelled', async () => {
+    const repo = await newRepo();
+    const action = { id: 'test-action', name: 'Test', executable: process.execPath, args: ['-e', 'process.stdout.write(JSON.stringify([process.argv.slice(1), Boolean(process.env.GITTER_TEST_SECRET)]))', '{path}', '{branch}', 'literal & $(not-a-shell)'], workingDirectory: '', timeoutSeconds: 10, enabled: true };
+    const previous = process.env.GITTER_TEST_SECRET;
+    process.env.GITTER_TEST_SECRET = 'do-not-pass';
+    try {
+      const preview = await api.previewLocalAction({ repo, action, branch: 'feature/test' });
+      assert.equal(preview.cwd, repo);
+      assert.deepEqual(preview.args.slice(-3), [repo, 'feature/test', 'literal & $(not-a-shell)']);
+      const { id } = await api.startLocalAction({ repo, action, branch: 'feature/test' });
+      let result = await api.localActionStatus({ id });
+      for (let i = 0; i < 100 && result.state === 'running'; i++) { await new Promise((resolve) => setTimeout(resolve, 25)); result = await api.localActionStatus({ id }); }
+      assert.equal(result.state, 'succeeded');
+      assert.deepEqual(JSON.parse(result.stdout), [[repo, 'feature/test', 'literal & $(not-a-shell)'], false]);
+      await assert.rejects(api.previewLocalAction({ repo, action: { ...action, args: ['{file}'] }, branch: 'main' }), /Select a file/);
+      await assert.rejects(api.previewLocalAction({ repo, action, branch: 'main', file: '..' }), /inside the repository/);
+      const long = await api.startLocalAction({ repo, action: { ...action, args: ['-e', 'setInterval(() => {}, 1000)'] }, branch: 'main' });
+      await api.cancelLocalAction({ id: long.id });
+      let cancelled = await api.localActionStatus({ id: long.id });
+      for (let i = 0; i < 200 && cancelled.state === 'running'; i++) { await new Promise((resolve) => setTimeout(resolve, 25)); cancelled = await api.localActionStatus({ id: long.id }); }
+      assert.equal(cancelled.state, 'cancelled');
+    } finally {
+      if (previous === undefined) delete process.env.GITTER_TEST_SECRET;
+      else process.env.GITTER_TEST_SECRET = previous;
+    }
+  });
+
+  test('local actions bound output and stop a process after its timeout', async () => {
+    const repo = await newRepo();
+    const action = { id: 'output-test', name: 'Output', executable: process.execPath, args: ['-e', "process.stdout.write('x'.repeat(150000))"], workingDirectory: '', timeoutSeconds: 10, enabled: true };
+    const { id } = await api.startLocalAction({ repo, action, branch: 'main' });
+    let result = await api.localActionStatus({ id });
+    for (let i = 0; i < 200 && result.state === 'running'; i++) { await new Promise((resolve) => setTimeout(resolve, 25)); result = await api.localActionStatus({ id }); }
+    assert.equal(result.state, 'succeeded');
+    assert.equal(result.stdout.length, 128_000);
+    assert.equal(result.truncated, true);
+    const timed = await api.startLocalAction({ repo, action: { ...action, args: ['-e', 'setInterval(() => {}, 1000)'], timeoutSeconds: 1 }, branch: 'main' });
+    let stopped = await api.localActionStatus({ id: timed.id });
+    for (let i = 0; i < 240 && stopped.state === 'running'; i++) { await new Promise((resolve) => setTimeout(resolve, 25)); stopped = await api.localActionStatus({ id: timed.id }); }
+    assert.equal(stopped.state, 'timed_out');
+  });
+
+  test('repository and Git commit templates are read safely and remain separate', async () => {
+    const repo = await newRepo();
+    write(repo, 'commit-template.txt', '# explain the change\nfeat: {branch}\n\nRepository: {repository}\n');
+    await git(repo, ['config', 'commit.template', 'commit-template.txt']);
+    const before = await api.templates({ repo });
+    assert.equal(before.gitCommit.text, 'feat: {branch}\n\nRepository: {repository}\n');
+    assert.deepEqual(before.repository, EMPTY_TEMPLATES);
+    const templates = { ...EMPTY_TEMPLATES, commit: 'fix: {branch}', branch: 'feature/{branch}', pullRequest: 'Base: {base}\n{unknown}' };
+    await api.saveTemplates({ repo, templates });
+    assert.deepEqual((await api.templates({ repo })).repository, templates);
+    assert.equal(expandTemplate(templates.pullRequest, { branch: 'topic', base: 'main', repository: 'example', date: '2026-11-14' }), 'Base: main\n{unknown}');
+    await assert.rejects(api.saveTemplates({ repo, templates: { ...templates, commit: 'x'.repeat(16_001) } }), /at most/);
+    assert.deepEqual((await api.templates({ repo })).repository, templates, 'invalid updates do not change the saved templates');
+  });
+
   test('search finds settings and relevant pages without inventing a repository', () => {
     assert.ok(searchSettings('font anthropic', false).some((result) => result.id === 'interfaceFont'));
     assert.ok(searchSettings('bitbucket token', false).some((result) => result.id === 'integrations'));
     assert.equal(searchSettings('identity email', false).length, 0);
     assert.equal(searchSettings('identity email', true)[0].id, 'repository');
+  });
+
+  test('system appearance follows the operating system while explicit themes remain fixed', () => {
+    assert.equal(effectiveTheme('system', true), 'classic');
+    assert.equal(effectiveTheme('system', false), 'claude');
+    assert.equal(effectiveTheme('codex', false), 'codex');
+  });
+
+  test('shortcut overrides compare physical keys, reject reserved combinations, and preserve defaults', () => {
+    const event = { key: 'K', ctrlKey: false, metaKey: true, altKey: false, shiftKey: true };
+    assert.equal(shortcutFromEvent(event, true), 'Mod+Shift+K');
+    assert.equal(shortcutMatches(event, 'Mod+Shift+K', true), true);
+    assert.equal(shortcutMatches({ ...event, shiftKey: false }, 'Mod+Shift+K', true), false);
+    assert.equal(shortcutIdentity('Ctrl+K', false), shortcutIdentity('Mod+K', false));
+    assert.notEqual(shortcutIdentity('Ctrl+K', true), shortcutIdentity('Mod+K', true));
+    assert.equal(reservedShortcut('Mod+Enter', true), true);
+    assert.equal(reservedShortcut('Alt+F4', false), true);
+    assert.equal(normalizeShortcut('Ctrl+Ctrl+K'), undefined);
+    assert.equal(normalizeShortcut('A'), undefined);
+    const run = () => {};
+    const commands = [{ id: 'a', title: 'A', category: 'View' as const, shortcut: 'Mod+A', run }, { id: 'b', title: 'B', category: 'View' as const, shortcut: 'Mod+B', run }];
+    const updated = applyShortcutOverrides(commands, { a: 'Mod+Shift+K', b: null });
+    assert.equal(updated[0].shortcut, 'Mod+Shift+K');
+    assert.equal(updated[0].notInTextFields, true);
+    assert.equal(updated[1].shortcut, undefined);
+    assert.equal(commands[0].shortcut, 'Mod+A');
+  });
+
+  test('toolbar choices accept only unique supported actions within the visible limit', () => {
+    assert.deepEqual(normalizeToolbarActions(DEFAULT_TOOLBAR_ACTIONS), DEFAULT_TOOLBAR_ACTIONS);
+    assert.deepEqual(normalizeToolbarActions([]), []);
+    assert.equal(normalizeToolbarActions(['pull', 'pull']), undefined);
+    assert.equal(normalizeToolbarActions(['launch-arbitrary-command']), undefined);
+    assert.equal(normalizeToolbarActions([...DEFAULT_TOOLBAR_ACTIONS, 'reflog']), undefined);
   });
 
   test('settings backups validate before selectively applying and exclude machine-specific data', () => {
@@ -948,7 +1083,7 @@ describe('settings', () => {
       resetPreference('theme');
       resetPreference('wordWrap');
       assert.equal(getPreference('theme'), defaultPreference('theme'));
-      assert.equal(applySettingsBackup(parsed, ['Appearance']), 3);
+      assert.equal(applySettingsBackup(parsed, ['Appearance']), 4);
       assert.equal(getPreference('theme'), 'claude');
       assert.equal(getPreference('wordWrap'), true, 'unselected sections are left alone');
       assert.equal(getPreference('cloneFolder'), '/private/work/repos');
@@ -962,6 +1097,17 @@ describe('settings', () => {
       assert.throws(() => applySettingsBackup(rollback, ['Appearance', 'Diffs']), /No settings were imported/);
       assert.equal(getPreference('theme'), 'claude', 'a failed later write restores earlier settings');
       assert.equal(getPreference('wordWrap'), true);
+      setPreference('sidebarWidth', 330);
+      setPreference('sidebarOpen', false);
+      const layout = capturePanelLayout();
+      assert.equal(normalizeLayouts([{ id: 'saved-1', name: 'Focused', values: layout }])?.length, 1);
+      assert.equal(normalizeLayouts([{ id: 'saved-1', name: 'Broken', values: { ...layout, sidebarWidth: NaN } }]), undefined);
+      setPreference('sidebarWidth', 400);
+      setPreference('sidebarOpen', true);
+      applyPanelLayout(layout);
+      assert.equal(getPreference('sidebarWidth'), 330);
+      assert.equal(getPreference('sidebarOpen'), false);
+      assert.equal(getPreference('cloneFolder'), '/private/work/repos', 'applying a layout does not affect repository preferences');
     } finally {
       if (previous) Object.defineProperty(globalThis, 'localStorage', previous);
       else Reflect.deleteProperty(globalThis, 'localStorage');
