@@ -35,6 +35,8 @@ export const desktopApi = {
     desktop<BitbucketPage<BitbucketRepository>>('bitbucket_repositories', { id, start, search }),
   getBitbucketPullRequests: (id: string, project: string, slug: string, start: number) =>
     desktop<BitbucketPage<BitbucketPullRequest>>('bitbucket_pull_requests', { id, project, slug, start }),
+  getBitbucketPullRequestTemplate: (id: string, project: string, slug: string) =>
+    desktop<{ text: string; source: string } | null>('bitbucket_pull_request_template', { id, project, slug }),
   getBitbucketPullRequest: (id: string, project: string, slug: string, number: number) =>
     desktop<BitbucketPullRequest>('bitbucket_pull_request', { id, project, slug, number }),
   getBitbucketReview: (id: string, project: string, slug: string, number: number) =>

@@ -5,6 +5,7 @@ mod integrations;
 mod credential_store;
 mod git_core;
 mod ssh_native;
+mod native_menu;
 
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -68,6 +69,11 @@ async fn bitbucket_pull_requests(app: AppHandle, id: String, project: String, sl
 }
 
 #[tauri::command]
+async fn bitbucket_pull_request_template(app: AppHandle, id: String, project: String, slug: String) -> Result<Option<serde_json::Value>, String> {
+    integrations::bitbucket_pull_request_template(&integration_settings_path(&app)?, &id, &project, &slug).await
+}
+
+#[tauri::command]
 async fn bitbucket_pull_request(app: AppHandle, id: String, project: String, slug: String, number: u64) -> Result<serde_json::Value, String> {
     integrations::bitbucket_pull_request(&integration_settings_path(&app)?, &id, &project, &slug, number).await
 }
@@ -114,6 +120,30 @@ async fn native_git_request(operation: String, input: serde_json::Value) -> Resu
         .await.map_err(|error| error.to_string())?
 }
 
+#[tauri::command]
+fn set_window_title(window: tauri::WebviewWindow, title: String) -> Result<(), String> {
+    if window.label() != "main" || title.len() > 1024 || title.chars().any(char::is_control) {
+        return Err("Invalid window title.".into());
+    }
+    window.set_title(&title).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn set_window_scale(window: tauri::WebviewWindow, percent: u32) -> Result<(), String> {
+    if window.label() != "main" || ![85, 100, 115, 125].contains(&percent) {
+        return Err("Invalid interface scale.".into());
+    }
+    window.set_zoom(f64::from(percent) / 100.0).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn sync_native_menu(app: AppHandle, items: Vec<native_menu::MenuItemState>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    { native_menu::sync(&app, items) }
+    #[cfg(not(target_os = "macos"))]
+    { let _ = (app, items); Ok(()) }
+}
+
 // The destination comes only from the native save dialog, never from the webview.
 #[tauri::command]
 async fn export_settings_backup(app: AppHandle, content: String) -> Result<bool, String> {
@@ -146,10 +176,13 @@ pub fn run() {
         .manage(Backend::default())
         .invoke_handler(tauri::generate_handler![
             list_integrations, connect_integration, reconnect_integration, disconnect_integration,
-            bitbucket_repositories, bitbucket_pull_requests, bitbucket_pull_request, create_bitbucket_pull_request, bitbucket_review, bitbucket_review_action,
-            list_ssh_keys, copy_ssh_public_key, generate_ssh_key, test_ssh_remote, native_git_request, export_settings_backup
+            bitbucket_repositories, bitbucket_pull_requests, bitbucket_pull_request, bitbucket_pull_request_template, create_bitbucket_pull_request, bitbucket_review, bitbucket_review_action,
+            list_ssh_keys, copy_ssh_public_key, generate_ssh_key, test_ssh_remote, native_git_request, export_settings_backup,
+            set_window_title, set_window_scale, sync_native_menu
         ])
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            native_menu::install(app)?;
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(message) = run_backend(&handle).await {

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, describe, test } from 'node:test';
-import { git, useGitHubCliForGit } from './git';
+import { CommandError, git, useGitHubCliForGit } from './git';
 import { createGitHubHandlers } from './github';
 import { createGitHubReviewHandlers, githubPullTarget } from './pullReview';
 import { validateSuggestions } from './reviewAgent';
@@ -13,6 +13,9 @@ import { bitbucketReviewSnapshot, reviewAnchorPage, reviewPageDiff, REVIEW_PAGE_
 import { createFontHandlers, fontHandlers, macFontFamilies } from './fonts';
 import { ANTHROPIC_SANS, fontStack, normalizeFontName } from '../shared/fonts';
 import { createHandlers } from './handlers';
+import { nativeMenuItems, repositoryWindowTitle } from '../src/nativeDesktop';
+import type { Command } from '../src/commands';
+import type { FileStatus, RepositoryState } from '../shared/types/git';
 import { combine, UserError } from './http';
 import { parseDiff } from './gitParse';
 import { consoleArgs } from './gitConsole';
@@ -27,12 +30,12 @@ import { searchSettings } from '../src/settingsCatalog';
 import { applySettingsBackup, exportSettings, parseSettingsBackup } from '../src/settingsTransfer';
 import { applyTheme, effectiveTheme } from '../src/theme';
 import { applyShortcutOverrides } from '../src/commands';
-import { normalizeShortcut, reservedShortcut, shortcutFromEvent, shortcutIdentity, shortcutMatches } from '../src/shortcutKeys';
+import { matchesCommitShortcut, normalizeShortcut, reservedShortcut, reservedShortcutForAction, shortcutFromEvent, shortcutIdentity, shortcutMatches } from '../src/shortcutKeys';
 import { applyPanelLayout, capturePanelLayout } from '../src/layoutPreferences';
 import { normalizeLayouts } from '../shared/types/layout';
 import { DEFAULT_TOOLBAR_ACTIONS, normalizeToolbarActions } from '../shared/types/toolbar';
 import { EMPTY_TEMPLATES, expandTemplate } from '../shared/templates';
-import { compatiblePack, normalizeInstalledPacks, packCommands, packContrastProblems, packTemplate, parseDataPack } from '../src/dataPacks';
+import { compatiblePack, normalizeInstalledPacks, packCommands, packContrastProblems, packTemplate, parseDataPack, themeContrastProblems } from '../src/dataPacks';
 
 const api = createHandlers({ onUpdateInstalling: () => {} });
 const temps: string[] = [];
@@ -57,6 +60,56 @@ function write(repo: string, file: string, content: string) {
 }
 
 const read = (repo: string, file: string) => fs.readFileSync(path.join(repo, file), 'utf8');
+
+test('desktop title follows the active repository without exposing its path or stale branch', () => {
+  const state: RepositoryState = { path: '/private/work/repo', name: 'repo', currentBranch: 'feature/demo', isDetached: false, isClean: false, stagedCount: 1, unstagedCount: 1, untrackedCount: 0, conflictedCount: 0 };
+  const statuses: FileStatus[] = [{ path: 'a', status: 'modified', staged: true }, { path: 'a', status: 'modified', staged: false }, { path: 'b', status: 'added', staged: false }];
+  assert.equal(repositoryWindowTitle('/private/work/repo', state, statuses), 'repo — feature/demo — 2 changed');
+  assert.equal(repositoryWindowTitle('/private/work/other', state, statuses), 'other');
+  assert.equal(repositoryWindowTitle('', state, statuses), 'Gitter');
+  assert.equal(repositoryWindowTitle('/private/work/repo', { ...state, currentBranch: 'abc123', isDetached: true, isClean: true }, []), 'repo — detached abc123');
+  assert.equal(repositoryWindowTitle('/private/work/repo\nprivate', null, []), 'repo private');
+});
+
+test('native menu uses live command state and keeps custom shortcuts in the webview', () => {
+  const noop = () => undefined;
+  const commands: Command[] = [
+    { id: 'settings', title: 'Settings', category: 'Gitter', shortcut: 'Mod+,', run: noop },
+    { id: 'toggle-sidebar', title: 'Hide sidebar', category: 'View', shortcut: 'Mod+B', run: noop },
+    { id: 'push', title: 'Push', category: 'Repository', enabled: false, run: noop },
+  ];
+  const items = nativeMenuItems(commands, false);
+  assert.equal(items.find((item) => item.id === 'settings')?.accelerator, 'Cmd+,');
+  assert.equal(items.find((item) => item.id === 'toggle-sidebar')?.title, 'Hide Sidebar');
+  assert.equal(items.find((item) => item.id === 'push')?.enabled, false);
+  assert.ok(nativeMenuItems(commands, true).every((item) => !item.enabled));
+  commands[0] = { ...commands[0], shortcut: 'Mod+Shift+P', notInTextFields: true };
+  assert.equal(nativeMenuItems(commands, false).find((item) => item.id === 'settings')?.accelerator, null);
+});
+
+test('GitHub PR templates use the repository default before the owner default and reject invalid content', async () => {
+  const calls: string[] = [];
+  const repo = path.join(os.tmpdir(), 'example-repo');
+  let invalid = false;
+  let inherited = false;
+  const gh = createGitHubHandlers(async (args, cwd) => {
+    assert.equal(cwd, repo);
+    if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: 'example/project' });
+    const endpoint = args[args.length - 1];
+    calls.push(endpoint);
+    const found = inherited ? endpoint === '/repos/example/.github/contents/.github/pull_request_template.md' : endpoint === '/repos/example/project/contents/.github/pull_request_template.md';
+    if (!found) throw new CommandError('gh', args, 1, 'Not Found (HTTP 404)', '');
+    const text = '## Summary\n';
+    return JSON.stringify({ type: 'file', encoding: 'base64', size: invalid ? 999999 : Buffer.byteLength(text), content: Buffer.from(text).toString('base64') });
+  });
+  const result = await gh.githubPullRequestTemplate({ repo });
+  assert.deepEqual(result, { text: '## Summary\n', source: 'example/project/.github/pull_request_template.md' });
+  assert.ok(calls.every((endpoint) => !endpoint.includes('/example/.github/')), 'repository template takes precedence');
+  calls.length = 0; inherited = true;
+  assert.equal((await gh.githubPullRequestTemplate({ repo }))?.source, 'example/.github/.github/pull_request_template.md');
+  invalid = true;
+  await assert.rejects(() => gh.githubPullRequestTemplate({ repo }), /small text file/);
+});
 
 test('suggests safe clone destinations for HTTPS and SSH remotes', () => {
   assert.equal(repositoryNameFromUrl('https://example.com/team/repo.git'), 'repo');
@@ -952,6 +1005,8 @@ describe('settings', () => {
     const defaults = [{ id: 'toggle-sidebar', title: 'Sidebar', category: 'View' as const, shortcut: 'Mod+B', run }, { id: 'palette', title: 'Palette', category: 'Gitter' as const, shortcut: 'Mod+P', run }];
     assert.equal(packCommands(defaults, installed, {}, true, '1.10.0')[0].shortcut, 'Mod+Shift+Y');
     assert.equal(packCommands(defaults, installed, { 'toggle-sidebar': 'Mod+X' }, true, '1.10.0')[0].shortcut, 'Mod+B');
+    const withCommit = [...defaults, { id: 'commit-submit', title: 'Commit', category: 'Changes' as const, shortcut: 'Mod+Enter', run }];
+    assert.equal(packCommands(withCommit, installed, { 'commit-submit': 'Mod+Shift+Y' }, true, '1.10.0')[0].shortcut, 'Mod+B', 'a pack cannot steal the commit shortcut');
     const properties = new Map<string, string>();
     const root = { dataset: {}, style: { removeProperty: (key: string) => properties.delete(key), setProperty: (key: string, value: string) => properties.set(key, value) } } as unknown as HTMLElement;
     applyTheme(root, 'classic', pack.id, installed, true, '1.10.0');
@@ -959,10 +1014,16 @@ describe('settings', () => {
     assert.equal(properties.get('--theme-base'), '32 32 32');
     applyTheme(root, 'classic', pack.id, [{ manifest: pack, enabled: false }], true, '1.10.0');
     assert.equal(root.dataset.theme, 'classic');
-    assert.equal(properties.size, 0, 'disabling a theme pack restores the underlying theme');
+    assert.equal(properties.has('--theme-base'), false, 'disabling a theme pack removes its surface override');
+    assert.equal(properties.get('--slate-500'), '162 176 195', 'disabling a pack restores the underlying readable text color');
     const example = parseDataPack(fs.readFileSync(path.join(process.cwd(), 'docs/examples/harbor.gitter-pack.json'), 'utf8'));
     assert.equal(compatiblePack(example, '1.11.0'), true);
     assert.equal(packContrastProblems(example).length, 0);
+  });
+
+  test('built-in theme text colors contrast against their common surfaces', () => {
+    for (const theme of ['classic', 'codex', 'claude'] as const) assert.deepEqual(themeContrastProblems(theme), [], theme);
+    assert.ok(themeContrastProblems('classic', { 'slate-500': '#202735' }).some((problem) => problem.includes('slate-500')));
   });
 
   test('local actions pass literal arguments, filter credential environment, and can be cancelled', async () => {
@@ -1026,7 +1087,10 @@ describe('settings', () => {
     assert.ok(searchSettings('font anthropic', false).some((result) => result.id === 'interfaceFont'));
     assert.ok(searchSettings('bitbucket token', false).some((result) => result.id === 'integrations'));
     assert.equal(searchSettings('identity email', false).length, 0);
-    assert.equal(searchSettings('identity email', true)[0].id, 'repository');
+    assert.equal(searchSettings('identity email', true)[0].id, 'repo-email');
+    assert.ok(searchSettings('signing key', true).some((result) => result.target === 'repo-sign-key'));
+    assert.ok(searchSettings('personal commit template', false).some((result) => result.target === 'template-personal-commit'));
+    assert.ok(!searchSettings('repository commit template', false).some((result) => result.id === 'template-repo-commit'));
   });
 
   test('system appearance follows the operating system while explicit themes remain fixed', () => {
@@ -1043,6 +1107,8 @@ describe('settings', () => {
     assert.equal(shortcutIdentity('Ctrl+K', false), shortcutIdentity('Mod+K', false));
     assert.notEqual(shortcutIdentity('Ctrl+K', true), shortcutIdentity('Mod+K', true));
     assert.equal(reservedShortcut('Mod+Enter', true), true);
+    assert.equal(reservedShortcutForAction('Mod+Enter', true, 'commit-submit'), false);
+    assert.equal(reservedShortcutForAction('Mod+Q', true, 'commit-submit'), true);
     assert.equal(reservedShortcut('Alt+F4', false), true);
     assert.equal(normalizeShortcut('Ctrl+Ctrl+K'), undefined);
     assert.equal(normalizeShortcut('A'), undefined);
@@ -1053,6 +1119,13 @@ describe('settings', () => {
     assert.equal(updated[0].notInTextFields, true);
     assert.equal(updated[1].shortcut, undefined);
     assert.equal(commands[0].shortcut, 'Mod+A');
+    const macEnter = { key: 'Enter', ctrlKey: false, metaKey: true, altKey: false, shiftKey: false };
+    assert.equal(matchesCommitShortcut(macEnter, {}, true), true);
+    assert.equal(matchesCommitShortcut({ ...macEnter, metaKey: false, ctrlKey: true }, {}, true), true, 'the existing macOS Ctrl+Enter default remains supported');
+    assert.equal(matchesCommitShortcut(macEnter, { 'commit-submit': null }, true), false);
+    assert.equal(matchesCommitShortcut(macEnter, { 'commit-submit': 'Mod+Shift+K' }, true), false);
+    assert.equal(matchesCommitShortcut(event, { 'commit-submit': 'Mod+Shift+K' }, true), true);
+    assert.equal(matchesCommitShortcut({ ...macEnter, metaKey: false, ctrlKey: true }, {}, false), true);
   });
 
   test('toolbar choices accept only unique supported actions within the visible limit', () => {
@@ -1076,14 +1149,17 @@ describe('settings', () => {
       assert.equal(getPreference('diffView'), 'split', 'legacy bare-string preferences remain readable');
       setPreference('cloneFolder', '/private/work/repos');
       setPreference('theme', 'claude');
+      setPreference('interfaceScale', 115);
       setPreference('wordWrap', false);
       const backup = exportSettings(['Appearance', 'Diffs']);
       assert.doesNotMatch(backup, /private|cloneFolder|openInApps|recentRepos|token/i);
       const parsed = parseSettingsBackup(backup);
       resetPreference('theme');
+      resetPreference('interfaceScale');
       resetPreference('wordWrap');
       assert.equal(getPreference('theme'), defaultPreference('theme'));
-      assert.equal(applySettingsBackup(parsed, ['Appearance']), 4);
+      assert.equal(applySettingsBackup(parsed, ['Appearance']), 5);
+      assert.equal(getPreference('interfaceScale'), 115);
       assert.equal(getPreference('theme'), 'claude');
       assert.equal(getPreference('wordWrap'), true, 'unselected sections are left alone');
       assert.equal(getPreference('cloneFolder'), '/private/work/repos');

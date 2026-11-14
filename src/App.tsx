@@ -36,6 +36,7 @@ import type { AgentFleetState } from '../shared/types/agentFleet';
 import type { LocalAction } from '../shared/types/localAction';
 import { api, pickFolder } from './api/client';
 import { applyShortcutOverrides, isMac, type Command, useShortcuts } from './commands';
+import { COMMIT_SUBMIT_ACTION, DEFAULT_COMMIT_SHORTCUT } from './shortcutKeys';
 import { packCommands } from './dataPacks';
 import { AgentLens } from './components/Agent/AgentLens';
 import { AgentRail } from './components/Agent/AgentRail';
@@ -84,8 +85,9 @@ import { WorktreesModal } from './components/Worktrees/WorktreesModal';
 import { useAgentActions } from './hooks/useAgentActions';
 import { useAgentLive } from './hooks/useAgentLive';
 import { useRepository } from './hooks/useRepository';
-import { getPreference, usePreference } from './preferences';
+import { getPreference, INTERFACE_SCALES, usePreference } from './preferences';
 import { checkForAppUpdate, CURRENT_VERSION } from './services/updateService';
+import { useNativeMenu, useRepositoryWindowTitle } from './nativeDesktop';
 import { toast } from './utils/toast';
 
 /** The one open dialog, if any. */
@@ -143,6 +145,7 @@ export const App: React.FC = () => {
   const commitDrafts = useRef<Record<string, CommitDraft>>({});
   const repository = useRepository(repo);
   const { state: repoState, statuses, run } = repository;
+  useRepositoryWindowTitle(repo, repoState, statuses);
 
   /** Opens a repository in a tab (or switches to its tab) once git confirms it is one. */
   const openRepo = useCallback(
@@ -217,6 +220,7 @@ export const App: React.FC = () => {
   const [assistantOpen, setAssistantOpen] = usePreference('assistantOpen');
   const [localActions] = usePreference('localActions');
   const [dataPacks] = usePreference('dataPacks');
+  const [interfaceScale, setInterfaceScale] = usePreference('interfaceScale');
   const [diffWorkspace, setDiffWorkspace] = useState<'working' | 'commit' | null>(null);
   const windowWidth = useWindowWidth();
 
@@ -608,6 +612,9 @@ export const App: React.FC = () => {
     { id: 'lanes', title: laneMode ? 'Stage normally' : 'Group changes into lanes', category: 'View', icon: Layers, enabled: hasRepo, run: () => setLaneMode(!laneMode) },
     { id: 'toggle-assistant', title: assistantOpen ? 'Hide assistant' : 'Ask the assistant', category: 'View', icon: Sparkles, shortcut: 'Mod+Shift+A', run: () => setAssistantOpen(!assistantOpen) },
     { id: 'agent-rail', title: railOpen ? 'Hide agent rail' : 'Show agent rail', category: 'View', icon: Bot, run: () => setRailOpen(!railOpen) },
+    { id: 'zoom-in', title: 'Zoom in', category: 'View', shortcut: 'Mod+=', enabled: interfaceScale < INTERFACE_SCALES[INTERFACE_SCALES.length - 1], run: () => setInterfaceScale(INTERFACE_SCALES.find((scale) => scale > interfaceScale) ?? interfaceScale) },
+    { id: 'zoom-out', title: 'Zoom out', category: 'View', shortcut: 'Mod+-', enabled: interfaceScale > INTERFACE_SCALES[0], run: () => setInterfaceScale([...INTERFACE_SCALES].reverse().find((scale) => scale < interfaceScale) ?? interfaceScale) },
+    { id: 'zoom-reset', title: 'Actual size', category: 'View', shortcut: 'Mod+0', enabled: interfaceScale !== 100, run: () => setInterfaceScale(100) },
     { id: 'review-inbox', title: 'Review inbox', category: 'Agents', icon: Inbox, shortcut: 'Mod+Shift+K', enabled: hasRepo, run: () => setDialog({ kind: 'inbox' }) },
     { id: 'fleet', title: 'Agent fleet', category: 'Agents', icon: Bot, shortcut: 'Mod+Shift+F', enabled: hasRepo, run: () => setDialog({ kind: 'fleet' }) },
     {
@@ -625,11 +632,16 @@ export const App: React.FC = () => {
     { id: 'palette', title: 'Command palette', category: 'Gitter', icon: Search, shortcut: 'Mod+P', run: () => setDialog({ kind: 'palette' }) },
     { id: 'settings', title: 'Settings', category: 'Gitter', icon: Settings, shortcut: 'Mod+,', run: () => setDialog({ kind: 'settings' }) },
     { id: 'check-updates', title: 'Check for updates', category: 'Gitter', icon: DownloadCloud, run: () => setDialog({ kind: 'update' }) },
+    { id: 'guide', title: 'User guide', category: 'Gitter', run: () => void api.openUrl({ url: 'https://github.com/zhikom/gitter/blob/main/docs/USER_GUIDE.md' }).catch((error) => toast.error(`Could not open the guide: ${error.message}`)) },
     ...localActions.filter((action) => action.enabled && action.name.trim() && action.executable.trim()).map((action): Command => ({ id: `local-${action.id}`, title: action.name, category: 'Tools', icon: Workflow, enabled: hasRepo, run: () => setDialog({ kind: 'local-action', action }) })),
   ];
-  const packDefaults = packCommands(defaultCommands, dataPacks, shortcutOverrides, isMac, CURRENT_VERSION);
+  // Include the contextual action in conflict checks, but never expose it as a
+  // global command: it only submits from the commit editor.
+  const keymapDefaults = packCommands([...defaultCommands, { id: COMMIT_SUBMIT_ACTION, title: 'Commit from message field', category: 'Changes', shortcut: DEFAULT_COMMIT_SHORTCUT, run: () => {} }], dataPacks, shortcutOverrides, isMac, CURRENT_VERSION);
+  const packDefaults = keymapDefaults.filter((command) => command.id !== COMMIT_SUBMIT_ACTION);
   const commands = applyShortcutOverrides(packDefaults, shortcutOverrides);
   useShortcuts(commands);
+  useNativeMenu(commands, dialog !== null);
 
   // --- Rendering -----------------------------------------------------------------
   const hasWip = Boolean(repoState && !repoState.isClean);
@@ -921,13 +933,13 @@ export const App: React.FC = () => {
           />
         );
       case 'settings':
-        return <SettingsModal repo={repo} initialTab={dialog.tab} onClose={close} onCheckForUpdates={() => setDialog({ kind: 'update' })} onCloneRepository={(url) => setDialog({ kind: 'repositories', tab: 'clone', cloneUrl: url })} onCreateGitHub={() => setDialog({ kind: 'repositories', tab: 'create', githubCreate: true })} commands={packDefaults} onRunLocalAction={(action) => setDialog({ kind: 'local-action', action })} />;
+        return <SettingsModal repo={repo} initialTab={dialog.tab} onClose={close} onCheckForUpdates={() => setDialog({ kind: 'update' })} onCloneRepository={(url) => setDialog({ kind: 'repositories', tab: 'clone', cloneUrl: url })} onCreateGitHub={() => setDialog({ kind: 'repositories', tab: 'create', githubCreate: true })} commands={keymapDefaults} onRunLocalAction={(action) => setDialog({ kind: 'local-action', action })} />;
       case 'local-action':
         return <LocalActionModal repo={repo} action={dialog.action} branch={repoState?.currentBranch ?? ''} file={selectedFile?.path} onClose={close} />;
       case 'open-in':
         return <OpenInModal repo={dialog.path} onClose={close} onConfigure={() => setDialog({ kind: 'settings', tab: 'open-in' })} />;
       case 'update':
-        return <UpdateModal initial={update} onClose={close} />;
+        return <UpdateModal onClose={close} />;
       case 'create-branch':
         return <CreateBranchModal repo={repo} startPoint={dialog.startPoint} onClose={close} onCreate={(name, start, checkout) => actions.createBranch(name, start, checkout).then(() => undefined)} />;
       case 'stash':

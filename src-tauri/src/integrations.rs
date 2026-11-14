@@ -218,6 +218,54 @@ pub async fn bitbucket_pull_requests(path: &Path, id: &str, project: &str, slug:
     Ok(json!({ "values": pulls, "nextPageStart": value.get("nextPageStart"), "isLastPage": value.get("isLastPage").and_then(Value::as_bool).unwrap_or(true) }))
 }
 
+enum TemplateSetting { Missing, Disabled, Text(String) }
+
+// Bitbucket's UI currently uses this endpoint, but it is not part of the
+// documented public REST API. Treat an unknown response as an error rather
+// than guessing, and only call it when the user explicitly asks for a template.
+async fn read_template(client: &Client, url: Url, token: &str) -> Result<TemplateSetting, String> {
+    let mut response = client.get(url).bearer_auth(token).header("Accept", "application/json")
+        .send().await.map_err(|error| format!("Could not reach Bitbucket: {error}"))?;
+    let status = response.status();
+    if status == reqwest::StatusCode::NO_CONTENT { return Ok(TemplateSetting::Missing); }
+    if !status.is_success() { return Err(format!("Bitbucket could not provide its template (HTTP {status}).")); }
+    const LIMIT: usize = 96_000;
+    if response.content_length().is_some_and(|length| length > LIMIT as u64) { return Err("The Bitbucket template response is too large.".into()); }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|error| format!("Could not read the Bitbucket template: {error}"))? {
+        if bytes.len() + chunk.len() > LIMIT { return Err("The Bitbucket template response is too large.".into()); }
+        bytes.extend_from_slice(&chunk);
+    }
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| "Bitbucket returned an unsupported template response.")?;
+    match value.get("enabled").and_then(Value::as_bool) {
+        Some(false) => Ok(TemplateSetting::Disabled),
+        Some(true) => {
+            let text = value.get("description").and_then(Value::as_str).ok_or("Bitbucket returned an unsupported template response.")?;
+            if text.encode_utf16().count() > 16_000 || text.contains('\0') { return Err("The Bitbucket template is too large or contains a null character.".into()); }
+            Ok(TemplateSetting::Text(text.to_owned()))
+        }
+        None => Err("Bitbucket returned an unsupported template response.".into()),
+    }
+}
+
+pub async fn bitbucket_pull_request_template(path: &Path, id: &str, project: &str, slug: &str) -> Result<Option<Value>, String> {
+    if project.is_empty() || slug.is_empty() { return Err("A project and repository are required".into()); }
+    let integration = find(path, id, "bitbucket_dc")?;
+    let token = read_secret(path, id)?;
+    let client = client()?;
+    let repo_url = endpoint(&integration.base_url, &integration.kind, &["rest", "ui", "latest", "projects", project, "repos", slug, "pull-request-templates"])?;
+    match read_template(&client, repo_url, &token).await? {
+        TemplateSetting::Text(text) => return Ok(Some(json!({ "text": text, "source": "Bitbucket repository" }))),
+        TemplateSetting::Disabled => return Ok(None),
+        TemplateSetting::Missing => {}
+    }
+    let project_url = endpoint(&integration.base_url, &integration.kind, &["rest", "ui", "latest", "projects", project, "pull-request-templates"])?;
+    match read_template(&client, project_url, &token).await? {
+        TemplateSetting::Text(text) => Ok(Some(json!({ "text": text, "source": "Bitbucket project" }))),
+        TemplateSetting::Disabled | TemplateSetting::Missing => Ok(None),
+    }
+}
+
 fn map_bitbucket_pull_request(pull: &Value) -> Value {
     json!({
         "id": pull.get("id"),
@@ -435,7 +483,11 @@ mod tests {
                     assert_eq!(posted["toRef"]["id"], "refs/heads/main");
                     assert_eq!(posted["toRef"]["repository"]["project"]["key"], "PRJ");
                 }
-                write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+                if body == "__NO_CONTENT__" {
+                    write!(socket, "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+                } else {
+                    write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+                }
             }
         });
         (format!("http://{address}/bitbucket"), handle)
@@ -454,6 +506,33 @@ mod tests {
         let url = endpoint("https://example.com", "bitbucket_dc", &["projects", "A/B", "repos", "repo name"]).unwrap();
         assert_eq!(url.path(), "/projects/A%2FB/repos/repo%20name");
         assert!(endpoint("https://example.com", "bitbucket_dc", &["projects", "..", "repos"]).is_err());
+    }
+
+    #[tokio::test]
+    async fn bitbucket_templates_fall_back_to_project_only_when_repository_setting_is_missing() {
+        let (base, server) = mock_server(vec![
+            ("/bitbucket/rest/api/1.0/projects", "{\"values\":[]}"),
+            ("/bitbucket/rest/ui/latest/projects/PRJ/repos/example/pull-request-templates", "__NO_CONTENT__"),
+            ("/bitbucket/rest/ui/latest/projects/PRJ/pull-request-templates", "{\"enabled\":true,\"description\":\"## Summary\"}"),
+        ]);
+        let directory = std::env::temp_dir().join(format!("gitter-template-test-{}", Uuid::new_v4()));
+        let config = directory.join("settings.json");
+        let connection = connect(&config, "bitbucket_dc", &base, "Test", "fake-token").await.unwrap();
+        let template = bitbucket_pull_request_template(&config, &connection.id, "PRJ", "example").await.unwrap().unwrap();
+        assert_eq!(template["text"], "## Summary");
+        assert_eq!(template["source"], "Bitbucket project");
+        server.join().unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+
+        let (base, server) = mock_server(vec![("/bitbucket/disabled", "{\"enabled\":false}")]);
+        let url = Url::parse(&format!("{base}/disabled")).unwrap();
+        assert!(matches!(read_template(&client().unwrap(), url, "fake-token").await.unwrap(), TemplateSetting::Disabled));
+        server.join().unwrap();
+
+        let (base, server) = mock_server(vec![("/bitbucket/invalid", "{\"description\":\"unknown shape\"}")]);
+        let url = Url::parse(&format!("{base}/invalid")).unwrap();
+        assert!(read_template(&client().unwrap(), url, "fake-token").await.is_err());
+        server.join().unwrap();
     }
 
     #[tokio::test]

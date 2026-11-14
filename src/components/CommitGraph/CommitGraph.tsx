@@ -180,12 +180,12 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
   return (
     <div
       ref={root}
-      className="flex-1 flex flex-col h-full bg-[#14181f] overflow-hidden select-none"
+      className="graph-panel flex-1 flex flex-col h-full bg-[#14181f] overflow-hidden select-none"
       onClick={() => setContextMenu(null)}
     >
       {/* Search & Filter Header */}
-      <div className="h-10 bg-[#181d26] border-b border-[#2a3447] flex items-center justify-between px-3">
-        <div className="flex items-center space-x-2 flex-1 max-w-md">
+      <div className="h-10 bg-[#181d26] border-b border-[#2a3447] flex items-center justify-between gap-2 px-3">
+        <div className="flex items-center space-x-2 flex-1 min-w-0 max-w-md">
           <div className="relative w-full">
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
             <input
@@ -198,9 +198,9 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center gap-3 flex-shrink-0">
           {/* Density Switcher */}
-          <div className="flex items-center bg-[#14181f] border border-[#2a3447] rounded p-0.5 text-[10px]">
+          <div className="graph-density-buttons flex items-center bg-[#14181f] border border-[#2a3447] rounded p-0.5 text-[10px]">
             {(['compact', 'normal', 'comfortable'] as const).map((d) => (
               <button
                 key={d}
@@ -216,8 +216,11 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
               </button>
             ))}
           </div>
+          <select aria-label="Graph density" value={density} onChange={(event) => setDensity(event.target.value as typeof density)} className="graph-density-select hidden bg-[#14181f] border border-[#2a3447] rounded px-1 py-1 text-xs text-slate-200">
+            <option value="compact">Compact</option><option value="normal">Normal</option><option value="comfortable">Comfortable</option>
+          </select>
 
-          <div className="text-xs text-slate-400">
+          <div className="graph-count whitespace-nowrap text-xs text-slate-400">
             Showing <span className="font-semibold text-slate-200">{filteredNodes.length}</span> commits
           </div>
           {hasAgentCollisions && (

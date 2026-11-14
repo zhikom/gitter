@@ -1,4 +1,6 @@
 export type ShortcutOverrides = Record<string, string | null>;
+export const COMMIT_SUBMIT_ACTION = 'commit-submit';
+export const DEFAULT_COMMIT_SHORTCUT = 'Mod+Enter';
 
 const modifiers = ['Mod', 'Ctrl', 'Alt', 'Shift'] as const;
 const specialKeys = new Set(['Tab', 'Enter', 'Escape', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
@@ -10,7 +12,7 @@ export function normalizeShortcut(value: unknown): string | undefined {
   const key = parts.pop();
   if (!key || parts.some((part) => !modifiers.includes(part as typeof modifiers[number])) || new Set(parts).size !== parts.length) return undefined;
   const normalizedKey = /^[a-z0-9]$/i.test(key) ? key.toUpperCase() : /^f(?:[1-9]|1[0-2])$/i.test(key) ? key.toUpperCase() : key;
-  if (!/^[A-Z0-9]$/.test(normalizedKey) && !/^F(?:[1-9]|1[0-2])$/.test(normalizedKey) && !specialKeys.has(normalizedKey) && !/^[,.;/\[\]\\`'-]$/.test(normalizedKey)) return undefined;
+  if (!/^[A-Z0-9]$/.test(normalizedKey) && !/^F(?:[1-9]|1[0-2])$/.test(normalizedKey) && !specialKeys.has(normalizedKey) && !/^[,.;/\[\]\\`'=-]$/.test(normalizedKey)) return undefined;
   if (!parts.some((part) => ['Mod', 'Ctrl', 'Alt'].includes(part)) && !/^F(?:[1-9]|1[0-2])$/.test(normalizedKey)) return undefined;
   return [...modifiers.filter((part) => parts.includes(part)), normalizedKey].join('+');
 }
@@ -30,6 +32,12 @@ export function reservedShortcut(shortcut: string, mac: boolean): boolean {
   return ['F1', 'F11', 'F12'].includes(shortcut) || reserved.some((value) => shortcutIdentity(value, mac) === shortcutIdentity(shortcut, mac));
 }
 
+/** The commit-field action may own the otherwise reserved commit keys. */
+export function reservedShortcutForAction(shortcut: string, mac: boolean, actionId: string): boolean {
+  if (actionId === COMMIT_SUBMIT_ACTION && ['Mod+Enter', 'Ctrl+Enter'].some((value) => shortcutIdentity(value, mac) === shortcutIdentity(shortcut, mac))) return false;
+  return reservedShortcut(shortcut, mac);
+}
+
 export function shortcutFromEvent(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>, mac: boolean): string | undefined {
   if (['Control', 'Meta', 'Alt', 'Shift', 'AltGraph', 'Dead'].includes(event.key) || (!mac && event.metaKey)) return undefined;
   const key = event.key === ' ' ? 'Space' : event.key;
@@ -46,4 +54,12 @@ export function shortcutFromEvent(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' |
 export function shortcutMatches(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>, shortcut: string, mac: boolean): boolean {
   const input = shortcutFromEvent(event, mac);
   return Boolean(input && shortcutIdentity(input, mac) === shortcutIdentity(shortcut, mac));
+}
+
+/** Match only in the commit editor; retain the legacy Ctrl+Enter default on macOS. */
+export function matchesCommitShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>, overrides: ShortcutOverrides, mac: boolean): boolean {
+  const customized = Object.hasOwn(overrides, COMMIT_SUBMIT_ACTION);
+  const shortcut = customized ? overrides[COMMIT_SUBMIT_ACTION] : DEFAULT_COMMIT_SHORTCUT;
+  return Boolean(shortcut && shortcutMatches(event, shortcut, mac)) ||
+    (!customized && mac && shortcutMatches(event, 'Ctrl+Enter', mac));
 }

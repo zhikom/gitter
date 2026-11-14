@@ -7,17 +7,15 @@ import { checkForAppUpdate, CURRENT_VERSION } from '../../services/updateService
 import { Button, Modal } from '../ui/Modal';
 
 interface UpdateModalProps {
-  /** A check that already ran; without one the dialog checks itself. */
-  initial: UpdateInfo | null;
   onClose: () => void;
 }
 
 const openInBrowser = (url: string) => api.openUrl({ url }).catch(() => window.open(url, '_blank'));
 const megabytes = (bytes: number) => (bytes ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : '');
 
-export const UpdateModal: React.FC<UpdateModalProps> = ({ initial, onClose }) => {
-  const [info, setInfo] = useState<UpdateInfo | null>(initial);
-  const [checking, setChecking] = useState(!initial);
+export const UpdateModal: React.FC<UpdateModalProps> = ({ onClose }) => {
+  const [info, setInfo] = useState<UpdateInfo | null>(null);
+  const [checking, setChecking] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [installing, setInstalling] = useState<'idle' | 'running' | 'started'>('idle');
   const [autoCheck, setAutoCheck] = usePreference('checkForUpdates');
@@ -25,6 +23,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ initial, onClose }) =>
   const check = useCallback(async () => {
     setChecking(true);
     setError(null);
+    setInfo(null);
     try {
       setInfo(await checkForAppUpdate());
     } catch (e: any) {
@@ -35,8 +34,9 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ initial, onClose }) =>
   }, []);
 
   useEffect(() => {
-    if (!initial) void check();
-  }, [initial, check]);
+    // An explicit check must not reuse the possibly stale startup result.
+    void check();
+  }, [check]);
 
   const install = async () => {
     if (!info?.installer) return;
@@ -96,7 +96,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ initial, onClose }) =>
                 <div className="flex items-center gap-2">
                   <Button tone="primary" onClick={install} busy={installing === 'running'} disabled={installing === 'started'}>
                     {installing === 'started' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <DownloadCloud className="w-3.5 h-3.5" />}
-                    {installing === 'running' ? 'Downloading…' : installing === 'started' ? 'Installer started' : `Install (${megabytes(info.installer.size)})`}
+                    {installing === 'running' ? 'Downloading…' : installing === 'started' ? (info.installer.platform === 'macos' ? 'Disk image opened' : 'Installer started') : `${info.installer.platform === 'macos' ? 'Open disk image' : 'Install'} (${megabytes(info.installer.size)})`}
                   </Button>
                   <Button onClick={() => openInBrowser(info.installer!.url)} title="Download in your browser instead">
                     <ExternalLink className="w-3.5 h-3.5" />
@@ -112,7 +112,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ initial, onClose }) =>
               <span className="font-semibold text-emerald-300">You have the latest version.</span>
             </div>
           ))}
-        {installing === 'started' && <p className="text-slate-400">The installer is running. Gitter closes so it can be replaced, then starts again.</p>}
+        {installing === 'started' && <p className="text-slate-400">{info?.installer?.platform === 'macos' ? 'Quit Gitter, drag Gitter.app from the opened disk image to Applications, then reopen it.' : 'The installer is running. Gitter closes so it can be replaced, then starts again.'}</p>}
         {info && (
           <div>
             <div className="flex items-center justify-between mb-2">

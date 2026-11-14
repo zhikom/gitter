@@ -6,6 +6,9 @@ import { HARNESSES, HARNESS_TRAILER } from '../../../shared/agents';
 import { toast } from '../../utils/toast';
 import { HARNESS_META } from '../Agent/agentUi';
 import { templateDraft } from '../../templateDraft';
+import { isMac } from '../../commands';
+import { usePreference } from '../../preferences';
+import { matchesCommitShortcut } from '../../shortcutKeys';
 export interface CommitDraft { summary: string; description: string; amend: boolean; previousDraft: { summary: string; description: string } }
 interface CommitBoxProps {
   repo: string;
@@ -43,6 +46,7 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
   const [showAgentMenu, setShowAgentMenu] = useState(false);
   const [commitMode, setCommitMode] = useState<'commit' | 'push' | 'sync'>('commit');
   const [templateBusy, setTemplateBusy] = useState(false);
+  const [shortcutOverrides] = usePreference('shortcutOverrides');
   const latest = useRef({ summary, description, amend, repo, currentBranch });
   latest.current = { summary, description, amend, repo, currentBranch };
   const active = useRef(true);
@@ -95,9 +99,16 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
   };
 
   const handleAiGenerate = async () => {
+    const requested = { ...latest.current };
     setIsAiGenerating(true);
     try {
       const generated = await onGenerateAiMessage();
+      const now = latest.current;
+      if (!active.current) return;
+      if (now.summary !== requested.summary || now.description !== requested.description || now.amend !== requested.amend || now.repo !== requested.repo || now.currentBranch !== requested.currentBranch) {
+        toast.info('The draft changed while AI was working, so its result was not applied.');
+        return;
+      }
       if (generated) {
         setSummary(generated.summary);
         if (generated.description) {
@@ -121,9 +132,9 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
     }
   };
 
-  // Ctrl+Enter (Cmd+Enter on macOS) commits from either field.
-  const commitOnModEnter = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+  // This contextual shortcut is active only in the two commit fields.
+  const commitOnShortcut = (e: React.KeyboardEvent) => {
+    if (!e.repeat && matchesCommitShortcut(e, shortcutOverrides, isMac)) {
       e.preventDefault();
       void handleSubmit();
     }
@@ -225,7 +236,7 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
             type="text"
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
-            onKeyDown={commitOnModEnter}
+            onKeyDown={commitOnShortcut}
             aria-label="Commit summary"
             placeholder="Commit summary (e.g. feat: add configurable side panels)"
             className="w-full bg-[#14181f] border border-[#2a3447] rounded pl-3 pr-14 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-teal-500 font-mono"
@@ -258,7 +269,7 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              onKeyDown={commitOnModEnter}
+              onKeyDown={commitOnShortcut}
               aria-label="Commit description"
               placeholder="Commit description (optional details or reasoning)..."
               rows={3}

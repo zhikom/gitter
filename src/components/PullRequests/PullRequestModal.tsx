@@ -100,17 +100,23 @@ export const CreatePullRequestModal: React.FC<CreateProps> = ({ repo, head, defa
   const [drafting, setDrafting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [templateBusy, setTemplateBusy] = useState(false);
+  const latestTitle = useRef(title); latestTitle.current = title;
   const latestBody = useRef(body); latestBody.current = body;
   const latestBase = useRef(base); latestBase.current = base;
 
   // The description comes from the branch's own commits and the files they change.
   const describe = async () => {
+    const requestedTitle = title, requestedBody = body, requestedBase = base;
     setDrafting(true);
     try {
       const [commits, files] = await Promise.all([api.rebaseCommits({ repo, base, head }), api.compareCommits({ repo, base, target: head, fromForkPoint: true })]);
       if (commits.length === 0) throw new Error(`${head} has no commits that ${base} lacks.`);
       const summary = files.map((f) => `${f.status} ${f.path} (+${f.additions} −${f.deletions})`).join('\n');
       const result = await api.prDescription({ commits: commits.map((c) => c.summary), diffSummary: summary });
+      if (latestTitle.current !== requestedTitle || latestBody.current !== requestedBody || latestBase.current !== requestedBase) {
+        toast.info('The draft changed while AI was working, so its result was not applied.');
+        return;
+      }
       setTitle(result.title);
       setBody(result.body);
     } catch (e: any) {
@@ -161,7 +167,27 @@ export const CreatePullRequestModal: React.FC<CreateProps> = ({ repo, head, defa
           try { const template = await templateDraft(repo, 'pullRequest', head, requestedBase); if (!latestBody.current.trim() && latestBase.current === requestedBase) { setBody(template.text); toast.success(`Inserted template from ${template.source}.`); } }
           catch (error) { toast.error((error as Error).message); }
           finally { setTemplateBusy(false); }
-        }}>Use template</Button>
+        }}>Use Gitter template</Button>
+        {!bitbucket && <Button type="button" disabled={Boolean(body.trim())} busy={templateBusy} onClick={async () => {
+          const requestedBase = base;
+          setTemplateBusy(true);
+          try {
+            const template = await api.githubPullRequestTemplate({ repo });
+            if (!template) toast.info('No default GitHub pull request template was found.');
+            else if (!latestBody.current.trim() && latestBase.current === requestedBase) { setBody(template.text); toast.success(`Inserted GitHub template from ${template.source}.`); }
+          } catch (error) { toast.error(`Could not read the GitHub template: ${(error as Error).message}`); }
+          finally { setTemplateBusy(false); }
+        }}>Use GitHub template</Button>}
+        {bitbucket && <Button type="button" disabled={Boolean(body.trim())} busy={templateBusy} onClick={async () => {
+          const requestedBase = base;
+          setTemplateBusy(true);
+          try {
+            const template = await desktopApi.getBitbucketPullRequestTemplate(bitbucket.connection.id, bitbucket.projectKey, bitbucket.slug);
+            if (!template) toast.info('No Bitbucket pull request template was found.');
+            else if (!latestBody.current.trim() && latestBase.current === requestedBase) { setBody(template.text); toast.success(`Inserted template from ${template.source}.`); }
+          } catch (error) { toast.error(`Could not read the Bitbucket template: ${String(error)}`); }
+          finally { setTemplateBusy(false); }
+        }}>Use Bitbucket template</Button>}
         <Field label="Description (Markdown)">
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={10} className={`${inputClass} font-mono resize-y`} />
         </Field>

@@ -54,25 +54,29 @@ export function compatiblePack(pack: DataPack, current: string): boolean {
   return true;
 }
 
-/** Check common text colors against the main surfaces; other color pairs still need review. */
-export function packContrastProblems(pack: DataPack): string[] {
-  const theme = pack.contributions.theme;
-  if (!theme) return [];
-  const bases = {
-    classic: { 'theme-base': '#14181f', 'theme-surface': '#202735', 'slate-200': '#e2e8f0', 'slate-400': '#94a3b8' },
-    codex: { 'theme-base': '#1c1c1c', 'theme-surface': '#242424', 'slate-200': '#e0e0dd', 'slate-400': '#a1a19c' },
-    claude: { 'theme-base': '#faf9f5', 'theme-surface': '#f4f2eb', 'slate-200': '#3a342e', 'slate-400': '#60564c' },
-  };
-  const colors: Record<string, string> = { ...bases[theme.base], ...theme.colors };
+/** Common opaque text/surface pairs. Alpha overlays and custom content still need visual review. */
+export const CONTRAST_BASE_COLORS = {
+  classic: { 'theme-base': '#14181f', 'theme-surface': '#202735', 'theme-raised': '#2d384c', 'slate-200': '#e2e8f0', 'slate-300': '#cbd5e1', 'slate-400': '#b2bfd0', 'slate-500': '#a2b0c3', 'slate-600': '#94a3b8', 'teal-300': '#5eead4', 'teal-400': '#2dd4bf' },
+  codex: { 'theme-base': '#1c1c1c', 'theme-surface': '#242424', 'theme-raised': '#2e2e2e', 'slate-200': '#e0e0dd', 'slate-300': '#c4c4c0', 'slate-400': '#b5b5b0', 'slate-500': '#a4a4a0', 'slate-600': '#999994', 'teal-300': '#abcaf7', 'teal-400': '#8baee8' },
+  claude: { 'theme-base': '#faf9f5', 'theme-surface': '#f4f2eb', 'theme-raised': '#e8e4da', 'slate-200': '#3a342e', 'slate-300': '#4b433b', 'slate-400': '#60564c', 'slate-500': '#6d6155', 'slate-600': '#6f6357', 'teal-300': '#863b24', 'teal-400': '#99432a' },
+} as const;
+
+export function themeContrastProblems(base: keyof typeof CONTRAST_BASE_COLORS, overrides: Record<string, string> = {}): string[] {
+  const colors: Record<string, string> = { ...CONTRAST_BASE_COLORS[base], ...overrides };
   const luminance = (hex: string) => {
     const rgb = [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16) / 255).map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
     return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
   };
-  return (['theme-base', 'theme-surface'] as const).flatMap((background) => (['slate-200', 'slate-400'] as const).flatMap((foreground) => {
+  return (['theme-base', 'theme-surface', 'theme-raised'] as const).flatMap((background) => (['slate-200', 'slate-300', 'slate-400', 'slate-500', 'slate-600', 'teal-300', 'teal-400'] as const).flatMap((foreground) => {
     const a = luminance(colors[background]), b = luminance(colors[foreground]);
     const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
     return ratio < 4.5 ? [`${foreground} on ${background} (${ratio.toFixed(1)}:1)`] : [];
   }));
+}
+
+export function packContrastProblems(pack: DataPack): string[] {
+  const theme = pack.contributions.theme;
+  return theme ? themeContrastProblems(theme.base, theme.colors) : [];
 }
 
 export function normalizeInstalledPacks(value: unknown): InstalledPack[] | undefined {

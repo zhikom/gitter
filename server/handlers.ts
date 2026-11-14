@@ -42,7 +42,8 @@ function appHandlers(host: Host) {
       const release = await latestRelease();
       if (!release.assets.some((asset) => asset.url === downloadUrl)) throw new UserError('That file is not part of the latest Gitter release.');
       const installerPath = await downloadAndInstall(downloadUrl);
-      host.onUpdateInstalling();
+      // Opening a macOS disk image does not replace the running application.
+      if (process.platform === 'win32') host.onUpdateInstalling();
       return installerPath;
     },
   };

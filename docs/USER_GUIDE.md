@@ -23,6 +23,13 @@ and files will be different.
 Drag the dividers to resize panels. **⌘B** on macOS or **Ctrl+B** on Windows
 shows or hides the navigator; **⌘J / Ctrl+J** toggles the working tree.
 
+The window title follows the active repository, its branch or detached HEAD,
+and its number of changed files. On macOS, use the **Gitter** menu for
+**About Gitter**, **Settings…** (⌘,), and **Check for Updates…**. The File,
+Repository, View, Window, and Help menus expose the corresponding actions.
+Opening a downloaded Mac disk image does not install or restart the app: quit
+Gitter and drag the app from the image into Applications to update it.
+
 ## Open or clone a repository
 
 1. Use the **+** beside the repository tabs, then choose **Open folder…**,
@@ -169,8 +176,9 @@ accounts, tokens, and Open in commands. Repository Git settings and integration
 credentials stay on the original machine.
 
 Choose **Follow system appearance** to use Gitter dark in dark mode and Claude
-in light mode. **Interface text size** scales interface text independently of
-the code size; it does not scale every icon or window dimension.
+in light mode. **Interface scale** enlarges the whole desktop interface,
+including icons, panels, and code; **Interface text size** adjusts interface
+text separately. The View menu offers Zoom In, Zoom Out, and Actual Size.
 
 The **Anthropic Sans** option uses the font from a local Claude Desktop
 installation on macOS when available, or a matching system-installed family.
@@ -189,8 +197,10 @@ argument on each line and use `{path}` where the repository folder belongs.
 
 In **Settings → Keyboard shortcuts**, search for an action, choose **Record**,
 and press the new combination. Gitter rejects conflicts and reserved keys;
-custom shortcuts do not run in text fields or while a dialog is open. Clear or
-reset an individual assignment from the same list.
+app shortcuts do not run in text fields or while a dialog is open. **Commit
+from message field** is a contextual shortcut and works in the commit fields.
+Its default is ⌘Enter or Ctrl+Enter on macOS, and Ctrl+Enter on Windows.
+Clear or reset an individual assignment from the same list.
 
 In **Settings → Toolbar actions**, choose and order up to six repository
 actions. In **Settings → Panel layouts**, save the current panel widths and
@@ -207,7 +217,16 @@ can use the literal placeholders `{branch}`, `{base}`, `{repository}`, and
 template** in an empty draft to insert it. Existing text and amend messages are
 not replaced automatically. For commit messages, Gitter falls back to Git's
 configured `commit.template` if no Gitter or enabled-pack template is set.
-Bitbucket Data Center's server-side description template is not fetched.
+For a new pull request, **Use GitHub template** explicitly reads a default
+`PULL_REQUEST_TEMPLATE.md` from the GitHub repository's default branch, then
+the owner's `.github` repository when needed. It checks the repository root,
+`.github`, and `docs`, with uppercase and lowercase filenames; it does not list
+multiple templates or resolve a fork's upstream target. **Use Bitbucket
+template** tries the connected Data Center repository and project settings.
+That lookup uses an undocumented Bitbucket UI endpoint and may not work on every
+server version or permission setup. All template buttons only fill an empty
+description, and a result is discarded if the base or draft changes while it
+loads.
 
 In **Settings → Local actions**, configure an executable, one argument per
 line, an optional absolute working directory, and a timeout. `{path}`,
@@ -230,8 +249,9 @@ precedence, and conflicting pack shortcuts are skipped.
 
 Packs are limited to validated theme colors, safe view shortcuts, and literal
 templates. They cannot run code or commands, inject CSS or HTML, or fetch network
-resources. Gitter checks a few common text/background pairs for low contrast;
-other color combinations still require review. Pack compatibility is limited to
+resources. Gitter checks common opaque text colors against three theme surfaces
+for low contrast; overlays, interaction states, and other colors still require
+review. Pack compatibility is limited to
 the declared minimum Gitter version and the same major version. The
 [Harbor example](examples/harbor.gitter-pack.json) shows the format. Executable
 third-party plugins are not supported.
@@ -244,6 +264,7 @@ third-party plugins are not supported.
 | --- | --- |
 | `Mod+P` | Open the command palette; choose **Check out branch or tag…** to search branches and tags. |
 | `Mod+,` | Open settings. |
+| `Mod+=` / `Mod+-` / `Mod+0` | Zoom in, zoom out, or return to actual size. |
 | `Mod+T` / `Mod+W` | Open or close a repository tab. |
 | `Mod+Shift+N` | Create a branch. |
 | `Mod+Shift+S` | Stash changes. |

@@ -2,6 +2,43 @@
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-11-14
+
+### Desktop and appearance
+
+- On macOS, use native Gitter, File, Edit, Repository, View, Window, and Help
+  menus, including About, Settings (⌘,), and Check for Updates. The window
+  title follows the active repository, branch, and changed-file count.
+- Adjust whole-interface zoom independently of interface text and code fonts.
+  Zoom controls are available from the View menu and keyboard shortcuts.
+  Improve the contrast of common theme text and adapt the graph toolbar to
+  narrower panels.
+- An explicit update check now fetches a fresh result. On macOS, the download
+  action describes opening the disk image and gives manual installation steps.
+
+### Settings and shortcuts
+
+- Find more individual repository, SSH, integration, AI, template, and backup
+  controls directly from settings search, including asynchronously loaded Git
+  settings. Shortcut recording now works without first focusing the button.
+- Customize or clear the shortcut for committing from the message fields;
+  conflict checks also protect it from extension-pack shortcuts.
+
+### Pull request templates
+
+- Explicitly insert a GitHub default PR template using the signed-in `gh` CLI,
+  or try a Bitbucket Data Center repository or project template using the
+  connected account. Bitbucket's UI endpoint is undocumented and may vary by
+  server version or permission. Existing drafts are not replaced automatically.
+- Preserve edits made while an AI commit message or PR description is being
+  generated.
+
+### Downloads
+
+- Windows x64 and macOS ARM64 (Apple Silicon) installers are available. The
+  Windows installer is unsigned; the Mac app is ad-hoc signed but not
+  notarized, so the operating system may show a security warning.
+
 ## [1.11.0] - 2026-11-14
 
 ### Appearance

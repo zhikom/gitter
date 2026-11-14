@@ -111,8 +111,8 @@ export const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { 
   </button>
 );
 
-export const Field: React.FC<{ label: string; hint?: React.ReactNode; children: React.ReactNode }> = ({ label, hint, children }) => (
-  <label className="block">
+export const Field: React.FC<{ label: string; hint?: React.ReactNode; id?: string; children: React.ReactNode }> = ({ label, hint, id, children }) => (
+  <label id={id} className="block">
     <span className="block text-[11px] font-semibold text-slate-400 mb-1">{label}</span>
     {children}
     {hint && <span className="block text-[10px] text-slate-500 mt-1">{hint}</span>}

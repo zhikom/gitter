@@ -3,19 +3,23 @@
 Research snapshot: 13 November 2026, against Gitter commit `2c6668273fd7` and the font picker added alongside this roadmap. JetBrains references below describe IntelliJ IDEA and the IntelliJ Platform; exact options can differ between products, editions, operating systems, and versions. Gitter is a Git client, so the aim is to borrow useful interaction patterns, not reproduce an IDE.
 
 **Progress, 14 November 2026:** Settings search, General-section resets, and
-validated selective backup are available; search reaches General controls and
-other settings pages but does not index every control. Alternate-branch lane
+validated selective backup are available; search reaches many individual
+controls across settings pages but does not index every dynamic control. Alternate-branch lane
 commits use Git's commit machinery with a separate index, so Git hooks and
-signing apply. Interface text size, system appearance, code size, and line
-height are configurable. App-level shortcuts, up to six toolbar actions, and
+signing apply. Interface zoom, text size, system appearance, code size, and line
+height are configurable. App-level and commit-field shortcuts, up to six toolbar actions, and
 named in-window panel layouts can be customized. Personal and local repository
 templates support commit messages, branch names, and pull request descriptions;
 Git's commit template is a fallback. Explicit local actions show their arguments
 and output, and validated data-only packs can contribute constrained colors,
-safe view shortcuts, and literal templates. Full interface scaling, a complete
-contrast and theme audit, detached windows, provider-managed PR templates,
-extension distribution, and a plugin runtime remain future work. Executable
-plugins remain an explicit research and security gate.
+safe view shortcuts, and literal templates. The PR form can explicitly read a
+GitHub default template or attempt a Bitbucket Data Center template; the latter
+uses an undocumented UI endpoint and its behavior with an actual configured
+template has not been verified. Common opaque theme text/surface pairs are
+checked for contrast, but overlays, states, and all screen layouts have not
+been audited. Detached windows, full provider template selection, extension
+distribution, and a plugin runtime remain future work. Executable plugins
+remain an explicit research and security gate.
 
 ## Recommendation
 
@@ -45,9 +49,9 @@ worktree is rejected. See [`server/virtualBranches.ts`](../server/virtualBranche
 
 The following observations come from the checked-in source and current working tree, not a claim about every released build.
 
-- **Settings:** [`src/preferences.ts`](../src/preferences.ts) stores typed installation preferences in individual `localStorage` keys, with defaults and load-time normalization. [`SettingsModal.tsx`](../src/components/Modals/SettingsModal.tsx) separates general, repository, SSH, integration, Open in, AI, and About pages, with search and portable settings backup. Repository Git settings and Gitter's own settings are distinct in [`server/settings.ts`](../server/settings.ts); Gitter's repo store uses the common Git directory and is shared by linked worktrees, not versioned in the working tree ([`server/repoStore.ts`](../server/repoStore.ts)). Search covers General controls and the other settings pages; it does not yet index each control on every page.
-- **Appearance:** The app has Gitter dark, Codex, and Claude themes; themes apply immediately. Separate interface and code font-family choices include installed-font discovery, custom family names, a preview, and an optional Anthropic Sans font loaded from a local Claude Desktop installation. Diff settings already include font size, tab width, wrapping, whitespace handling, and unified/split mode, while the graph has row density ([guide](USER_GUIDE.md), [`FontSettings.tsx`](../src/components/Modals/FontSettings.tsx), [`DiffView.tsx`](../src/components/Diff/DiffView.tsx)). Font stacks and theme tokens are defined in [`src/index.css`](../src/index.css); the PostCSS pass maps some existing color utilities to tokens ([`postcss.config.js`](../postcss.config.js)). There is no independent UI scale, and theme coverage relies partly on utility-color rewriting and special cases.
-- **Commands and layout:** [`src/commands.ts`](../src/commands.ts) and [`App.tsx`](../src/App.tsx) provide a common app-level command list with editable shortcuts and a customizable set of toolbar actions. Some context-specific handling remains elsewhere, including commit-field `Mod+Enter` ([`CommitBox.tsx`](../src/components/Staging/CommitBox.tsx)). Panel visibility and widths can be saved in named installation-wide layouts. A single `main` Tauri window is configured and created after the sidecar starts ([`tauri.conf.json`](../src-tauri/tauri.conf.json), [`lib.rs`](../src-tauri/src/lib.rs)).
+- **Settings:** [`src/preferences.ts`](../src/preferences.ts) stores typed installation preferences in individual `localStorage` keys, with defaults and load-time normalization. [`SettingsModal.tsx`](../src/components/Modals/SettingsModal.tsx) separates installation and repository sections, with search and portable settings backup. Repository Git settings and Gitter's own settings are distinct in [`server/settings.ts`](../server/settings.ts); Gitter's repo store uses the common Git directory and is shared by linked worktrees, not versioned in the working tree ([`server/repoStore.ts`](../server/repoStore.ts)). Search reaches many individual controls but does not index each dynamically generated entry.
+- **Appearance:** Gitter dark, Codex, and Claude themes apply immediately. Separate interface and code font choices include installed-font discovery and optional locally sourced Anthropic Sans. Whole-interface zoom, independent text size, diff font size, line height, tab width, wrapping, whitespace handling, and graph density are configurable ([guide](USER_GUIDE.md)). The PostCSS pass still maps some existing utilities to theme tokens and special cases; automated contrast checks cover common opaque text and surfaces rather than every state.
+- **Commands and layout:** [`src/commands.ts`](../src/commands.ts) and [`App.tsx`](../src/App.tsx) provide app-level editable shortcuts and customizable toolbar actions. The commit editor has a separately scoped editable shortcut ([`CommitBox.tsx`](../src/components/Staging/CommitBox.tsx)); other contextual controls are not all configurable. Panel widths and visibility can be saved in named installation-wide layouts. A single `main` Tauri window remains ([`tauri.conf.json`](../src-tauri/tauri.conf.json)).
 - **Customization and execution:** Open in entries and separately configured local actions run only on explicit launch. Local actions use argument arrays, expose output and cancellation, and have the user's OS permissions; they are not a sandbox. Data-only packs have a constrained manifest and cannot add commands or executable code. The commit form can explicitly insert Git's configured template before sending a message with `-F -` ([`CommitBox.tsx`](../src/components/Staging/CommitBox.tsx), [`git_core.rs`](../src-tauri/src/git_core.rs)); Git itself does not apply an editor template when `-F` supplies the message ([`git commit`](https://git-scm.com/docs/git-commit)).
 - **Trust boundary:** The desktop app injects a per-launch backend location and token into its main webview, and the sidecar serves authenticated Git operations over loopback ([`lib.rs`](../src-tauri/src/lib.rs), [`src/api/client.ts`](../src/api/client.ts), [`server/index.ts`](../server/index.ts)). The current Tauri config sets `csp` to `null`, and the capability file targets the main window ([`tauri.conf.json`](../src-tauri/tauri.conf.json), [`default.json`](../src-tauri/capabilities/default.json)). Loading untrusted extension code in that webview would place it alongside powerful app access; a token by itself is not isolation from code that can read it.
 

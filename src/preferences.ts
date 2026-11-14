@@ -5,7 +5,7 @@
 import { useCallback, useSyncExternalStore } from 'react';
 import { DEFAULT_OPEN_IN_APPS, type OpenInApp, type OpenInKind } from '../shared/types/openIn';
 import { normalizeFontName } from '../shared/fonts';
-import { normalizeShortcut, reservedShortcut, type ShortcutOverrides } from './shortcutKeys';
+import { normalizeShortcut, reservedShortcutForAction, type ShortcutOverrides } from './shortcutKeys';
 import { normalizeLayouts, type PanelLayout } from '../shared/types/layout';
 import { DEFAULT_TOOLBAR_ACTIONS, normalizeToolbarActions, type ToolbarAction } from '../shared/types/toolbar';
 import { EMPTY_TEMPLATES, normalizeTemplates, type TemplateSet } from '../shared/templates';
@@ -22,6 +22,7 @@ export interface RepoTab {
 export interface Preferences {
   theme: 'classic' | 'codex' | 'claude' | 'system';
   interfaceFont: string;
+  interfaceScale: number;
   interfaceTextScale: number;
   codeFont: string;
   // Diffs
@@ -67,6 +68,7 @@ export interface Preferences {
 const DEFAULTS: Preferences = {
   theme: 'classic',
   interfaceFont: '',
+  interfaceScale: 100,
   interfaceTextScale: 100,
   codeFont: '',
   diffView: 'unified',
@@ -106,6 +108,7 @@ const DEFAULTS: Preferences = {
 const STORAGE_KEYS: Record<keyof Preferences, string> = {
   theme: 'gitter_theme',
   interfaceFont: 'gitter_interface_font',
+  interfaceScale: 'gitter_interface_scale',
   interfaceTextScale: 'gitter_interface_text_scale',
   codeFont: 'gitter_code_font',
   diffView: 'gitter_diff_view',
@@ -154,6 +157,7 @@ const strings = (v: unknown) => (Array.isArray(v) && v.every((s) => typeof s ===
 const NORMALIZE: { [K in keyof Preferences]?: (value: unknown) => Preferences[K] | undefined } = {
   theme: oneOf('classic', 'codex', 'claude', 'system'),
   interfaceFont: normalizeFontName,
+  interfaceScale: (v) => (typeof v === 'number' && INTERFACE_SCALES.includes(v as typeof INTERFACE_SCALES[number]) ? v : undefined),
   interfaceTextScale: (v) => (typeof v === 'number' && [85, 100, 115, 125].includes(v) ? v : undefined),
   codeFont: normalizeFontName,
   openInApps: (value) => {
@@ -168,7 +172,7 @@ const NORMALIZE: { [K in keyof Preferences]?: (value: unknown) => Preferences[K]
   shortcutOverrides: (value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
     const mac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
-    return Object.fromEntries(Object.entries(value).filter(([id, shortcut]) => /^[a-z0-9-]{1,64}$/.test(id) && (shortcut === null || (typeof shortcut === 'string' && normalizeShortcut(shortcut) === shortcut && !reservedShortcut(shortcut, mac)))).slice(0, 200));
+    return Object.fromEntries(Object.entries(value).filter(([id, shortcut]) => /^[a-z0-9-]{1,64}$/.test(id) && (shortcut === null || (typeof shortcut === 'string' && normalizeShortcut(shortcut) === shortcut && !reservedShortcutForAction(shortcut, mac, id)))).slice(0, 200));
   },
   panelLayouts: normalizeLayouts,
   toolbarActions: normalizeToolbarActions,
@@ -189,6 +193,9 @@ const NORMALIZE: { [K in keyof Preferences]?: (value: unknown) => Preferences[K]
   rightPanelWidth: (v) => (typeof v === 'number' && v >= 240 && v <= 2000 ? v : undefined),
   stagingListWidth: (v) => (typeof v === 'number' && v >= 120 && v <= 1200 ? v : undefined),
 };
+
+/** Whole-window zoom levels, shared by Settings and the View menu. */
+export const INTERFACE_SCALES = [85, 100, 115, 125] as const;
 
 function accept<K extends keyof Preferences>(key: K, value: unknown): Preferences[K] {
   const normalize = NORMALIZE[key];

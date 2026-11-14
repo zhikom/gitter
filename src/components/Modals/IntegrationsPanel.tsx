@@ -143,7 +143,7 @@ export const IntegrationsPanel: React.FC<Props> = ({ onCloneRepository, onCreate
         </div>
       )}
 
-      <form onSubmit={connect} className="p-3 bg-[#14181f] border border-[#2a3447] rounded-lg space-y-2">
+      <form id="setting-bitbucket-connect" onSubmit={connect} className="p-3 bg-[#14181f] border border-[#2a3447] rounded-lg space-y-2">
         <strong>Connect a self-hosted server</strong>
         <input className={field} type="url" required value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://server.example.com" />
         <input className={field} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Connection name (optional)" />

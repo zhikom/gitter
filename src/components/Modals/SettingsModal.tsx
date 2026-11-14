@@ -9,7 +9,7 @@ import { api, pickFolder } from '../../api/client';
 import { desktopApi, type SshPublicKey } from '../../api/desktop';
 import type { Integration } from '../../types/integration';
 import { resetPreference, usePreference, type Preferences } from '../../preferences';
-import { searchSettings, SETTINGS, type SettingsTab } from '../../settingsCatalog';
+import { searchSettings, SETTINGS, type SettingsSearchResult, type SettingsTab } from '../../settingsCatalog';
 import { CURRENT_VERSION } from '../../services/updateService';
 import { toast } from '../../utils/toast';
 import { Button, Field, inputClass, Modal } from '../ui/Modal';
@@ -45,16 +45,34 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab = 'general', onClose, onCheckForUpdates, onCloneRepository, onCreateGitHub, commands, onRunLocalAction }) => {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [search, setSearch] = useState('');
+  const [navigation, setNavigation] = useState<SettingsSearchResult | null>(null);
   const results = searchSettings(search, Boolean(repo));
   const openResult = (result: ReturnType<typeof searchSettings>[number]) => {
     setTab(result.tab);
     setSearch('');
-    requestAnimationFrame(() => {
-      const target = document.getElementById(result.tab === 'general' ? `setting-${result.id}` : `settings-tab-${result.tab}`);
-      target?.scrollIntoView({ block: 'start' });
-      (target?.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled), button:not(:disabled)') ?? target)?.focus();
-    });
+    setNavigation(result);
   };
+  useEffect(() => {
+    if (!navigation || search || navigation.tab !== tab) return;
+    const page = document.getElementById(`settings-tab-${tab}`);
+    const focus = (target: HTMLElement | null, requireControl = false) => {
+      if (!target) return false;
+      const selector = 'input:not(:disabled), textarea:not(:disabled), select:not(:disabled), button:not(:disabled)';
+      const control = target.matches(selector) ? target : target.querySelector<HTMLElement>(selector);
+      if (requireControl && !control) return false;
+      target.scrollIntoView({ block: 'nearest' });
+      (control ?? target).focus();
+      return true;
+    };
+    if (!navigation.target) { focus(page); setNavigation(null); return; }
+    const find = () => focus(document.getElementById(`setting-${navigation.target}`), true);
+    if (find()) { setNavigation(null); return; }
+    // Repository settings arrive asynchronously; wait for the actual control.
+    const observer = new MutationObserver(() => { if (find()) setNavigation(null); });
+    if (page) observer.observe(page, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled'] });
+    const timer = setTimeout(() => { focus(page); setNavigation(null); }, 2000);
+    return () => { observer.disconnect(); clearTimeout(timer); };
+  }, [navigation, search, tab]);
   const tabs: Array<{ id: Tab; label: string; icon: React.ReactNode; hidden?: boolean }> = [
     { id: 'general', label: 'General', icon: <SlidersHorizontal className="w-3.5 h-3.5" /> },
     { id: 'repository', label: 'This repository', icon: <FolderGit2 className="w-3.5 h-3.5" />, hidden: !repo },
@@ -76,13 +94,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab =
     <Modal width="lg" tall icon={<SettingsIcon className="w-4 h-4" />} title="Settings" onClose={onClose}>
       <div className="flex-1 min-h-0 flex">
         <nav aria-label="Settings sections" className="w-44 flex-shrink-0 min-h-0 overflow-y-auto border-r border-[#2a3447] p-2 space-y-0.5 bg-[#171c26]">
-          <div className="relative mb-3"><Search aria-hidden="true" className="absolute top-2 left-2 w-3.5 h-3.5 text-slate-500" /><input aria-label="Search settings" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search settings" className={`${inputClass} pl-7`} /></div>
+          <div className="relative mb-3"><Search aria-hidden="true" className="absolute top-2 left-2 w-3.5 h-3.5 text-slate-500" /><input aria-label="Search settings" value={search} onChange={(e) => { setNavigation(null); setSearch(e.target.value); }} placeholder="Search settings" className={`${inputClass} pl-7`} /></div>
           {tabs
             .filter((t) => !t.hidden)
             .map((t) => (
               <button
                 key={t.id}
-                onClick={() => { setTab(t.id); setSearch(''); }}
+                onClick={() => { setNavigation(null); setTab(t.id); setSearch(''); }}
                 aria-current={tab === t.id}
                 className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-xs font-medium ${tab === t.id ? 'bg-[#263245] text-teal-200' : 'text-slate-400 hover:bg-[#202735] hover:text-slate-200'}`}
               >
@@ -167,6 +185,8 @@ const GeneralSettings: React.FC = () => (
     <Section title="Appearance">
       <SettingAnchor name="theme"><div className="flex justify-between items-center mb-1"><span className="text-[11px] font-semibold text-slate-400">Theme</span><ThemeReset /></div><ThemePicker /></SettingAnchor>
       <FontSettings />
+      <Choice name="interfaceScale" label="Interface scale" options={[[85, '85%'], [100, '100%'], [115, '115%'], [125, '125%']]} />
+      <p className="text-[10px] text-slate-500">Scales the whole interface, including icons, panels, and code. Use View → Actual Size to reset it.</p>
       <Choice name="interfaceTextScale" label="Interface text size" options={[[85, '85%'], [100, '100%'], [115, '115%'], [125, '125%']]} />
       <p className="text-[10px] text-slate-500">Changes interface text independently of the code and diff size.</p>
     </Section>
@@ -300,7 +320,7 @@ const SshSettings: React.FC = () => {
       <p>Git and Gitter use your system SSH configuration and agent. Gitter shows public keys; private keys stay on your computer.</p>
       {loading && <p>Loading public keys…</p>}
       {!loading && keys.length === 0 && <p>No public keys were found in ~/.ssh. Generate a key or add an existing one.</p>}
-      {!loading && <div className="flex flex-wrap gap-2"><Button type="button" onClick={() => { setShowGenerate((value) => !value); setResult(''); setPassphrase(''); setConfirmPassphrase(''); }}>{showGenerate ? 'Cancel' : 'Generate SSH key…'}</Button><Button type="button" onClick={async () => {
+      {!loading && <div id="setting-ssh-generate" className="flex flex-wrap gap-2"><Button type="button" onClick={() => { setShowGenerate((value) => !value); setResult(''); setPassphrase(''); setConfirmPassphrase(''); }}>{showGenerate ? 'Cancel' : 'Generate SSH key…'}</Button><Button type="button" onClick={async () => {
         setLoading(true); setResult('');
         try { setKeys(await desktopApi.listSshKeys()); }
         catch (e) { setResult(String(e)); }
@@ -322,7 +342,7 @@ const SshSettings: React.FC = () => {
         <div className="text-slate-500">{key.privateKeyExists ? 'Private key present' : 'No matching private key'} · {key.loadedInAgent ? 'Loaded in SSH agent' : 'Not listed by SSH agent'}</div>
         <div className="mt-2 flex flex-wrap gap-2"><Button type="button" onClick={() => void copyKey(key, null)}>Copy public key</Button>{connection && <Button type="button" onClick={() => void copyKey(key, 'bitbucket')}>Copy and open Bitbucket</Button>}{githubAuthenticated && <Button type="button" onClick={() => void copyKey(key, 'github')}>Copy and open GitHub</Button>}</div>
       </div>)}
-      <Field label="Test an SSH repository" hint="Uses known hosts without accepting new host keys.">
+      <Field id="setting-ssh-test" label="Test an SSH repository" hint="Uses known hosts without accepting new host keys.">
         <input value={remote} onChange={(e) => setRemote(e.target.value)} placeholder="git@example.com:project/repository.git" className={`${inputClass} font-mono`} />
       </Field>
       <Button type="button" busy={testing} disabled={!remote.trim()} onClick={async () => {
@@ -382,22 +402,22 @@ const RepositorySettings: React.FC<{ repo: string }> = ({ repo }) => {
     <>
       <p className="mb-4 text-[11px] text-slate-500">Identity, behavior, and signing use Git configuration, which command-line Git also reads. The diff tool is stored in Gitter's local repository data. Linked worktrees share repository data, but Git can also have per-worktree overrides. Empty Git fields inherit other configured values.</p>
       <Section title="Identity">
-        <Field label="Name">
+        <Field id="setting-repo-name" label="Name">
           <input value={settings.userName} onChange={(e) => set('userName', e.target.value)} placeholder={inherited.userName || 'Not set'} className={inputClass} />
         </Field>
-        <Field label="Email">
+        <Field id="setting-repo-email" label="Email">
           <input value={settings.userEmail} onChange={(e) => set('userEmail', e.target.value)} placeholder={inherited.userEmail || 'Not set'} className={inputClass} />
         </Field>
       </Section>
       <Section title="Behavior">
-        <Field label="Pull">
+        <Field id="setting-repo-pull" label="Pull">
           <select value={String(settings.pullRebase)} onChange={(e) => set('pullRebase', e.target.value === 'null' ? null : e.target.value === 'true')} className={`${inputClass} w-56`}>
             <option value="null">Git's default</option>
             <option value="false">Merge</option>
             <option value="true">Rebase</option>
           </select>
         </Field>
-        <Field label="Line endings (core.autocrlf)">
+        <Field id="setting-repo-line-endings" label="Line endings (core.autocrlf)">
           <select value={String(settings.autocrlf)} onChange={(e) => set('autocrlf', e.target.value === 'null' ? null : (e.target.value as RepoSettings['autocrlf']))} className={`${inputClass} w-56`}>
             <option value="null">Git's default</option>
             <option value="true">Convert to CRLF on checkout</option>
@@ -405,23 +425,23 @@ const RepositorySettings: React.FC<{ repo: string }> = ({ repo }) => {
             <option value="false">Leave as they are</option>
           </select>
         </Field>
-        <Field label="Diff tool" hint="A command with %1 for the old file and %2 for the new one. Empty tries VS Code, then WinMerge or Beyond Compare (FileMerge on macOS).">
+        <Field id="setting-repo-diff-tool" label="Diff tool" hint="A command with %1 for the old file and %2 for the new one. Empty tries VS Code, then WinMerge or Beyond Compare (FileMerge on macOS).">
           <input value={settings.diffTool} onChange={(e) => set('diffTool', e.target.value)} placeholder="code --diff %1 %2" className={`${inputClass} font-mono`} />
         </Field>
       </Section>
       <Section title="Signing">
-        <label className="flex items-center gap-2 text-xs text-slate-300">
+        <label id="setting-repo-sign" className="flex items-center gap-2 text-xs text-slate-300">
           <input type="checkbox" checked={settings.gpgSign} onChange={(e) => set('gpgSign', e.target.checked)} />
           Sign commits
         </label>
-        <Field label="Format">
+        <Field id="setting-repo-sign-format" label="Format">
           <select value={settings.gpgFormat || 'openpgp'} onChange={(e) => set('gpgFormat', e.target.value === 'openpgp' ? '' : e.target.value)} className={`${inputClass} w-56`}>
             <option value="openpgp">OpenPGP (gpg)</option>
             <option value="ssh">SSH key</option>
             <option value="x509">X.509</option>
           </select>
         </Field>
-        <Field label="Signing key">
+        <Field id="setting-repo-sign-key" label="Signing key">
           <input value={settings.signingKey} onChange={(e) => set('signingKey', e.target.value)} placeholder="Key ID, or path to an SSH public key" className={`${inputClass} font-mono`} />
         </Field>
       </Section>
@@ -485,7 +505,7 @@ const AiSettingsForm: React.FC = () => {
   return (
     <>
       <Section title="Provider">
-        <Field label="Provider">
+        <Field id="setting-ai-provider" label="Provider">
           <select
             value={provider ?? ''}
             onChange={(e) => {
@@ -506,15 +526,15 @@ const AiSettingsForm: React.FC = () => {
         </Field>
         {info && (
           <>
-            <Field label="Model">
+            <Field id="setting-ai-model" label="Model">
               <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={info.defaultModel} className={`${inputClass} font-mono`} />
             </Field>
             {info.protocol === 'openai' && (
-              <Field label="API address" hint={info.defaultBaseUrl ? `Empty uses ${info.defaultBaseUrl}` : 'The endpoint base, ending in /v1'}>
+              <Field id="setting-ai-address" label="API address" hint={info.defaultBaseUrl ? `Empty uses ${info.defaultBaseUrl}` : 'The endpoint base, ending in /v1'}>
                 <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={info.defaultBaseUrl ?? 'https://…/v1'} className={`${inputClass} font-mono`} />
               </Field>
             )}
-            <Field label="API key" hint={hasKey ? 'A key is stored. Type a new one to replace it.' : info.needsKey ? 'Required by this provider.' : 'Only if your endpoint needs one.'}>
+            <Field id="setting-ai-key" label="API key" hint={hasKey ? 'A key is stored. Type a new one to replace it.' : info.needsKey ? 'Required by this provider.' : 'Only if your endpoint needs one.'}>
               <div className="flex gap-2">
                 <input type="password" autoComplete="off" value={newKey} onChange={(e) => setNewKey(e.target.value)} placeholder={hasKey ? '••••••••' : 'Paste the key'} className={`${inputClass} font-mono`} />
                 {hasKey && (
