@@ -5,6 +5,7 @@ import React from 'react';
 import { AlignLeft, ArrowLeft, Columns, FileCode, WrapText } from 'lucide-react';
 import type { DiffHunk, DiffLine, FileDiff } from '../../../shared/types/git';
 import { usePreference } from '../../preferences';
+import { useCodeTypography } from '../../useCodeTypography';
 
 interface DiffViewProps {
   diff: FileDiff | undefined;
@@ -64,7 +65,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
 }) => {
   const [view, setView] = usePreference('diffView');
   const [wrap, setWrap] = usePreference('wordWrap');
-  const [fontSize] = usePreference('diffFontSize');
+  const typography = useCodeTypography();
   const [tabSize] = usePreference('tabSize');
   const textClass = wrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre';
 
@@ -106,7 +107,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
         </div>
       </div>
       {banner}
-      <div style={{ fontSize, tabSize }} className="flex-1 overflow-auto p-2 font-mono leading-relaxed select-text">
+      <div style={{ ...typography, tabSize }} className="flex-1 overflow-auto p-2 font-mono leading-relaxed select-text">
         {diff.isBinary ? (
           <div className="p-8 text-center text-slate-500 italic">Binary file; no text diff.</div>
         ) : diff.hunks.length === 0 ? (

@@ -6,6 +6,7 @@ import hljs from 'highlight.js/lib/common';
 import 'highlight.js/styles/github-dark.css';
 import { api } from '../../api/client';
 import { toast } from '../../utils/toast';
+import { useCodeTypography } from '../../useCodeTypography';
 import { ask } from '../ui/ask';
 import { Button, Modal } from '../ui/Modal';
 import { type Conflict, type ConflictedFile, hasMarkers, mergeConflicts, parseConflicts, type Resolution } from '../../../shared/conflicts';
@@ -26,13 +27,15 @@ const SIDE_STYLE = {
 
 /** Highlight only known languages; unknown files stay plain text. */
 const CodePreview: React.FC<{ file: string; code: string }> = ({ file, code }) => {
+  const typography = useCodeTypography();
   const ext = file.split('.').pop()?.toLowerCase() || '';
   const language = ({ tsx: 'typescript', jsx: 'javascript', yml: 'yaml', rs: 'rust', py: 'python', sh: 'bash', zsh: 'bash', md: 'markdown' } as Record<string, string>)[ext] || ext;
   const highlighted = hljs.getLanguage(language) ? hljs.highlight(code, { language, ignoreIllegals: true }).value : null;
-  return <pre className="hljs whitespace-pre-wrap break-words leading-relaxed p-2 rounded select-text">{highlighted === null ? code || '(no lines)' : <code dangerouslySetInnerHTML={{ __html: highlighted }} />}</pre>;
+  return <pre style={typography} className="hljs whitespace-pre-wrap break-words leading-relaxed p-2 rounded select-text">{highlighted === null ? code || '(no lines)' : <code dangerouslySetInnerHTML={{ __html: highlighted }} />}</pre>;
 };
 
 export const ThreeWayConflictResolverModal: React.FC<ThreeWayConflictResolverModalProps> = ({ file, repo, rebasing, onClose, onResolved }) => {
+  const typography = useCodeTypography();
   const sideLabel = { ours: rebasing ? 'Rebasing onto' : 'Yours (checked out)', theirs: rebasing ? 'Your commit' : 'Incoming' };
   const [parsed, setParsed] = useState<ConflictedFile | null>(null);
   const [result, setResult] = useState('');
@@ -197,6 +200,7 @@ export const ThreeWayConflictResolverModal: React.FC<ThreeWayConflictResolverMod
             onChange={(e) => setResult(e.target.value)}
             spellCheck={false}
             aria-label="Merged result"
+            style={typography}
             className="flex-1 bg-transparent p-4 font-mono text-xs text-slate-200 resize-none focus:outline-none leading-relaxed"
           />}
         </div>

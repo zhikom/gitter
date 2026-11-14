@@ -114,6 +114,30 @@ async fn native_git_request(operation: String, input: serde_json::Value) -> Resu
         .await.map_err(|error| error.to_string())?
 }
 
+// The destination comes only from the native save dialog, never from the webview.
+#[tauri::command]
+async fn export_settings_backup(app: AppHandle, content: String) -> Result<bool, String> {
+    if content.len() > 32_768 { return Err("The settings backup is too large.".into()); }
+    let data: serde_json::Value = serde_json::from_str(&content).map_err(|_| "Invalid settings backup.")?;
+    if data.get("format").and_then(|v| v.as_str()) != Some("gitter-settings")
+        || data.get("version").and_then(|v| v.as_u64()) != Some(1)
+        || !data.get("settings").is_some_and(|v| v.is_object()) {
+        return Err("Invalid settings backup.".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let selected = app.dialog().file().set_title("Save Gitter settings")
+            .set_file_name("gitter-settings.json").add_filter("JSON", &["json"]).blocking_save_file();
+        match selected {
+            None => Ok(false),
+            Some(file) => {
+                let path = file.into_path().map_err(|error| error.to_string())?;
+                std::fs::write(path, content).map_err(|error| error.to_string())?;
+                Ok(true)
+            }
+        }
+    }).await.map_err(|error| error.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -123,7 +147,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_integrations, connect_integration, reconnect_integration, disconnect_integration,
             bitbucket_repositories, bitbucket_pull_requests, bitbucket_pull_request, create_bitbucket_pull_request, bitbucket_review, bitbucket_review_action,
-            list_ssh_keys, copy_ssh_public_key, generate_ssh_key, test_ssh_remote, native_git_request
+            list_ssh_keys, copy_ssh_public_key, generate_ssh_key, test_ssh_remote, native_git_request, export_settings_backup
         ])
         .setup(|app| {
             let handle = app.handle().clone();

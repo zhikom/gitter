@@ -3,20 +3,23 @@
 // per-repo store), and the AI provider (the per-user config file; the key is
 // never sent back to the UI).
 import React, { useEffect, useState } from 'react';
-import { Bot, FolderGit2, Globe, Info, KeyRound, Settings as SettingsIcon, SlidersHorizontal } from 'lucide-react';
+import { Bot, Download, FolderGit2, Globe, Info, KeyRound, Search, Settings as SettingsIcon, SlidersHorizontal } from 'lucide-react';
 import { AI_PROVIDERS, type AiProvider } from '../../../shared/aiProviders';
 import { api, pickFolder } from '../../api/client';
 import { desktopApi, type SshPublicKey } from '../../api/desktop';
 import type { Integration } from '../../types/integration';
-import { usePreference, type Preferences } from '../../preferences';
+import { resetPreference, usePreference, type Preferences } from '../../preferences';
+import { searchSettings, SETTINGS, type SettingsTab } from '../../settingsCatalog';
 import { CURRENT_VERSION } from '../../services/updateService';
 import { toast } from '../../utils/toast';
 import { Button, Field, inputClass, Modal } from '../ui/Modal';
 import { IntegrationsPanel } from './IntegrationsPanel';
 import { OpenInSettings } from './OpenInSettings';
 import { FontSettings } from './FontSettings';
+import { PreferenceReset, SettingAnchor } from './PreferenceReset';
+import { SettingsSharing } from './SettingsSharing';
 
-type Tab = 'general' | 'repository' | 'ssh' | 'integrations' | 'open-in' | 'ai' | 'about';
+type Tab = SettingsTab;
 type RepoSettings = Awaited<ReturnType<typeof api.repoSettings>>['settings'];
 
 interface SettingsModalProps {
@@ -30,6 +33,17 @@ interface SettingsModalProps {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab = 'general', onClose, onCheckForUpdates, onCloneRepository, onCreateGitHub }) => {
   const [tab, setTab] = useState<Tab>(initialTab);
+  const [search, setSearch] = useState('');
+  const results = searchSettings(search, Boolean(repo));
+  const openResult = (result: ReturnType<typeof searchSettings>[number]) => {
+    setTab(result.tab);
+    setSearch('');
+    requestAnimationFrame(() => {
+      const target = document.getElementById(result.tab === 'general' ? `setting-${result.id}` : `settings-tab-${result.tab}`);
+      target?.scrollIntoView({ block: 'start' });
+      (target?.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled), button:not(:disabled)') ?? target)?.focus();
+    });
+  };
   const tabs: Array<{ id: Tab; label: string; icon: React.ReactNode; hidden?: boolean }> = [
     { id: 'general', label: 'General', icon: <SlidersHorizontal className="w-3.5 h-3.5" /> },
     { id: 'repository', label: 'This repository', icon: <FolderGit2 className="w-3.5 h-3.5" />, hidden: !repo },
@@ -37,19 +51,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab =
     { id: 'integrations', label: 'Integrations', icon: <Globe className="w-3.5 h-3.5" /> },
     { id: 'open-in', label: 'Open in', icon: <FolderGit2 className="w-3.5 h-3.5" /> },
     { id: 'ai', label: 'AI', icon: <Bot className="w-3.5 h-3.5" /> },
+    { id: 'sharing', label: 'Settings backup', icon: <Download className="w-3.5 h-3.5" /> },
     { id: 'about', label: 'About', icon: <Info className="w-3.5 h-3.5" /> },
   ];
 
   return (
     <Modal width="lg" tall icon={<SettingsIcon className="w-4 h-4" />} title="Settings" onClose={onClose}>
       <div className="flex-1 min-h-0 flex">
-        <nav className="w-44 flex-shrink-0 border-r border-[#2a3447] p-2 space-y-0.5 bg-[#171c26]">
+        <nav aria-label="Settings sections" className="w-44 flex-shrink-0 border-r border-[#2a3447] p-2 space-y-0.5 bg-[#171c26]">
+          <div className="relative mb-3"><Search aria-hidden="true" className="absolute top-2 left-2 w-3.5 h-3.5 text-slate-500" /><input aria-label="Search settings" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search settings" className={`${inputClass} pl-7`} /></div>
           {tabs
             .filter((t) => !t.hidden)
             .map((t) => (
               <button
                 key={t.id}
-                onClick={() => setTab(t.id)}
+                onClick={() => { setTab(t.id); setSearch(''); }}
                 aria-current={tab === t.id}
                 className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-xs font-medium ${tab === t.id ? 'bg-[#263245] text-teal-200' : 'text-slate-400 hover:bg-[#202735] hover:text-slate-200'}`}
               >
@@ -59,12 +75,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab =
             ))}
         </nav>
         <div className="flex-1 min-w-0 overflow-y-auto p-5">
+          {search.trim() ? <div aria-live="polite" className="space-y-2">
+            <h3 className="text-xs font-semibold text-slate-300">Settings matching “{search.trim()}”</h3>
+            {results.length === 0 && <p className="text-xs text-slate-500">No settings found. Try another search.</p>}
+            {results.map((result) => <button type="button" key={`${result.tab}-${result.id}`} onClick={() => openResult(result)} className="block w-full text-left rounded border border-[#2a3447] px-3 py-2 hover:bg-[#202735] focus-visible:outline focus-visible:outline-teal-400"><span className="block text-xs text-slate-200">{result.label}</span><span className="block mt-1 text-[10px] text-slate-500">{result.detail}</span></button>)}
+          </div> : <div id={`settings-tab-${tab}`} tabIndex={-1} className="outline-none">
           {tab === 'general' && <GeneralSettings />}
           {tab === 'repository' && repo && <RepositorySettings repo={repo} />}
           {tab === 'ssh' && <SshSettings />}
           {tab === 'integrations' && <IntegrationsPanel onCloneRepository={onCloneRepository} onCreateGitHub={onCreateGitHub} />}
           {tab === 'open-in' && <OpenInSettings />}
           {tab === 'ai' && <AiSettingsForm />}
+          {tab === 'sharing' && <SettingsSharing />}
           {tab === 'about' && (
             <div className="space-y-3 text-xs text-slate-300">
               <p>
@@ -74,6 +96,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab =
               <Button onClick={() => void api.openUrl({ url: 'https://github.com/zhikom/gitter/blob/main/docs/USER_GUIDE.md' }).catch((error) => toast.error(`Could not open the guide: ${error.message}`))}>Open visual user guide</Button>
             </div>
           )}
+          </div>}
         </div>
       </div>
     </Modal>
@@ -82,7 +105,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ repo, initialTab =
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <section className="mb-6">
-    <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3">{title}</h3>
+    <div className="flex items-center justify-between mb-3"><h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{title}</h3>{SETTINGS.some((setting) => setting.section === title) && <button type="button" onClick={() => SETTINGS.filter((setting) => setting.section === title).forEach((setting) => resetPreference(setting.key))} className="text-[10px] text-slate-400 hover:text-teal-300" aria-label={`Reset ${title} settings`}>Reset section</button>}</div>
     <div className="space-y-3">{children}</div>
   </section>
 );
@@ -90,43 +113,45 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title
 function Toggle<K extends keyof Preferences>({ name, label, hint }: { name: K; label: string; hint?: string }) {
   const [value, setValue] = usePreference(name);
   return (
-    <label className="flex items-start gap-2.5 text-xs text-slate-300">
+    <SettingAnchor name={name}><div className="flex justify-between gap-2"><label className="flex items-start gap-2.5 text-xs text-slate-300">
       <input type="checkbox" className="mt-0.5" checked={Boolean(value)} onChange={(e) => setValue(e.target.checked as Preferences[K])} />
       <span>
         {label}
         {hint && <span className="block text-[10px] text-slate-500">{hint}</span>}
       </span>
-    </label>
+    </label><PreferenceReset name={name} label={label} /></div></SettingAnchor>
   );
 }
 
 function Choice<K extends keyof Preferences>({ name, label, options }: { name: K; label: string; options: Array<[Preferences[K], string]> }) {
   const [value, setValue] = usePreference(name);
   return (
-    <Field label={label}>
-      <select value={String(value)} onChange={(e) => setValue(options.find(([v]) => String(v) === e.target.value)![0])} className={`${inputClass} w-56`}>
+    <SettingAnchor name={name}><div className="flex justify-between items-center mb-1"><label htmlFor={`choice-${name}`} className="text-[11px] font-semibold text-slate-400">{label}</label><PreferenceReset name={name} label={label} /></div>
+      <select id={`choice-${name}`} value={String(value)} onChange={(e) => setValue(options.find(([v]) => String(v) === e.target.value)![0])} className={`${inputClass} w-56`}>
         {options.map(([v, text]) => (
           <option key={String(v)} value={String(v)}>
             {text}
           </option>
         ))}
       </select>
-    </Field>
+    </SettingAnchor>
   );
 }
 
 const GeneralSettings: React.FC = () => (
   <>
     <Section title="Appearance">
-      <ThemePicker />
+      <SettingAnchor name="theme"><div className="flex justify-between items-center mb-1"><span className="text-[11px] font-semibold text-slate-400">Theme</span><PreferenceReset name="theme" label="theme" /></div><ThemePicker /></SettingAnchor>
       <FontSettings />
     </Section>
     <Section title="Repositories">
-      <RepositoryFolderSettings />
+      <SettingAnchor name="cloneFolder"><div className="flex justify-end"><PreferenceReset name="cloneFolder" label="default clone folder" /></div><RepositoryFolderSettings /></SettingAnchor>
     </Section>
     <Section title="Diffs">
       <Choice name="diffView" label="Layout" options={[['unified', 'Unified'], ['split', 'Side by side']]} />
-      <Choice name="diffFontSize" label="Font size" options={[10, 11, 12, 13, 14, 16].map((n) => [n, `${n} px`])} />
+      <Choice name="diffFontSize" label="Code and diff size" options={Array.from({ length: 15 }, (_, index) => index + 10).map((n) => [n, `${n} px`])} />
+      <Choice name="codeLineHeight" label="Code line height" options={[[1.2, 'Tight'], [1.4, 'Compact'], [1.625, 'Normal'], [1.8, 'Relaxed']]} />
+      <p className="text-[10px] text-slate-500">Code size and line height also apply to pull request reviews, blame, selection history, and conflict resolution.</p>
       <Choice name="tabSize" label="Tab width" options={[2, 4, 8].map((n) => [n, `${n} spaces`])} />
       <Toggle name="wordWrap" label="Wrap long lines" />
       <Toggle name="ignoreWhitespace" label="Hide whitespace-only changes" />

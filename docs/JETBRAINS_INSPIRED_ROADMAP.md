@@ -2,11 +2,27 @@
 
 Research snapshot: 13 November 2026, against Gitter commit `2c6668273fd7` and the font picker added alongside this roadmap. JetBrains references below describe IntelliJ IDEA and the IntelliJ Platform; exact options can differ between products, editions, operating systems, and versions. Gitter is a Git client, so the aim is to borrow useful interaction patterns, not reproduce an IDE.
 
+**Progress, 14 November 2026:** The first foundation slice adds settings search,
+individual and General-section resets, and validated selective JSON backup and
+restore. Backups exclude machine paths, accounts, credentials, recent
+repositories, and commands. Alternate-branch lane commits now use Git's commit
+machinery with a separate index and target-branch context, so Git hooks and
+signing apply. Code size and line height are shared across the main diff,
+pull-request review, blame, selection-history, and conflict views. UI scaling,
+keymaps, layouts, templates, and extension packs remain future work; the plugin
+runtime remains an explicit research and security gate.
+
 ## Recommendation
 
 Make Gitter easy to adapt in this order: **settings and Git correctness → typography and appearance → actions and layouts → templates and external tools → declarative extension packs → an evidence-based decision on executable plugins**. Each stage should be useful on its own. Detached windows and executable plugins are high-cost follow-ons, not prerequisites for a configurable workspace.
 
-The most important immediate finding is that ordinary commits go through `git commit`, but a lane that commits to a *different, not checked-out branch* creates a commit with `git commit-tree` and updates the ref. That path does not run the commit hooks invoked by `git commit`; a branch checked out in another worktree is rejected. Gitter should surface and address this distinction before promising uniform hook behavior. See [`server/virtualBranches.ts`](../server/virtualBranches.ts), [`src-tauri/src/git_core.rs`](../src-tauri/src/git_core.rs), and [Git's hook documentation](https://git-scm.com/docs/githooks).
+The initial audit found that a lane committing to a different branch used
+`git commit-tree`, bypassing commit hooks. The follow-up uses `git commit` with a
+temporary linked-worktree Git directory, the target branch, and a separate index;
+hooks run in the original working directory. A branch checked out in another
+worktree is rejected. See [`server/virtualBranches.ts`](../server/virtualBranches.ts),
+[`src-tauri/src/git_core.rs`](../src-tauri/src/git_core.rs), and
+[Git's hook documentation](https://git-scm.com/docs/githooks).
 
 ## What JetBrains makes configurable
 
@@ -24,7 +40,7 @@ The most important immediate finding is that ordinary commits go through `git co
 
 The following observations come from the checked-in source and current working tree, not a claim about every released build.
 
-- **Settings:** [`src/preferences.ts`](../src/preferences.ts) stores typed installation preferences in individual `localStorage` keys, with defaults and load-time normalization. [`SettingsModal.tsx`](../src/components/Modals/SettingsModal.tsx) separates general, repository, SSH, integration, Open in, AI, and About pages. Repository Git settings and Gitter's own settings are distinct in [`server/settings.ts`](../server/settings.ts); Gitter's repo store uses the common Git directory and is shared by linked worktrees, not versioned in the working tree ([`server/repoStore.ts`](../server/repoStore.ts)). There is no unified settings search or general-purpose settings export/import in these surfaces.
+- **Settings:** [`src/preferences.ts`](../src/preferences.ts) stores typed installation preferences in individual `localStorage` keys, with defaults and load-time normalization. [`SettingsModal.tsx`](../src/components/Modals/SettingsModal.tsx) separates general, repository, SSH, integration, Open in, AI, and About pages, with search and portable settings backup. Repository Git settings and Gitter's own settings are distinct in [`server/settings.ts`](../server/settings.ts); Gitter's repo store uses the common Git directory and is shared by linked worktrees, not versioned in the working tree ([`server/repoStore.ts`](../server/repoStore.ts)). Search covers General controls and the other settings pages; it does not yet index each control on every page.
 - **Appearance:** The app has Gitter dark, Codex, and Claude themes; themes apply immediately. Separate interface and code font-family choices include installed-font discovery, custom family names, a preview, and an optional Anthropic Sans font loaded from a local Claude Desktop installation. Diff settings already include font size, tab width, wrapping, whitespace handling, and unified/split mode, while the graph has row density ([guide](USER_GUIDE.md), [`FontSettings.tsx`](../src/components/Modals/FontSettings.tsx), [`DiffView.tsx`](../src/components/Diff/DiffView.tsx)). Font stacks and theme tokens are defined in [`src/index.css`](../src/index.css); the PostCSS pass maps some existing color utilities to tokens ([`postcss.config.js`](../postcss.config.js)). There is no independent UI scale, and theme coverage relies partly on utility-color rewriting and special cases.
 - **Commands and layout:** [`src/commands.ts`](../src/commands.ts) and [`App.tsx`](../src/App.tsx) provide a common app-level command list with fixed shortcuts, also used by the palette. Some context-specific handling remains elsewhere, including commit-field `Mod+Enter` ([`CommitBox.tsx`](../src/components/Staging/CommitBox.tsx)). Panel visibility and several widths are persisted as installation-wide preferences; users can resize and hide panels, but there are no named layout profiles or configurable keymaps. A single `main` Tauri window is configured and created after the sidecar starts ([`tauri.conf.json`](../src-tauri/tauri.conf.json), [`lib.rs`](../src-tauri/src/lib.rs)).
 - **Customization and execution:** Open in entries already support an executable/application, a list of arguments, enablement, ordering, and `{path}` substitution ([`shared/types/openIn.ts`](../shared/types/openIn.ts), [`OpenInSettings.tsx`](../src/components/Modals/OpenInSettings.tsx)). This is not a general plugin host or an automatic event hook system. The commit form uses a summary and description; ordinary commits send a message to Git using `-F -` ([`CommitBox.tsx`](../src/components/Staging/CommitBox.tsx), [`git_core.rs`](../src-tauri/src/git_core.rs)). Git documents that editor-based `commit.template` has no effect when `-F` supplies the message ([`git commit`](https://git-scm.com/docs/git-commit)).

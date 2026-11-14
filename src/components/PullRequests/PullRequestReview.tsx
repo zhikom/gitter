@@ -4,6 +4,7 @@ import type { DiffLine, PullRequest } from '../../../shared/types/git';
 import type { ReviewAnchor, ReviewSnapshot, ReviewSuggestion } from '../../../shared/types/review';
 import { api } from '../../api/client';
 import { desktopApi } from '../../api/desktop';
+import { useCodeTypography } from '../../useCodeTypography';
 import { bitbucketReviewSnapshot, REVIEW_PAGE_ROWS, reviewAnchorPage, reviewPageDiff } from '../../utils/pullReview';
 import { toast } from '../../utils/toast';
 import { Button, inputClass } from '../ui/Modal';
@@ -14,6 +15,7 @@ type Tab = 'changes' | 'discussion' | 'checks';
 type DiffRow = { kind: 'header'; text: string } | { kind: 'line'; line: DiffLine };
 
 export const PullRequestReview: React.FC<Props> = ({ repo, pr }) => {
+  const typography = useCodeTypography();
   const [snapshot, setSnapshot] = useState<ReviewSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -139,7 +141,7 @@ export const PullRequestReview: React.FC<Props> = ({ repo, pr }) => {
             {suggestions.map((suggestion, i) => <button key={i} onClick={() => selectSuggestion(suggestion)} className="block text-left text-teal-300 hover:underline break-all">{suggestion.path}:{suggestion.line} · {suggestion.body.slice(0, 90)}</button>)}
           </div>
         </aside>
-        <div className="flex-1 min-w-0 overflow-auto font-mono text-xs">
+        <div style={typography} className="flex-1 min-w-0 overflow-auto font-mono text-xs">
           {file && <><div className="sticky top-0 bg-[#171c26] px-3 py-2 text-slate-300 border-b border-[#2a3447] flex gap-2 items-center"><span className="truncate">{file.path}</span><span className="ml-auto text-slate-500">Page {page + 1} of {pages}</span><Button aria-label="Previous diff page" disabled={page === 0} onClick={() => { setPage((value) => value - 1); setAnchor(null); }}>Previous</Button><Button aria-label="Next diff page" disabled={page + 1 >= pages} onClick={() => { setPage((value) => value + 1); setAnchor(null); }}>Next</Button></div>
             {file.isBinary && <p className="p-4 text-slate-500">Binary file; no line diff.</p>}
             {rows.slice(page * REVIEW_PAGE_ROWS, (page + 1) * REVIEW_PAGE_ROWS).map((row, index) => {

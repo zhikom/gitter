@@ -20,6 +20,7 @@ export interface Preferences {
   // Diffs
   diffView: 'unified' | 'split';
   diffFontSize: number;
+  codeLineHeight: number;
   tabSize: number;
   wordWrap: boolean;
   ignoreWhitespace: boolean;
@@ -55,6 +56,7 @@ const DEFAULTS: Preferences = {
   codeFont: '',
   diffView: 'unified',
   diffFontSize: 12,
+  codeLineHeight: 1.625,
   tabSize: 4,
   wordWrap: true,
   ignoreWhitespace: false,
@@ -85,6 +87,7 @@ const STORAGE_KEYS: Record<keyof Preferences, string> = {
   codeFont: 'gitter_code_font',
   diffView: 'gitter_diff_view',
   diffFontSize: 'gitter_diff_font_size',
+  codeLineHeight: 'gitter_code_line_height',
   tabSize: 'gitter_tab_size',
   wordWrap: 'gitter_diff_wrap',
   ignoreWhitespace: 'gitter_diff_ws',
@@ -129,6 +132,8 @@ const NORMALIZE: { [K in keyof Preferences]?: (value: unknown) => Preferences[K]
       .map((item) => ({ id: item.id, name: item.name, kind: item.kind, target: item.target, args: item.args, enabled: item.enabled !== false }));
   },
   diffView: oneOf('unified', 'split'),
+  diffFontSize: (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 10 && v <= 24 ? v : undefined),
+  codeLineHeight: (v) => (typeof v === 'number' && [1.2, 1.4, 1.625, 1.8].includes(v) ? v : undefined),
   graphDensity: oneOf('compact', 'normal', 'comfortable'),
   // Earlier versions kept objects ({ path, name, … }) per recent repository.
   recentRepos: (v) => (Array.isArray(v) ? v.map((r) => (typeof r === 'string' ? r : r?.path)).filter((p): p is string => typeof p === 'string') : undefined),
@@ -177,6 +182,15 @@ export function getPreference<K extends keyof Preferences>(key: K): Preferences[
   return cache.get(key) as Preferences[K];
 }
 
+/** The built-in default, independent of the current persisted value. */
+export function defaultPreference<K extends keyof Preferences>(key: K): Preferences[K] {
+  return DEFAULTS[key];
+}
+
+export function resetPreference<K extends keyof Preferences>(key: K): void {
+  setPreference(key, DEFAULTS[key]);
+}
+
 export function setPreference<K extends keyof Preferences>(key: K, value: Preferences[K]): void {
   cache.set(key, value);
   try {
@@ -184,6 +198,36 @@ export function setPreference<K extends keyof Preferences>(key: K, value: Prefer
   } catch {
     // Kept for this session only.
   }
+  listeners.forEach((listener) => listener());
+}
+
+/** Apply a validated import together, rolling back persisted entries if a write fails. */
+export function setPreferencesBatch(entries: Array<[keyof Preferences, Preferences[keyof Preferences]]>): void {
+  const before: Array<{ key: keyof Preferences; raw: string | null }> = [];
+  try {
+    for (const [key] of entries) before.push({ key, raw: localStorage.getItem(STORAGE_KEYS[key]) });
+  } catch {
+    throw new Error('Settings storage is unavailable. No settings were imported.');
+  }
+  let written = 0;
+  try {
+    for (const [key, value] of entries) {
+      localStorage.setItem(STORAGE_KEYS[key], JSON.stringify(value));
+      written++;
+    }
+  } catch {
+    let rollbackFailed = false;
+    for (const { key, raw } of before.slice(0, written).reverse()) {
+      try {
+        if (raw === null) localStorage.removeItem(STORAGE_KEYS[key]);
+        else localStorage.setItem(STORAGE_KEYS[key], raw);
+      } catch { rollbackFailed = true; }
+    }
+    for (const [key] of entries) cache.delete(key);
+    listeners.forEach((listener) => listener());
+    throw new Error(rollbackFailed ? 'Settings could not all be saved or restored. Review the affected settings.' : 'Settings could not be saved. No settings were imported.');
+  }
+  for (const [key, value] of entries) cache.set(key, value);
   listeners.forEach((listener) => listener());
 }
 

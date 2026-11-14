@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-14
+
+### Settings and appearance
+
+- Search settings, jump to matching controls, and reset individual General
+  preferences or whole sections.
+- Save or copy a selective settings backup and preview and validate a JSON
+  import before applying it. Backups exclude accounts, credentials, repository
+  paths, recent repositories, and configured commands.
+- Choose code size and line height for diffs, pull request reviews, blame,
+  selection history, and conflict resolution. Existing diff-size choices carry
+  over.
+
+### Git hooks
+
+- Run Git commit hooks and configured signing for lane commits to another branch.
+  Hook failures are reported without moving the target branch; the original
+  checkout and index remain separate from the lane commit. Hooks can modify
+  working files as they do with command-line Git.
+
+### Downloads
+
+- Windows x64 and macOS ARM64 (Apple Silicon) installers are available. The
+  Windows installer is unsigned; the Mac app is ad-hoc signed but not
+  notarized, so the operating system may show a security warning.
+
 ## [1.9.0] - 2026-11-13
 
 ### Appearance

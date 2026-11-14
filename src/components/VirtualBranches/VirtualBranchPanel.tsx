@@ -160,6 +160,7 @@ export const VirtualBranchPanel: React.FC<VirtualBranchPanelProps> = ({
       });
       toast.success(`Committed ${lane.filePaths.length} files to ${res.branchName} (${res.commitHash.slice(0, 7)}).`);
       if (res.pushError) toast.error(`The commit is made, but the push failed: ${res.pushError}`);
+      if (res.cleanupWarning) toast.error(res.cleanupWarning);
 
       // Clear assigned files that were committed
       const next = virtualBranches.map((vb) =>

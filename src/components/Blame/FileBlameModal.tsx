@@ -3,6 +3,7 @@ import { FileCode, History } from 'lucide-react';
 import type { BlameLine } from '../../../shared/types/git';
 import { api } from '../../api/client';
 import { usePreference } from '../../preferences';
+import { useCodeTypography } from '../../useCodeTypography';
 import { toast } from '../../utils/toast';
 import { Button, Modal } from '../ui/Modal';
 
@@ -20,6 +21,7 @@ interface FileBlameModalProps {
 export const FileBlameModal: React.FC<FileBlameModalProps> = ({ file, repo, revision, onClose, onOpenCommit, onOpenHistory, onSelectionHistory }) => {
   const [lines, setLines] = useState<BlameLine[] | null>(null);
   const [tabSize] = usePreference('tabSize');
+  const typography = useCodeTypography();
 
   useEffect(() => {
     let current = true;
@@ -50,7 +52,7 @@ export const FileBlameModal: React.FC<FileBlameModalProps> = ({ file, repo, revi
         </Button></>
       }
     >
-      <div style={{ tabSize }} className="flex-1 overflow-auto bg-[#14181f] font-mono text-xs select-text">
+      <div style={{ ...typography, tabSize }} className="flex-1 overflow-auto bg-[#14181f] font-mono text-xs select-text">
         {lines?.length === 0 && <div className="text-center py-16 text-slate-500">No committed lines to blame.</div>}
         {lines?.map((line) => (
           <div key={line.lineNumber} className="flex items-start hover:bg-[#1a2333]/40">

@@ -3,13 +3,15 @@ import { ANTHROPIC_SANS, hasAnthropicSystemFont, normalizeFontName } from '../..
 import { api } from '../../api/client';
 import { ensureClaudeSans } from '../../fontAppearance';
 import { usePreference } from '../../preferences';
+import { useCodeTypography } from '../../useCodeTypography';
 import { Button, inputClass } from '../ui/Modal';
+import { PreferenceReset, SettingAnchor } from './PreferenceReset';
 
 type Catalog = Awaited<ReturnType<typeof api.fontCatalog>>;
 
-type FontChoiceProps = { label: string; value: string; onChange: (value: string) => void; catalog: Catalog | null; loading: boolean; hint?: string };
+type FontChoiceProps = { label: string; value: string; onChange: (value: string) => void; catalog: Catalog | null; loading: boolean; hint?: string; reset: React.ReactNode };
 
-const FontChoice: React.FC<FontChoiceProps> = ({ label, value, onChange, catalog, loading, hint }) => {
+const FontChoice: React.FC<FontChoiceProps> = ({ label, value, onChange, catalog, loading, hint, reset }) => {
   const [custom, setCustom] = useState(value === ANTHROPIC_SANS ? '' : value);
   useEffect(() => { setCustom(value === ANTHROPIC_SANS ? '' : value); }, [value]);
   const families = catalog?.families ?? [];
@@ -17,7 +19,7 @@ const FontChoice: React.FC<FontChoiceProps> = ({ label, value, onChange, catalog
   const customName = normalizeFontName(custom);
   const anthropicInstalled = catalog?.claudeDesktopFont || hasAnthropicSystemFont(families);
   return <div>
-    <div className="block text-[11px] font-semibold text-slate-400 mb-1">{label}</div>
+    <div className="flex justify-between items-center mb-1"><span className="text-[11px] font-semibold text-slate-400">{label}</span>{reset}</div>
     <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className={inputClass}>
       <option value="">Theme default</option>
       <option value={ANTHROPIC_SANS}>Anthropic Sans{catalog ? anthropicInstalled ? catalog.claudeDesktopFont ? ' (Claude Desktop)' : ' (installed)' : ' (not found)' : ''}</option>
@@ -38,6 +40,7 @@ const FontChoice: React.FC<FontChoiceProps> = ({ label, value, onChange, catalog
 };
 
 export const FontSettings: React.FC = () => {
+  const typography = useCodeTypography();
   const [interfaceFont, setInterfaceFont] = usePreference('interfaceFont');
   const [codeFont, setCodeFont] = usePreference('codeFont');
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -59,15 +62,15 @@ export const FontSettings: React.FC = () => {
   }, [usingAnthropic, catalog?.claudeDesktopFont]);
   const systemAnthropic = hasAnthropicSystemFont(catalog?.families ?? []);
   return <div className="space-y-3">
-    <FontChoice label="Interface font" value={interfaceFont} onChange={setInterfaceFont} catalog={catalog} loading={loading} />
-    <FontChoice label="Code and diff font" value={codeFont} onChange={setCodeFont} catalog={catalog} loading={loading} hint="Choose a monospaced font to keep diff columns aligned. Diff size is set below." />
+    <SettingAnchor name="interfaceFont"><FontChoice label="Interface font" value={interfaceFont} onChange={setInterfaceFont} catalog={catalog} loading={loading} reset={<PreferenceReset name="interfaceFont" label="interface font" />} /></SettingAnchor>
+    <SettingAnchor name="codeFont"><FontChoice label="Code and diff font" value={codeFont} onChange={setCodeFont} catalog={catalog} loading={loading} hint="Choose a monospaced font to keep diff columns aligned. Code size is set under Diffs." reset={<PreferenceReset name="codeFont" label="code and diff font" />} /></SettingAnchor>
     {(unavailable || catalog?.listingFailed) && <p className="text-[10px] text-amber-300">Installed fonts could not be listed. You can still enter a family name above.</p>}
     {usingAnthropic && catalog && <p className="text-[10px] text-slate-500">
       {catalog.claudeDesktopFont ? claudeStatus === 'failed' ? 'Could not load the font from Claude Desktop; a system fallback is shown.' : claudeStatus === 'ready' ? 'Using Anthropic Sans from your local Claude Desktop installation.' : 'Loading Anthropic Sans from Claude Desktop…' : systemAnthropic ? 'Using the installed Anthropic Sans family.' : 'Anthropic Sans was not found. Install it separately or choose another font; a system fallback is shown.'}
     </p>}
     <div className="rounded border border-[#2a3447] bg-[#14181f] px-3 py-2 text-xs text-slate-200">
       <div>The quick brown fox · Aa Bb 0123</div>
-      <div className="font-mono mt-1 text-slate-400">const branch = 'main'; {'//'} 0123</div>
+      <div style={typography} className="font-mono mt-1 text-slate-400">const branch = 'main'; {'//'} 0123</div>
     </div>
   </div>;
 };

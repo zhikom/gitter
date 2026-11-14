@@ -3,6 +3,7 @@ import { ArrowLeft, History } from 'lucide-react';
 import type { SelectionHistoryRevision } from '../../../shared/types/git';
 import { api } from '../../api/client';
 import { usePreference } from '../../preferences';
+import { useCodeTypography } from '../../useCodeTypography';
 import { DiffView } from '../Diff/DiffView';
 import { Button, Modal } from '../ui/Modal';
 
@@ -25,6 +26,7 @@ export const SelectionHistoryModal: React.FC<Props> = ({ repo, file, revision, o
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [tabSize] = usePreference('tabSize');
+  const typography = useCodeTypography();
   const anchorRef = useRef<number | null>(null);
   const start = anchor !== null && active !== null ? Math.min(anchor, active) : null;
   const end = anchor !== null && active !== null ? Math.max(anchor, active) : null;
@@ -60,7 +62,7 @@ export const SelectionHistoryModal: React.FC<Props> = ({ repo, file, revision, o
     {error && <div role="alert" className="px-4 py-2 text-xs text-rose-300 bg-rose-500/10 border-b border-rose-500/20">{error}</div>}
     {!showHistory ? <>
       <div className="px-4 py-2 text-xs text-slate-400 border-b border-[#2a3447]">Click or drag across lines; Shift-click extends the selection. This shows committed source, so uncommitted changes are not included.</div>
-      <div role="listbox" aria-label="Source lines" aria-multiselectable="true" style={{ tabSize }} className="flex-1 overflow-auto bg-[#14181f] font-mono text-xs select-none">
+      <div role="listbox" aria-label="Source lines" aria-multiselectable="true" style={{ ...typography, tabSize }} className="flex-1 overflow-auto bg-[#14181f] font-mono text-xs select-none">
         {!source && !error && <div className="p-6 text-slate-500">Loading committed file…</div>}
         {source?.lines.length === 0 && <div className="p-6 text-slate-500">This file is empty in the selected revision.</div>}
         {source?.lines.map((text, index) => {
@@ -78,7 +80,7 @@ export const SelectionHistoryModal: React.FC<Props> = ({ repo, file, revision, o
                 (event.currentTarget.parentElement?.querySelector(`[data-line="${next}"]`) as HTMLElement | null)?.focus();
               }
             }} data-line={line}
-            className={`flex cursor-pointer leading-5 ${chosen ? 'bg-teal-500/20 text-slate-100' : 'text-slate-300 hover:bg-[#202735]'}`}>
+            className={`flex cursor-pointer ${chosen ? 'bg-teal-500/20 text-slate-100' : 'text-slate-300 hover:bg-[#202735]'}`}>
             <span className="w-14 flex-shrink-0 text-right pr-3 text-slate-500 border-r border-[#222a38]">{line}</span><span className="px-3 whitespace-pre">{text || ' '}</span>
           </div>;
         })}

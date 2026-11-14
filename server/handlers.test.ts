@@ -22,6 +22,9 @@ import { buildPatch, wholeHunk, type LineSelection } from '../shared/patch';
 import { mergeConflicts, parseConflicts } from '../shared/conflicts';
 import type { FileDiff } from '../shared/types/git';
 import { joinRepoFolder, repositoryNameFromUrl, repositoryParent } from '../src/utils/repositoryPaths';
+import { defaultPreference, getPreference, resetPreference, setPreference } from '../src/preferences';
+import { searchSettings } from '../src/settingsCatalog';
+import { applySettingsBackup, exportSettings, parseSettingsBackup } from '../src/settingsTransfer';
 
 const api = createHandlers({ onUpdateInstalling: () => {} });
 const temps: string[] = [];
@@ -755,6 +758,129 @@ describe('stash', () => {
 });
 
 describe('virtual branches', () => {
+  test('a rejecting pre-commit hook prevents a lane commit to another branch', async () => {
+    const repo = await newRepo();
+    const hook = path.join(repo, '.git', 'hooks', 'pre-commit');
+    fs.writeFileSync(hook, '#!/bin/sh\necho "hook rejected lane" >&2\nexit 1\n', { mode: 0o755 });
+    write(repo, 'a.txt', 'lane change\n');
+    await assert.rejects(
+      api.commitVirtualBranch({ repo, branchName: 'lane-hooks', files: ['a.txt'], summary: 'lane work' }),
+      /hook rejected lane/
+    );
+    assert.equal((await git(repo, ['branch', '--show-current'])).trim(), 'main');
+    assert.equal(read(repo, 'a.txt'), 'lane change\n');
+    assert.equal((await git(repo, ['diff', '--cached', '--name-only'])).trim(), '');
+    assert.equal((await git(repo, ['branch', '--list', 'lane-hooks'])).trim(), '');
+  });
+
+  test('lane commits use configured Git hooks, their changes, and the target branch context', async () => {
+    const repo = await newRepo();
+    await git(repo, ['branch', 'lane-hooks']);
+    await git(repo, ['config', 'core.hooksPath', '.githooks']);
+    const hook = (name: string, body: string) => {
+      const file = path.join(repo, '.githooks', name);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, `#!/bin/sh\nset -e\n${body}\n`, { mode: 0o755 });
+    };
+    hook('pre-commit', 'git branch --show-current > .hook-branch\nprintf "formatted by hook\\n" > a.txt\ngit add -- a.txt');
+    hook('prepare-commit-msg', 'printf "\\nprepared\\n" >> "$1"');
+    hook('commit-msg', 'printf "validated\\n" >> "$1"');
+    hook('post-commit', 'git branch --show-current > .hook-post');
+    hook('post-checkout', 'printf "unexpected checkout\\n" > .hook-checkout');
+    write(repo, 'a.txt', 'staged in main\n');
+    await git(repo, ['add', '--', 'a.txt']);
+    write(repo, 'a.txt', 'lane change\n');
+    const { commitHash } = await api.commitVirtualBranch({ repo, branchName: 'lane-hooks', files: ['a.txt'], summary: 'lane work' });
+    assert.equal(read(repo, '.hook-branch'), 'lane-hooks\n');
+    assert.equal(read(repo, '.hook-post'), 'lane-hooks\n');
+    assert.equal(fs.existsSync(path.join(repo, '.hook-checkout')), false, 'preparing the temporary branch must not run checkout hooks');
+    assert.equal(read(repo, 'a.txt'), 'formatted by hook\n');
+    assert.equal(await git(repo, ['show', `${commitHash}:a.txt`]), 'formatted by hook\n');
+    assert.match(await git(repo, ['log', '-1', '--format=%B', commitHash]), /lane work\n\nprepared\nvalidated/);
+    assert.equal(await git(repo, ['show', ':a.txt']), 'staged in main\n');
+    assert.equal((await git(repo, ['branch', '--show-current'])).trim(), 'main');
+    assert.equal((await git(repo, ['worktree', 'list', '--porcelain'])).match(/^worktree /gm)?.length, 1);
+  });
+
+  test('a rejected lane commit leaves an existing branch and the original index unchanged', async () => {
+    const repo = await newRepo();
+    await git(repo, ['branch', 'lane-hooks']);
+    const before = (await git(repo, ['rev-parse', 'lane-hooks'])).trim();
+    const hook = path.join(repo, '.git', 'hooks', 'commit-msg');
+    fs.writeFileSync(hook, '#!/bin/sh\necho "message rejected" >&2\nexit 1\n', { mode: 0o755 });
+    write(repo, 'a.txt', 'staged content\n');
+    await git(repo, ['add', '--', 'a.txt']);
+    write(repo, 'a.txt', 'working content\n');
+    await assert.rejects(api.commitVirtualBranch({ repo, branchName: 'lane-hooks', files: ['a.txt'], summary: 'lane work' }), /message rejected/);
+    assert.equal((await git(repo, ['rev-parse', 'lane-hooks'])).trim(), before);
+    assert.equal(await git(repo, ['show', ':a.txt']), 'staged content\n');
+    assert.equal(read(repo, 'a.txt'), 'working content\n');
+    assert.equal((await git(repo, ['worktree', 'list', '--porcelain'])).match(/^worktree /gm)?.length, 1);
+  });
+
+  test('lane commit signing failures are surfaced without moving the target branch', async () => {
+    const repo = await newRepo();
+    await git(repo, ['branch', 'lane-signed']);
+    const before = (await git(repo, ['rev-parse', 'lane-signed'])).trim();
+    const signer = path.join(repo, 'failing-signer');
+    fs.writeFileSync(signer, '#!/bin/sh\necho "signer refused" >&2\nexit 1\n', { mode: 0o755 });
+    await git(repo, ['config', 'commit.gpgsign', 'true']);
+    await git(repo, ['config', 'gpg.program', signer]);
+    write(repo, 'a.txt', 'lane change\n');
+    await assert.rejects(api.commitVirtualBranch({ repo, branchName: 'lane-signed', files: ['a.txt'], summary: 'signed lane' }), /sign|failed/i);
+    assert.equal((await git(repo, ['rev-parse', 'lane-signed'])).trim(), before);
+    assert.equal(read(repo, 'a.txt'), 'lane change\n');
+    assert.equal((await git(repo, ['diff', '--cached', '--name-only'])).trim(), '');
+  });
+
+  test('lane commits honor settings from the current worktree Git config', async () => {
+    const repo = await newRepo();
+    await git(repo, ['config', 'extensions.worktreeConfig', 'true']);
+    await git(repo, ['config', '--worktree', 'user.name', 'Worktree Author']);
+    await git(repo, ['config', '--worktree', 'core.hooksPath', '.worktree-hooks']);
+    const hook = path.join(repo, '.worktree-hooks', 'commit-msg');
+    fs.mkdirSync(path.dirname(hook), { recursive: true });
+    fs.writeFileSync(hook, '#!/bin/sh\nprintf "\\nworktree config hook\\n" >> "$1"\n', { mode: 0o755 });
+    write(repo, 'a.txt', 'lane change\n');
+    const { commitHash } = await api.commitVirtualBranch({ repo, branchName: 'lane-worktree-config', files: ['a.txt'], summary: 'lane work' });
+    assert.equal((await git(repo, ['show', '-s', '--format=%an', commitHash])).trim(), 'Worktree Author');
+    assert.match(await git(repo, ['log', '-1', '--format=%B', commitHash]), /worktree config hook/);
+  });
+
+  test('a concurrent target ref update is not overwritten by a lane commit', async () => {
+    const repo = await newRepo();
+    await git(repo, ['branch', 'lane-race']);
+    const parent = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+    const tree = (await git(repo, ['rev-parse', 'HEAD^{tree}'])).trim();
+    const other = (await git(repo, ['commit-tree', tree, '-p', parent, '-m', 'concurrent work'])).trim();
+    const hook = path.join(repo, '.git', 'hooks', 'pre-commit');
+    fs.writeFileSync(hook, `#!/bin/sh\ngit update-ref refs/heads/lane-race ${other}\n`, { mode: 0o755 });
+    write(repo, 'a.txt', 'lane change\n');
+    await assert.rejects(api.commitVirtualBranch({ repo, branchName: 'lane-race', files: ['a.txt'], summary: 'lane work' }), /cannot lock ref|is at|reference already exists/i);
+    assert.equal((await git(repo, ['rev-parse', 'lane-race'])).trim(), other);
+    assert.equal((await git(repo, ['branch', '--show-current'])).trim(), 'main');
+    assert.equal((await git(repo, ['diff', '--cached', '--name-only'])).trim(), '');
+  });
+
+  test('lane commits from a linked worktree keep both checkouts and indexes intact', async () => {
+    const repo = await newRepo();
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'gitter-linked-test-'));
+    temps.push(parent);
+    const linked = path.join(parent, 'checkout');
+    await git(repo, ['worktree', 'add', '-b', 'source-worktree', '--', linked, 'HEAD']);
+    write(linked, 'a.txt', 'linked staged\n');
+    await git(linked, ['add', '--', 'a.txt']);
+    write(linked, 'a.txt', 'linked working\n');
+    await assert.rejects(api.commitVirtualBranch({ repo: linked, branchName: 'main', files: ['a.txt'], summary: 'not allowed' }), /checked out in/);
+    const { commitHash } = await api.commitVirtualBranch({ repo: linked, branchName: 'linked-lane', files: ['a.txt'], summary: 'lane work' });
+    assert.equal(await git(linked, ['show', `${commitHash}:a.txt`]), 'linked working\n');
+    assert.equal(await git(linked, ['show', ':a.txt']), 'linked staged\n');
+    assert.equal(read(linked, 'a.txt'), 'linked working\n');
+    assert.equal(read(repo, 'a.txt'), 'one\ntwo\n');
+    assert.equal((await git(repo, ['diff', '--cached', '--name-only'])).trim(), '');
+    assert.equal((await git(linked, ['branch', '--show-current'])).trim(), 'source-worktree');
+  });
+
   test('committing a lane to another branch leaves the checkout and index alone', async () => {
     const repo = await newRepo();
     write(repo, 'a.txt', 'lane change\n');
@@ -795,6 +921,53 @@ describe('virtual branches', () => {
 });
 
 describe('settings', () => {
+  test('search finds settings and relevant pages without inventing a repository', () => {
+    assert.ok(searchSettings('font anthropic', false).some((result) => result.id === 'interfaceFont'));
+    assert.ok(searchSettings('bitbucket token', false).some((result) => result.id === 'integrations'));
+    assert.equal(searchSettings('identity email', false).length, 0);
+    assert.equal(searchSettings('identity email', true)[0].id, 'repository');
+  });
+
+  test('settings backups validate before selectively applying and exclude machine-specific data', () => {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    const values = new Map<string, string>([['gitter_diff_view', 'split']]);
+    let failKey = '';
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { if (key === failKey) { failKey = ''; throw new Error('storage full'); } values.set(key, value); },
+      removeItem: (key: string) => values.delete(key),
+    } });
+    try {
+      assert.equal(getPreference('diffView'), 'split', 'legacy bare-string preferences remain readable');
+      setPreference('cloneFolder', '/private/work/repos');
+      setPreference('theme', 'claude');
+      setPreference('wordWrap', false);
+      const backup = exportSettings(['Appearance', 'Diffs']);
+      assert.doesNotMatch(backup, /private|cloneFolder|openInApps|recentRepos|token/i);
+      const parsed = parseSettingsBackup(backup);
+      resetPreference('theme');
+      resetPreference('wordWrap');
+      assert.equal(getPreference('theme'), defaultPreference('theme'));
+      assert.equal(applySettingsBackup(parsed, ['Appearance']), 3);
+      assert.equal(getPreference('theme'), 'claude');
+      assert.equal(getPreference('wordWrap'), true, 'unselected sections are left alone');
+      assert.equal(getPreference('cloneFolder'), '/private/work/repos');
+      for (const settings of [{ cloneFolder: '/private/path' }, { theme: 'malicious' }, { diffFontSize: -1 }, { codeFont: '/private/font' }]) {
+        assert.throws(() => parseSettingsBackup(JSON.stringify({ format: 'gitter-settings', version: 1, settings })));
+      }
+      assert.throws(() => parseSettingsBackup(JSON.stringify({ format: 'gitter-settings', version: 1, settings: { wordWrap: false, theme: 'invalid' } })));
+      assert.equal(getPreference('wordWrap'), true, 'invalid imports do not apply any values');
+      const rollback = parseSettingsBackup(JSON.stringify({ format: 'gitter-settings', version: 1, settings: { theme: 'codex', wordWrap: false } }));
+      failKey = 'gitter_diff_wrap';
+      assert.throws(() => applySettingsBackup(rollback, ['Appearance', 'Diffs']), /No settings were imported/);
+      assert.equal(getPreference('theme'), 'claude', 'a failed later write restores earlier settings');
+      assert.equal(getPreference('wordWrap'), true);
+    } finally {
+      if (previous) Object.defineProperty(globalThis, 'localStorage', previous);
+      else Reflect.deleteProperty(globalThis, 'localStorage');
+    }
+  });
+
   test('identity is stored in the repository\'s git config and can be cleared', async () => {
     const repo = await newRepo();
     await api.saveRepoSettings({ repo, settings: { userName: 'Override', pullRebase: true } });

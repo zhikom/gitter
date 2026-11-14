@@ -157,6 +157,16 @@ Open **Settings → General → Appearance** to choose **Gitter dark**, **Codex*
 list, or enter a family name. The preview and app update immediately; choices
 are remembered. Use **Theme default** to restore the theme's font. For aligned
 code and diff columns, choose a monospaced font; diff size is in **Diffs**.
+The same **Code and diff size** and **Code line height** settings apply in
+diffs, pull request reviews, blame, selection history, and conflict resolution.
+
+Use **Search settings** to find a control across the settings pages. **Reset**
+restores one choice, and **Reset section** restores the choices in that General
+section. In **Settings → Settings backup**, select sections to save or copy as
+JSON. To restore a backup, choose the file or paste the JSON, preview it, select
+sections, and apply them. Backups omit repository paths, recent repositories,
+accounts, tokens, and Open in commands. Repository Git settings and integration
+credentials stay on the original machine.
 
 The **Anthropic Sans** option uses the font from a local Claude Desktop
 installation on macOS when available, or a matching system-installed family.
@@ -188,6 +198,10 @@ argument on each line and use `{path}` where the repository folder belongs.
 
 For older Git actions, open **Reflog** from the command palette. Review what a
 reset, restore, or revert will change before using it. Git operations use your
-installed Git and signing configuration. Ordinary commits run Git's commit
-hooks; lane commits targeting a different, unchecked-out branch use Git
-plumbing and do not run the usual commit hooks.
+installed Git and signing configuration. Lane commits also run Git's normal
+commit hooks, including configured hook paths and hooks that edit the message or
+stage changes. For a lane on a different branch, Gitter temporarily registers
+that branch in a separate Git worktree and index while hooks run against the
+current working directory. The current checkout and its index stay as they are;
+hooks themselves can change working files, just as with a command-line commit.
+A branch already checked out in another worktree cannot be used for a lane.
