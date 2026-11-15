@@ -74,7 +74,7 @@ const Menu: React.FC<{ button: (toggle: () => void, open: boolean) => React.Reac
     <div ref={root} className="relative">
       {button(() => setOpen(!open), open)}
       {open && (
-        <div role="menu" onClick={() => setOpen(false)} className={`absolute top-full mt-1 ${align === 'right' ? 'right-0' : 'left-0'} min-w-[13rem] bg-[#1b212c] border border-[#2a3447] rounded-lg shadow-2xl py-1 z-50 text-xs`}>
+        <div role="menu" onClick={() => setOpen(false)} className={`absolute top-full mt-1 ${align === 'right' ? 'right-0' : 'left-0'} w-max min-w-[13rem] bg-[#1b212c] border border-[#2a3447] rounded-lg shadow-2xl py-1 z-50 text-xs`}>
           {children}
         </div>
       )}
@@ -94,7 +94,7 @@ const MenuItem: React.FC<{ command: Command | undefined; disabled?: boolean }> =
       className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-slate-200 hover:bg-[#262f3f] disabled:opacity-40"
     >
       {Icon && <Icon className="w-3.5 h-3.5 text-slate-400" />}
-      <span className="flex-1">{command.title}</span>
+      <span className="flex-1 whitespace-nowrap">{command.title}</span>
       {command.shortcut && <span className="text-[10px] text-slate-500 font-mono">{shortcutLabel(command.shortcut)}</span>}
     </button>
   );
