@@ -22,44 +22,6 @@
   Windows installer is unsigned; the Mac app is ad-hoc signed but not
   notarized, so the operating system may show a security warning.
 
-## [1.15.1] - 2026-11-15
-
-### Work overview
-
-- Browse local and remote-tracking branches, linked worktrees, stashes, and
-  local-only commits across repositories. Inspect files, history, upstream
-  status, and optional GitHub or Bitbucket pull requests and build checks.
-- Find and link possible Codex and Claude Code sessions, continue them in a
-  desktop app when supported, or copy a terminal resume command.
-- Generate a work summary with Codex or Claude Code using Git evidence and,
-  only when selected, recent conversation messages.
-- Match Windows worktree paths regardless of case and path separator when
-  preparing a summary.
-
-### Downloads
-
-- This version was not published because its Windows build failed. Use 1.15.2.
-
-## [1.15.0] - 2026-11-15
-
-### Work overview
-
-- Browse local branches and linked worktrees across your default folder, open
-  tabs, and recent repositories. Inspect changed files, stashes, detached worktrees,
-  commits, upstream and push status, and commits absent from last-fetched
-  origin refs without checking out or fetching. Optionally include remote
-  branches and load related GitHub or Bitbucket pull requests and checks.
-- Find possible local Codex and Claude Code sessions, link a session to a
-  worktree, and continue in the desktop app when supported. Copy a terminal
-  resume command as a fallback. Session matching and activity are not assumed.
-- Ask Codex or Claude Code for a work summary using bounded Git evidence and,
-  only when selected, recent conversation messages. Results distinguish
-  suggestions and uncertainties from observed facts.
-
-### Downloads
-
-- This version was not published because its Windows build failed. Use 1.15.2.
-
 ## [1.14.0] - 2026-11-15
 
 ### Appearance
