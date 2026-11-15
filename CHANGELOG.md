@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-11-15
+
+### Pulling with local changes
+
+- Pull with auto-stash, with or without rebase, from the Pull menu, command
+  palette, or macOS Repository menu. Gitter restores staged, unstaged, and
+  untracked changes and retains a named backup in Stashes for recovery.
+- If a pull or restoration fails, the backup remains available. Gitter restores
+  it automatically after a failed pull when the working tree is safe, and
+  stops before pulling when submodule changes cannot be saved.
+
+### Downloads
+
+- Windows x64 and macOS ARM64 (Apple Silicon) installers are available. The
+  Windows installer is unsigned; the Mac app is ad-hoc signed but not
+  notarized, so the operating system may show a security warning.
+
 ## [1.15.2] - 2026-11-15
 
 ### Work overview

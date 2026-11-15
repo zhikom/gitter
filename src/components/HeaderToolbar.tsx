@@ -30,6 +30,8 @@ const icon = 'p-1.5 rounded transition text-slate-400 hover:text-slate-100 hover
 
 const commandHelp: Record<string, string> = {
   pull: 'Fetch and integrate changes from the tracked remote branch.',
+  'pull-stash': 'Save staged, unstaged, and untracked changes, pull, then restore them. A backup remains in Stashes.',
+  'pull-rebase-stash': 'Save staged, unstaged, and untracked changes, pull with rebase, then restore them. A backup remains in Stashes.',
   push: 'Send local commits to the tracked remote branch.',
   fetch: 'Update remote-tracking references without changing your files.',
   'new-branch': 'Create a branch from the selected starting point.',
@@ -80,14 +82,15 @@ const Menu: React.FC<{ button: (toggle: () => void, open: boolean) => React.Reac
   );
 };
 
-const MenuItem: React.FC<{ command: Command | undefined }> = ({ command }) => {
+const MenuItem: React.FC<{ command: Command | undefined; disabled?: boolean }> = ({ command, disabled = false }) => {
   if (!command) return null;
   const Icon = command.icon;
   return (
     <button
       role="menuitem"
       onClick={command.run}
-      disabled={command.enabled === false}
+      title={tooltip(command)}
+      disabled={disabled || command.enabled === false}
       className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-slate-200 hover:bg-[#262f3f] disabled:opacity-40"
     >
       {Icon && <Icon className="w-3.5 h-3.5 text-slate-400" />}
@@ -123,14 +126,14 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({ commands, repoStat
       button={(toggle) => (
         <div className="inline-flex">
           {action({ id: main, label, className: `${plain} rounded-r-none` })}
-          <button onClick={toggle} aria-label={`More ${label.toLowerCase()} options`} className="px-1.5 bg-[#202735] hover:bg-[#2d384c] border-y border-r border-[#2a3447] rounded-r text-slate-400">
+          <button onClick={toggle} disabled={busy} aria-label={`More ${label.toLowerCase()} options`} className="px-1.5 bg-[#202735] hover:bg-[#2d384c] border-y border-r border-[#2a3447] rounded-r text-slate-400 disabled:opacity-40">
             <ChevronDown className="w-3 h-3" />
           </button>
         </div>
       )}
     >
       {more.map((id) => (
-        <MenuItem key={id} command={cmd(id)} />
+        <MenuItem key={id} command={cmd(id)} disabled={busy} />
       ))}
     </Menu>
   );
@@ -160,7 +163,7 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({ commands, repoStat
 
       {repoState && (
         <div className="flex items-center gap-1 flex-shrink-0">
-          {toolbarActions.map((id) => <React.Fragment key={id}>{id === 'pull' ? splitAction({ main: 'pull', label: 'Pull', more: ['pull', 'pull-rebase', 'fetch'] }) : id === 'push' ? splitAction({ main: 'push', label: 'Push', more: ['push', 'push-force'] }) : action({ id, label: toolbarLabels[id] ?? cmd(id)?.title })}</React.Fragment>)}
+          {toolbarActions.map((id) => <React.Fragment key={id}>{id === 'pull' ? splitAction({ main: 'pull', label: 'Pull', more: ['pull', 'pull-stash', 'pull-rebase', 'pull-rebase-stash', 'fetch'] }) : id === 'push' ? splitAction({ main: 'push', label: 'Push', more: ['push', 'push-force'] }) : action({ id, label: toolbarLabels[id] ?? cmd(id)?.title })}</React.Fragment>)}
           <Menu
             align="right"
             button={(toggle) => (
@@ -170,7 +173,7 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({ commands, repoStat
             )}
           >
             {['fetch', 'reflog', 'worktrees', 'gitflow', 'pull-request', 'lanes'].map((id) => (
-              <MenuItem key={id} command={cmd(id)} />
+              <MenuItem key={id} command={cmd(id)} disabled={busy && cmd(id)?.category === 'Repository'} />
             ))}
             <div className="border-t border-[#2a3447] my-1" />
             {['reveal', 'open-in'].map((id) => (

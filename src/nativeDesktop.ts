@@ -19,7 +19,7 @@ export function repositoryWindowTitle(repo: string, state: RepositoryState | nul
 const nativeLabels: Record<string, string> = {
   settings: 'Settings…', 'check-updates': 'Check for Updates…', repositories: 'Open Repository…',
   'new-tab': 'Open Repository in New Tab…', 'close-tab': 'Close Tab', reveal: 'Show in Finder', 'open-in': 'Open In…',
-  fetch: 'Fetch All Remotes', pull: 'Pull', 'pull-rebase': 'Pull with Rebase', push: 'Push', 'push-force': 'Push with Force-with-Lease',
+  fetch: 'Fetch All Remotes', pull: 'Pull', 'pull-stash': 'Pull with Auto-Stash', 'pull-rebase': 'Pull with Rebase', 'pull-rebase-stash': 'Pull with Rebase and Auto-Stash', push: 'Push', 'push-force': 'Push with Force-with-Lease',
   'new-branch': 'New Branch…', 'pull-request': 'New Pull Request…', stash: 'Stash Changes…', 'pop-stash': 'Pop Latest Stash',
   'stage-all': 'Stage All Changes', undo: 'Undo Last Git Action', 'history-search': 'Search History…', reflog: 'Reflog…',
   worktrees: 'Worktrees…', 'toggle-sidebar': 'Sidebar', 'toggle-staging': 'Working Tree', 'toggle-assistant': 'Assistant',

@@ -58,6 +58,25 @@ the provider's key settings. The key lives in your normal SSH configuration and
 can be used by command-line Git too. Share the **public** key, never the
 private key.
 
+## Pull while keeping local changes
+
+Click the arrow beside **Pull** and choose **Pull with auto-stash**, or choose
+**Pull with rebase and auto-stash** to rebase local commits during the pull.
+The same actions are in the command palette and the macOS Repository menu.
+Ordinary **Pull** continues to use your Git configuration.
+
+Gitter saves staged, unstaged, and untracked files, pulls, and restores the
+changes along with their staged state. A named backup remains under **Stashes**
+even after a successful restore; inspect it and drop it when you no longer need
+it. Existing stashes are left untouched. Ignored files are not included, and
+Git cannot stash changes inside a submodule: Gitter stops before pulling if such
+changes remain visible.
+
+If the pull fails before changing the worktree, Gitter tries to restore the
+saved changes. If a pull or restore has conflicts, the backup remains in
+**Stashes**. Resolve or abort the Git operation and inspect the working tree
+before applying the backup again.
+
 ## Browse branches and history
 
 - Click a branch once to reveal its tip in the graph. Double-click it to check

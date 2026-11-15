@@ -408,7 +408,9 @@ export const App: React.FC = () => {
         { success: exists ? undefined : `Created ${local}, tracking ${target}.` }
       );
     },
-    pull: (rebase?: boolean) => run('Pull failed', () => api.pull({ repo, rebase }), { success: 'Pulled.' }),
+    pull: (rebase?: boolean, withStash = false) => withStash
+      ? run('Pull with auto-stash', () => api.pullWithStash({ repo, rebase }), { success: (result) => result.backup ? 'Pulled and restored changes. A backup remains in Stashes.' : 'Pulled. There were no local changes to stash.' })
+      : run('Pull failed', () => api.pull({ repo, rebase }), { success: 'Pulled.' }),
     push: (forceWithLease = false) => run('Push failed', () => api.push({ repo, forceWithLease }), { success: 'Pushed.' }),
     fetch: () => run('Fetch failed', () => api.fetch({ repo }), { success: 'Fetched from all remotes.' }),
     undo: () => run('Nothing was undone', () => api.undo({ repo }), { success: (message) => message }),
@@ -591,8 +593,10 @@ export const App: React.FC = () => {
     { id: 'next-tab', title: 'Next tab', category: 'Repository', shortcut: 'Ctrl+Tab', enabled: tabs.length > 1, run: () => cycleTab(1) },
     { id: 'previous-tab', title: 'Previous tab', category: 'Repository', shortcut: 'Ctrl+Shift+Tab', enabled: tabs.length > 1, run: () => cycleTab(-1) },
     { id: 'refresh', title: 'Reload repository', category: 'Repository', icon: RefreshCw, shortcut: 'F5', enabled: hasRepo, run: () => void repository.refresh() },
-    { id: 'pull', title: 'Pull', category: 'Repository', icon: ArrowDownToLine, enabled: hasRepo, run: () => quietly(actions.pull()) },
-    { id: 'pull-rebase', title: 'Pull with rebase', category: 'Repository', icon: ArrowDownToLine, enabled: hasRepo, run: () => quietly(actions.pull(true)) },
+    { id: 'pull', title: 'Pull', category: 'Repository', icon: ArrowDownToLine, enabled: hasRepo && !repository.busy, run: () => quietly(actions.pull()) },
+    { id: 'pull-rebase', title: 'Pull with rebase', category: 'Repository', icon: ArrowDownToLine, enabled: hasRepo && !repository.busy, run: () => quietly(actions.pull(true)) },
+    { id: 'pull-stash', title: 'Pull with auto-stash', category: 'Repository', icon: ArrowDownToLine, enabled: hasRepo && !repository.busy, run: () => quietly(actions.pull(undefined, true)) },
+    { id: 'pull-rebase-stash', title: 'Pull with rebase and auto-stash', category: 'Repository', icon: ArrowDownToLine, enabled: hasRepo && !repository.busy, run: () => quietly(actions.pull(true, true)) },
     { id: 'push', title: 'Push', category: 'Repository', icon: ArrowUpFromLine, enabled: hasRepo, run: () => quietly(actions.push()) },
     { id: 'push-force', title: 'Push with force-with-lease', category: 'Repository', icon: ArrowUpFromLine, enabled: hasRepo, run: () => quietly(actions.push(true)) },
     { id: 'fetch', title: 'Fetch all remotes', category: 'Repository', icon: RefreshCw, enabled: hasRepo, run: () => quietly(actions.fetch()) },

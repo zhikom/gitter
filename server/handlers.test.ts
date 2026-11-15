@@ -12,6 +12,7 @@ import { validateSuggestions } from './reviewAgent';
 import { listClaudeSessions, listCodexSessions, sessionId, sessionRoots } from './workSessions';
 import { summarizeWork } from './workSummary';
 import { directoryWithin, sameDirectory, samePath } from './workPaths';
+import { pullWithStash } from './pullWithStash';
 import { bitbucketReviewSnapshot, reviewAnchorPage, reviewPageDiff, REVIEW_PAGE_ROWS } from '../src/utils/pullReview';
 import { createFontHandlers, fontHandlers, macFontFamilies } from './fonts';
 import { ANTHROPIC_SANS, fontStack, normalizeFontName } from '../shared/fonts';
@@ -62,6 +63,30 @@ function write(repo: string, file: string, content: string) {
   fs.writeFileSync(path.join(repo, file), content);
 }
 
+async function pullFixture(): Promise<{ repo: string; publisher: string; remote: string }> {
+  const repo = await newRepo();
+  const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'gitter-pull-origin-'));
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'gitter-pull-publisher-'));
+  temps.push(remote, parent);
+  await git(remote, ['init', '-q', '--bare']);
+  await git(repo, ['remote', 'add', 'origin', remote]);
+  await git(repo, ['push', '-q', '-u', 'origin', 'main']);
+  await git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
+  await git(parent, ['clone', '-q', remote, 'publisher']);
+  const publisher = path.join(parent, 'publisher');
+  await git(publisher, ['config', 'user.name', 'Test']);
+  await git(publisher, ['config', 'user.email', 'test@example.com']);
+  await git(publisher, ['config', 'core.autocrlf', 'false']);
+  return { repo, publisher, remote };
+}
+
+async function publishFile(repo: string, file: string, content: string) {
+  write(repo, file, content);
+  await git(repo, ['add', '--', file]);
+  await git(repo, ['commit', '-q', '-m', `Update ${file}`]);
+  await git(repo, ['push', '-q', 'origin', 'HEAD:main']);
+}
+
 const read = (repo: string, file: string) => fs.readFileSync(path.join(repo, file), 'utf8');
 
 test('desktop title follows the active repository without exposing its path or stale branch', () => {
@@ -72,6 +97,140 @@ test('desktop title follows the active repository without exposing its path or s
   assert.equal(repositoryWindowTitle('', state, statuses), 'Gitter');
   assert.equal(repositoryWindowTitle('/private/work/repo', { ...state, currentBranch: 'abc123', isDetached: true, isClean: true }, []), 'repo — detached abc123');
   assert.equal(repositoryWindowTitle('/private/work/repo\nprivate', null, []), 'repo private');
+});
+
+test('pull with auto-stash restores staged, unstaged and untracked changes and preserves older stashes', async () => {
+  const { repo, publisher } = await pullFixture();
+  write(repo, 'older.txt', 'older work\n');
+  await git(repo, ['stash', 'push', '-u', '-m', 'older work'], { env: { GIT_LITERAL_PATHSPECS: '0' } });
+  const older = (await api.stashes({ repo }))[0].hash;
+  write(repo, 'a.txt', 'staged change\n');
+  await git(repo, ['add', 'a.txt']);
+  write(repo, 'a.txt', 'staged change\nunstaged change\n');
+  write(repo, 'new file.txt', 'untracked work\n');
+  await publishFile(publisher, 'upstream.txt', 'new upstream\n');
+  const result = await api.pullWithStash({ repo, rebase: false });
+  assert.ok(result.backup);
+  assert.equal(read(repo, 'a.txt'), 'staged change\nunstaged change\n');
+  assert.equal(await git(repo, ['show', ':a.txt']), 'staged change\n');
+  assert.equal(read(repo, 'new file.txt'), 'untracked work\n');
+  assert.equal(read(repo, 'upstream.txt'), 'new upstream\n');
+  const stashes = await api.stashes({ repo });
+  assert.equal(stashes.length, 2);
+  assert.equal(stashes[0].hash, result.backup);
+  assert.equal(stashes[1].hash, older);
+  assert.equal(fs.existsSync(path.join(repo, 'older.txt')), false);
+});
+
+test('pull with auto-stash rebases local commits before restoring changes', async () => {
+  const { repo, publisher } = await pullFixture();
+  write(repo, 'local-commit.txt', 'local commit\n');
+  await git(repo, ['add', 'local-commit.txt']);
+  await git(repo, ['commit', '-q', '-m', 'Local commit']);
+  const oldHead = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+  write(repo, 'a.txt', 'uncommitted work\n');
+  await publishFile(publisher, 'upstream.txt', 'upstream commit\n');
+  const result = await api.pullWithStash({ repo, rebase: true });
+  assert.ok(result.backup);
+  assert.notEqual((await git(repo, ['rev-parse', 'HEAD'])).trim(), oldHead);
+  assert.equal(read(repo, 'a.txt'), 'uncommitted work\n');
+  assert.equal(read(repo, 'local-commit.txt'), 'local commit\n');
+  assert.equal(read(repo, 'upstream.txt'), 'upstream commit\n');
+});
+
+test('pull with auto-stash never applies an older stash when the tree is clean', async () => {
+  const { repo, publisher } = await pullFixture();
+  write(repo, 'older.txt', 'older work\n');
+  await git(repo, ['stash', 'push', '-u', '-m', 'older work'], { env: { GIT_LITERAL_PATHSPECS: '0' } });
+  const before = (await api.stashes({ repo }))[0].hash;
+  await publishFile(publisher, 'upstream.txt', 'upstream\n');
+  const result = await api.pullWithStash({ repo, rebase: false });
+  assert.equal(result.backup, undefined);
+  assert.equal((await api.stashes({ repo }))[0].hash, before);
+  assert.equal(fs.existsSync(path.join(repo, 'older.txt')), false);
+});
+
+test('pull with auto-stash restores local changes after a failed fetch and retains a backup', async () => {
+  const { repo } = await pullFixture();
+  write(repo, 'a.txt', 'local work\n');
+  await git(repo, ['remote', 'set-url', 'origin', path.join(repo, 'missing-remote')]);
+  await assert.rejects(() => api.pullWithStash({ repo }), /Pull failed:.*Your changes were restored; backup/s);
+  assert.equal(read(repo, 'a.txt'), 'local work\n');
+  assert.match((await api.stashes({ repo }))[0].message, /Gitter pull backup/);
+});
+
+test('pull with auto-stash keeps the backup if restoring after a successful pull conflicts', async () => {
+  const { repo, publisher } = await pullFixture();
+  write(repo, 'a.txt', 'local work\n');
+  await git(repo, ['add', 'a.txt']);
+  await publishFile(publisher, 'a.txt', 'upstream work\n');
+  await assert.rejects(() => api.pullWithStash({ repo, rebase: false }), /Pull succeeded, but restoring changes failed:.*remains in Stashes/s);
+  const stashes = await api.stashes({ repo });
+  assert.equal(stashes.length, 1);
+  assert.match(stashes[0].message, /Gitter pull backup/);
+  assert.equal((await git(repo, ['show', `${stashes[0].hash}:a.txt`])).trim(), 'local work');
+  assert.equal((await git(repo, ['rev-parse', 'HEAD'])).trim(), (await git(publisher, ['rev-parse', 'HEAD'])).trim());
+});
+
+test('pull with auto-stash applies the correct backup if another worktree creates a stash', async () => {
+  const { repo, publisher } = await pullFixture();
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'gitter-pull-worktree-')); temps.push(parent);
+  const other = path.join(parent, 'other');
+  await git(repo, ['worktree', 'add', '-q', '-b', 'other', other, 'main']);
+  write(repo, 'a.txt', 'our change\n');
+  await publishFile(publisher, 'upstream.txt', 'upstream\n');
+  const result = await pullWithStash(repo, async (root) => {
+    write(other, 'other.txt', 'other work\n');
+    await git(other, ['stash', 'push', '-u', '-m', 'other worktree'], { env: { GIT_LITERAL_PATHSPECS: '0' } });
+    return git(root, ['pull', '--no-rebase', '--no-autostash']);
+  });
+  assert.equal(read(repo, 'a.txt'), 'our change\n');
+  assert.equal(fs.existsSync(path.join(repo, 'other.txt')), false);
+  const stashes = await api.stashes({ repo });
+  assert.match(stashes[0].message, /other worktree/);
+  assert.equal(stashes[1].hash, result.backup);
+});
+
+test('pull with auto-stash keeps the backup when a merge needs conflict resolution', async () => {
+  const { repo, publisher } = await pullFixture();
+  write(repo, 'a.txt', 'local commit\n');
+  await git(repo, ['add', 'a.txt']);
+  await git(repo, ['commit', '-q', '-m', 'Local commit']);
+  write(repo, 'unfinished.txt', 'unfinished work\n');
+  await publishFile(publisher, 'a.txt', 'upstream commit\n');
+  await assert.rejects(() => api.pullWithStash({ repo, rebase: false }), /Pull failed:.*remains in Stashes; resolve or abort/s);
+  assert.equal(fs.existsSync(path.join(repo, '.git', 'MERGE_HEAD')), true);
+  assert.equal(fs.existsSync(path.join(repo, 'unfinished.txt')), false);
+  const [backup] = await api.stashes({ repo });
+  assert.match(backup.message, /Gitter pull backup/);
+  assert.equal(await git(repo, ['show', `${backup.hash}^3:unfinished.txt`]), 'unfinished work\n');
+});
+
+test('pull with auto-stash stops before pulling when submodule changes cannot be stashed', async () => {
+  const { repo } = await pullFixture();
+  const submodule = await newRepo();
+  await git(repo, ['-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', submodule, 'sub']);
+  await git(repo, ['commit', '-q', '-am', 'Add submodule']);
+  await git(repo, ['config', 'submodule.sub.ignore', 'all']);
+  write(repo, 'a.txt', 'work to keep\n');
+  write(path.join(repo, 'sub'), 'a.txt', 'submodule work\n');
+  const before = (await git(repo, ['rev-parse', 'HEAD'])).trim();
+  await assert.rejects(() => api.pullWithStash({ repo }), /Some changes could not be stashed.*Pull was not started.*remains in Stashes/s);
+  assert.equal((await git(repo, ['rev-parse', 'HEAD'])).trim(), before);
+  assert.equal(read(path.join(repo, 'sub'), 'a.txt'), 'submodule work\n');
+  const [backup] = await api.stashes({ repo });
+  assert.equal(await git(repo, ['show', `${backup.hash}:a.txt`]), 'work to keep\n');
+});
+
+test('pull with auto-stash prevents overlapping Gitter pulls in the same worktree', async () => {
+  const { repo } = await pullFixture();
+  let enter!: () => void, release!: () => void;
+  const entered = new Promise<void>((resolve) => { enter = resolve; });
+  const wait = new Promise<void>((resolve) => { release = resolve; });
+  const pending = pullWithStash(repo, async () => { enter(); await wait; return ''; });
+  await entered;
+  try { await assert.rejects(() => api.pull({ repo }), /Another pull is already running/); }
+  finally { release(); await pending; }
 });
 
 test('work overview separates per-worktree edits, upstream counts, and commits absent from origin', async () => {

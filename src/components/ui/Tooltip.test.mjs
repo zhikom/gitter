@@ -93,6 +93,36 @@ test('tooltip placement stays within the window and flips above near the bottom'
   assert.deepEqual(tooltipPosition({ left: 280, right: 300, top: 175, bottom: 195 }, { width: 100, height: 30 }, { width: 300, height: 200 }), { left: 192, top: 137, side: 'above' });
 });
 
+test('pull menu offers safe auto-stash actions and explains the retained backup', async () => {
+  await withDom(async (root) => {
+    const { HeaderToolbar } = await import('../HeaderToolbar.tsx');
+    const { resetPreference } = await import('../../preferences.ts');
+    const called = [];
+    const commands = [
+      ['pull', 'Pull'], ['pull-stash', 'Pull with auto-stash'],
+      ['pull-rebase', 'Pull with rebase'], ['pull-rebase-stash', 'Pull with rebase and auto-stash'],
+      ['fetch', 'Fetch all remotes'],
+    ].map(([id, title]) => ({ id, title, category: 'Repository', run: () => called.push(id) }));
+    const noop = () => {};
+    const props = {
+      commands, repoState: { path: '/repos/project', name: 'project', currentBranch: 'main' }, busy: false,
+      open: { sidebar: true, staging: true, assistant: false }, agents: { count: 0, waiting: 0, collisions: 0 },
+      attention: [], acknowledged: new Set(), onAcknowledge: noop, onAcknowledgeAll: noop, onSelectAttention: noop, update: null,
+    };
+    await act(async () => resetPreference('toolbarActions'));
+    await act(async () => root.render(React.createElement(HeaderToolbar, props)));
+    await act(async () => document.querySelector('[aria-label="More pull options"]').click());
+    const items = [...document.querySelectorAll('[role="menuitem"]')];
+    assert.deepEqual(items.map((item) => item.textContent), ['Pull', 'Pull with auto-stash', 'Pull with rebase', 'Pull with rebase and auto-stash', 'Fetch all remotes']);
+    assert.match(items[1].title, /untracked changes.*backup remains in Stashes/s);
+    assert.deepEqual(called, []);
+    await act(async () => items[1].click());
+    assert.deepEqual(called, ['pull-stash']);
+    await act(async () => root.render(React.createElement(HeaderToolbar, { ...props, busy: true })));
+    assert.equal(document.querySelector('[aria-label="More pull options"]').disabled, true);
+  });
+});
+
 test('glass appearance choices persist and allow system, light, and dark modes', async () => {
   await withDom(async (root) => {
     const { ThemePicker } = await import('../Modals/SettingsModal.tsx');

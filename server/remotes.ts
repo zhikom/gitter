@@ -1,6 +1,7 @@
 import type { PullRequest, Remote } from '../shared/types/git';
 import { git, run } from './git';
 import { inRepo, UserError } from './http';
+import { pullWithStash, withPullGuard } from './pullWithStash';
 
 const PR_FIELDS = 'number,title,author,headRefName,baseRefName,state,url,createdAt,updatedAt,isDraft';
 
@@ -15,6 +16,17 @@ function checkPr(number: number): string {
 
 function toPullRequest(item: any): PullRequest {
   return { ...item, author: { login: item.author?.login ?? 'ghost' } };
+}
+
+interface PullOptions { remote?: string; branch?: string; rebase?: boolean }
+
+function pullArgs({ remote, branch, rebase }: PullOptions, noAutoStash = false): string[] {
+  return [
+    'pull',
+    ...(noAutoStash ? ['--no-autostash'] : []),
+    ...(rebase === undefined ? [] : [rebase ? '--rebase' : '--no-rebase']),
+    ...(remote ? ['--end-of-options', remote, ...(branch ? [branch] : [])] : []),
+  ];
 }
 
 async function remotes(repo: string): Promise<Remote[]> {
@@ -44,12 +56,11 @@ export const remoteHandlers = {
    * Pulls the current branch's upstream, or `branch` from `remote` when given.
    * Without `rebase`, the repository's pull.rebase setting decides.
    */
-  pull: inRepo((repo, { remote, branch, rebase }: { remote?: string; branch?: string; rebase?: boolean }) =>
-    git(repo, [
-      'pull',
-      ...(rebase === undefined ? [] : [rebase ? '--rebase' : '--no-rebase']),
-      ...(remote ? ['--end-of-options', remote, ...(branch ? [branch] : [])] : []),
-    ])
+  pull: inRepo((repo, options: PullOptions) => withPullGuard(repo, (root) => git(root, pullArgs(options)))),
+
+  /** A separately named backup is restored by commit ID and retained in Stashes. */
+  pullWithStash: inRepo((repo, options: PullOptions) =>
+    pullWithStash(repo, (root) => git(root, pullArgs(options, true)))
   ),
 
   /**
