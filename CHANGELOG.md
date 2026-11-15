@@ -38,9 +38,7 @@
 
 ### Downloads
 
-- Windows x64 and macOS ARM64 (Apple Silicon) installers are available. The
-  Windows installer is unsigned; the Mac app is ad-hoc signed but not
-  notarized, so the operating system may show a security warning.
+- This version was not published because its Windows build failed. Use 1.15.2.
 
 ## [1.15.0] - 2026-11-15
 
@@ -60,9 +58,7 @@
 
 ### Downloads
 
-- Windows x64 and macOS ARM64 (Apple Silicon) installers are available. The
-  Windows installer is unsigned; the Mac app is ad-hoc signed but not
-  notarized, so the operating system may show a security warning.
+- This version was not published because its Windows build failed. Use 1.15.2.
 
 ## [1.14.0] - 2026-11-15
 
