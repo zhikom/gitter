@@ -84,6 +84,49 @@ private key.
   agent activity. Pull requests are matched by branch name; compare the PR
   head with the selected branch tip before assuming they are identical.
 
+## See work across repositories and continue a session
+
+![Illustration of the Work overview and its branch, worktree, session, and summary details](guide/work-overview.svg)
+
+1. Choose **Work** in the toolbar or **Work overview** in the command palette.
+   Gitter scans the default clone folder (or `~/repos`), open tabs, and recent
+   repositories. **Folder** chooses another location; **Refresh** reads them
+   again. The folder scan looks up to three levels deep. It does not fetch or
+   check out branches. Enable **Include remote-tracking branches** to inspect
+   remote refs recorded by the last fetch; large lists load in batches.
+2. Select a branch or one of its worktrees. Inspect staged, unstaged, untracked,
+   and conflicted files, recent commits, repository-wide stashes, and merge or rebase state. Click a
+   changed file for its diff, or **Open worktree** to continue in Gitter. A
+   branch without a worktree can have commits but cannot have working files.
+3. **Upstream** compares against the branch it tracks. **Absent from fetched
+   origin** counts commits not reachable from any locally known origin branch.
+   These can differ: a feature branch can be ahead of `origin/main` even after
+   its own branch was pushed. Both use the last fetched refs, and missing refs
+   are unknown rather than clean. Fetch separately when you need fresh data.
+4. Choose **Load pull requests** and **Load checks** to query connected GitHub
+   or Bitbucket providers. Source branch names are suggestions; inspect the PR
+   and its source repository before assuming it is the same work.
+5. Local Codex and Claude Code sessions appear as **Possible match** when their
+   folder or recorded branch resembles the selected work. Verify the title,
+   path, and ID, then **Link to worktree** if it belongs there. Links are saved
+   locally and can be removed. You can also link a known session UUID manually.
+   The list does not establish whether a session is running; Codex discovery
+   uses the installed app server, and Claude discovery reads local Code
+   history. Claude desktop-only or cloud sessions may not be discoverable.
+6. **Continue in desktop** opens the Codex desktop chat or asks Claude Code to
+   resume the session in Claude Desktop. Both require the appropriate app and
+   CLI. Claude may refuse a session already open elsewhere or one unsupported
+   by the desktop app. **Copy terminal resume** and **Open terminal** provide
+   a fallback; run the command in the indicated worktree.
+7. Choose an installed, signed-in **Codex** or **Claude Code** CLI and select
+   **Summarize work** for a suggested account of progress, remaining work,
+   next steps, uncertainties, and evidence. This explicitly sends commit
+   messages, stash titles, file names, and bounded tracked diffs to the selected
+   agent's model provider; untracked and stash contents are excluded. A conversation is
+   included only after selecting a session and checking **Include recent
+   messages**. Summaries can be incomplete: inspect the work and session
+   before deciding whether to finish, keep, or remove it.
+
 ## Review, stage, and commit
 
 ![Illustration of a diff beside the staged-files and commit panels](guide/review-changes.svg)

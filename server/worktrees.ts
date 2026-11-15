@@ -25,6 +25,8 @@ export async function worktrees(repo: string): Promise<Worktree[]> {
         branch: value('branch')?.replace(/^refs\/heads\//, ''),
         isBare: attrs.includes('bare'),
         isCurrent: samePath(wtPath, root),
+        locked: value('locked') || (attrs.includes('locked') ? true : undefined),
+        prunable: value('prunable') || (attrs.includes('prunable') ? true : undefined),
       };
     });
 }

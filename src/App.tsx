@@ -20,6 +20,7 @@ import {
   History,
   Inbox,
   Layers,
+  ListChecks,
   PanelLeft,
   PanelRight,
   RefreshCw,
@@ -82,6 +83,7 @@ import { Button, Modal } from './components/ui/Modal';
 import { Resizer } from './components/ui/Resizer';
 import { VirtualBranchPanel } from './components/VirtualBranches/VirtualBranchPanel';
 import { WorktreesModal } from './components/Worktrees/WorktreesModal';
+import { WorkOverviewModal } from './components/WorkOverview/WorkOverviewModal';
 import { useAgentActions } from './hooks/useAgentActions';
 import { useAgentLive } from './hooks/useAgentLive';
 import { useRepository } from './hooks/useRepository';
@@ -103,6 +105,7 @@ type Dialog =
   | { kind: 'compare'; base: Commit; target: Commit }
   | { kind: 'reflog' }
   | { kind: 'worktrees' }
+  | { kind: 'work-overview' }
   | { kind: 'gitflow' }
   | { kind: 'rebase'; base: string }
   | { kind: 'blame'; file: string; revision?: string }
@@ -598,6 +601,7 @@ export const App: React.FC = () => {
     { id: 'history-search', title: 'Search text or directory history…', category: 'Repository', icon: Search, enabled: hasRepo, run: () => setDialog({ kind: 'history-search' }) },
     { id: 'branch-timeline', title: 'Branch timeline', category: 'Branches', icon: History, enabled: hasRepo && repository.branches.length > 0, run: () => { const branch = repository.branches.find((item) => item.name === selectedBranch) ?? repository.branches.find((item) => item.current); if (branch) setDialog({ kind: 'branch-timeline', branch }); } },
     { id: 'worktrees', title: 'Worktrees', category: 'Repository', icon: Layers, enabled: hasRepo, run: () => setDialog({ kind: 'worktrees' }) },
+    { id: 'work-overview', title: 'Work overview', category: 'Repository', icon: ListChecks, run: () => setDialog({ kind: 'work-overview' }) },
     { id: 'gitflow', title: 'Gitflow', category: 'Branches', icon: Workflow, enabled: hasRepo, run: () => setDialog({ kind: 'gitflow' }) },
     { id: 'new-branch', title: 'New branch', category: 'Branches', icon: GitBranch, shortcut: 'Mod+Shift+N', enabled: hasRepo, run: () => setDialog({ kind: 'create-branch', startPoint: repoState?.currentBranch || 'HEAD' }) },
     { id: 'pull-request', title: 'New pull request', category: 'Branches', icon: GitPullRequest, enabled: hasRepo && !repoState?.isDetached && repository.pullRequestStatus.supported && !repository.pullRequestStatus.loading, run: () => createPullRequest() },
@@ -964,6 +968,8 @@ export const App: React.FC = () => {
         );
       case 'worktrees':
         return <WorktreesModal repo={repo} onClose={close} onOpen={(path) => void openRepo(path)} onChanged={afterChange} />;
+      case 'work-overview':
+        return <WorkOverviewModal currentRepo={repo} openPaths={tabs.map((tab) => tab.path)} recent={recent} onClose={close} onOpen={(path) => void openRepo(path)} onManage={(path) => { void openRepo(path).then(() => setDialog({ kind: 'worktrees' })); }} onOpenStash={(path, stash) => { void openRepo(path).then(() => setDialog({ kind: 'stash-inspector', stash })); }} />;
       case 'gitflow':
         return <GitflowModal repo={repo} onClose={close} onRefresh={afterChange} />;
       case 'rebase':

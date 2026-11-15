@@ -21,6 +21,7 @@ interface DiffViewProps {
   onLineContextMenu?: (event: React.MouseEvent, hunkIndex: number, lineIndex: number) => void;
   onHunkContextMenu?: (event: React.MouseEvent, hunkIndex: number) => void;
   onBack?: () => void;
+  backLabel?: string;
   emptyLabel?: string;
 }
 
@@ -61,6 +62,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
   onLineContextMenu,
   onHunkContextMenu,
   onBack,
+  backLabel = 'Back to graph',
   emptyLabel = 'Select a file to see its changes.',
 }) => {
   const [view, setView] = usePreference('diffView');
@@ -72,7 +74,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
   if (!diff) {
     return (
       <div className="flex-1 min-h-0 flex flex-col">
-        {onBack && <button onClick={onBack} className="self-start m-2 px-2 py-1 text-xs text-slate-300 hover:text-white">← Back to graph</button>}
+        {onBack && <button onClick={onBack} className="self-start m-2 px-2 py-1 text-xs text-slate-300 hover:text-white">← {backLabel}</button>}
         <div className="flex-1 flex flex-col items-center justify-center gap-2 text-slate-500 select-none p-6 text-center">
           <FileCode className="w-10 h-10 opacity-25 text-teal-400" />
           <span className="text-xs">{emptyLabel}</span>
@@ -88,7 +90,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
     <div className="flex-1 min-h-0 flex flex-col bg-[#14181f]">
       <div className="min-h-9 flex-shrink-0 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-1 bg-[#1b212c] border-b border-[#2a3447] select-none">
         <div className="flex min-w-[130px] flex-1 items-center gap-2">
-          {onBack && <button onClick={onBack} title="Back to graph" aria-label="Back to graph" className="p-1 rounded text-slate-400 hover:bg-[#2d384c] hover:text-white"><ArrowLeft className="w-4 h-4" /></button>}
+          {onBack && <button onClick={onBack} title={backLabel} aria-label={backLabel} className="p-1 rounded text-slate-400 hover:bg-[#2d384c] hover:text-white"><ArrowLeft className="w-4 h-4" /></button>}
           {title}
         </div>
         <div className="flex max-w-full flex-wrap items-center gap-1.5">

@@ -9,6 +9,8 @@ import { CommandError, git, useGitHubCliForGit } from './git';
 import { createGitHubHandlers } from './github';
 import { createGitHubReviewHandlers, githubPullTarget } from './pullReview';
 import { validateSuggestions } from './reviewAgent';
+import { listClaudeSessions, listCodexSessions, sessionId } from './workSessions';
+import { summarizeWork } from './workSummary';
 import { bitbucketReviewSnapshot, reviewAnchorPage, reviewPageDiff, REVIEW_PAGE_ROWS } from '../src/utils/pullReview';
 import { createFontHandlers, fontHandlers, macFontFamilies } from './fonts';
 import { ANTHROPIC_SANS, fontStack, normalizeFontName } from '../shared/fonts';
@@ -69,6 +71,137 @@ test('desktop title follows the active repository without exposing its path or s
   assert.equal(repositoryWindowTitle('', state, statuses), 'Gitter');
   assert.equal(repositoryWindowTitle('/private/work/repo', { ...state, currentBranch: 'abc123', isDetached: true, isClean: true }, []), 'repo — detached abc123');
   assert.equal(repositoryWindowTitle('/private/work/repo\nprivate', null, []), 'repo private');
+});
+
+test('work overview separates per-worktree edits, upstream counts, and commits absent from origin', async () => {
+  const repo = await newRepo();
+  const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'gitter-origin-'));
+  const worktreeParent = fs.mkdtempSync(path.join(os.tmpdir(), 'gitter-worktree-'));
+  temps.push(remote, worktreeParent);
+  await git(remote, ['init', '--bare', '-q']);
+  await git(repo, ['remote', 'add', 'origin', remote]);
+  await git(repo, ['push', '-u', 'origin', 'main']);
+  const featureTree = path.join(worktreeParent, 'feature tree');
+  await git(repo, ['worktree', 'add', '-b', 'feature', '--', featureTree, 'main']);
+  write(featureTree, 'feature.txt', 'committed feature\n');
+  await git(featureTree, ['add', 'feature.txt']);
+  await git(featureTree, ['commit', '-m', 'feature']);
+  await git(repo, ['branch', '--set-upstream-to=origin/main', 'feature']);
+  write(featureTree, 'untracked.txt', 'work in progress\n');
+  write(repo, 'a.txt', 'main tree changed\n');
+  const result = await api.workOverview({ repo });
+  const main = result.branches.find((b) => b.name === 'main')!;
+  const feature = result.branches.find((b) => b.name === 'feature')!;
+  assert.equal(result.origin, 'known');
+  assert.equal(main.absentFromOrigin, 0);
+  assert.equal(feature.absentFromOrigin, 1);
+  assert.equal(feature.upstream.name, 'origin/main');
+  assert.equal(feature.upstream.ahead, 1);
+  assert.equal(main.worktrees[0].files?.[0].path, 'a.txt');
+  assert.equal(feature.worktrees[0].files?.[0].path, 'untracked.txt');
+  assert.equal(feature.worktrees[0].files?.[0].status, 'untracked');
+  await summarizeWork(repo, { branch: 'feature', directory: featureTree, agent: 'codex' }, async (_agent, _schema, prompt) => {
+    assert.match(prompt, /committed feature/);
+    assert.match(prompt, /refs\/remotes\/origin\/main/);
+    return { completed: [], remaining: [], nextSteps: [], uncertainties: [], evidence: [] };
+  });
+  await git(featureTree, ['push', 'origin', 'feature']);
+  const pushed = await api.workOverview({ repo });
+  const pushedFeature = pushed.branches.find((b) => b.name === 'feature')!;
+  assert.equal(pushedFeature.absentFromOrigin, 0, 'the commit is on origin even though it is ahead of origin/main');
+  assert.equal(pushedFeature.upstream.ahead, 1);
+  assert.equal(pushed.remoteBranches.find((branch) => branch.name === 'origin/feature')?.remoteName, 'origin');
+  assert.equal(pushed.remoteBranches.find((branch) => branch.name === 'origin/feature')?.absentFromOrigin, 0);
+  await summarizeWork(repo, { branch: 'origin/feature', remote: true, agent: 'codex' }, async (_agent, _schema, prompt) => {
+    assert.match(prompt, /remote-tracking branch from the last fetch/);
+    assert.match(prompt, /committed feature/);
+    return { completed: [], remaining: [], nextSteps: [], uncertainties: [], evidence: [] };
+  });
+  const detached = path.join(worktreeParent, 'detached');
+  await git(repo, ['worktree', 'add', '--detach', detached, 'main']);
+  write(detached, 'detached.txt', 'detached commit\n');
+  await git(detached, ['add', 'detached.txt']);
+  await git(detached, ['commit', '-q', '-m', 'Detached work']);
+  const detachedOverview = await api.workOverview({ repo });
+  assert.equal(detachedOverview.detached.find((item) => item.path.endsWith('/detached'))?.absentFromOrigin, 1);
+});
+
+test('work session discovery uses real paths, validates IDs, and labels local metadata', async () => {
+  const repo = await newRepo();
+  const projects = fs.mkdtempSync(path.join(os.tmpdir(), 'gitter-sessions-')); temps.push(projects);
+  const folder = path.join(projects, repo.replace(/[^a-zA-Z0-9]/g, '-'));
+  fs.mkdirSync(folder);
+  const id = '12345678-1234-4234-8234-123456789abc';
+  fs.writeFileSync(path.join(folder, `${id}.jsonl`), [
+    JSON.stringify({ type: 'user', cwd: repo, gitBranch: 'main', message: { content: 'Implement the search screen' } }),
+    JSON.stringify({ type: 'assistant', cwd: repo, gitBranch: 'main', message: { content: [{ type: 'text', text: 'Done so far' }] } }),
+  ].join('\n'));
+  const claude = await listClaudeSessions([repo], projects);
+  assert.equal(claude.sessions.length, 1);
+  assert.equal(claude.sessions[0].branch, 'main');
+  assert.equal(claude.sessions[0].title, 'Implement the search screen');
+  assert.equal((await listClaudeSessions([`${repo}-another`], projects)).sessions.length, 0);
+  const codex = await listCodexSessions([repo], async (_method, params) => {
+    assert.deepEqual((params as any).cwd, [repo]);
+    return { data: [{ id, cwd: repo, name: 'A desktop chat', updatedAt: 123, gitInfo: { branch: 'main' } }, { id, cwd: '/elsewhere', name: 'Unrelated' }], nextCursor: 'more' };
+  });
+  assert.equal(codex.sessions.length, 1);
+  assert.equal(codex.sessions[0].title, 'A desktop chat');
+  assert.equal(codex.truncated, true);
+  assert.throws(() => sessionId('123; rm -rf /'), /valid session UUID/);
+});
+
+test('work overview reports detached, missing and unborn worktrees without calling them clean', async () => {
+  const repo = await newRepo();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gitter-overview-trees-')); temps.push(directory);
+  const detached = path.join(directory, 'detached');
+  const missing = path.join(directory, 'missing');
+  await git(repo, ['worktree', 'add', '--detach', detached]);
+  await git(repo, ['worktree', 'add', '-b', 'feature/missing', missing]);
+  write(detached, 'new.txt', 'local');
+  fs.rmSync(missing, { recursive: true });
+  const overview = await api.workOverview({ repo });
+  assert.equal(overview.origin, 'no-remote');
+  assert.equal(overview.branches.find((branch) => branch.name === 'main')?.absentFromOrigin, null);
+  assert.equal(overview.detached[0].files?.[0].status, 'untracked');
+  const unavailable = overview.branches.find((branch) => branch.name === 'feature/missing')?.worktrees[0];
+  assert.equal(unavailable?.files, null);
+  assert.ok(unavailable?.problem);
+  assert.ok(unavailable?.prunable);
+  const unborn = fs.mkdtempSync(path.join(os.tmpdir(), 'gitter-overview-unborn-')); temps.push(unborn);
+  await git(unborn, ['init', '-q', '-b', 'main']);
+  write(unborn, 'new.txt', 'untracked');
+  const empty = await api.workOverview({ repo: unborn });
+  assert.equal(empty.branches.find((branch) => branch.name === 'main')?.worktrees[0].files?.[0].status, 'untracked');
+});
+
+test('work overview lists stashes as repository-wide saved work', async () => {
+  const repo = await newRepo();
+  write(repo, 'a.txt', 'unfinished\n');
+  await git(repo, ['stash', 'push', '-m', 'unfinished feature']);
+  const result = await api.workOverview({ repo });
+  assert.equal(result.branches[0].worktrees[0].files?.length, 0);
+  assert.equal(result.stashes.length, 1);
+  assert.match(result.stashes[0].message, /unfinished feature/);
+});
+
+test('work summary sends bounded Git evidence only when requested and identifies uncertainty', async () => {
+  const repo = await newRepo();
+  write(repo, 'a.txt', 'local work\n');
+  write(repo, 'new.txt', 'untracked contents stay local\n');
+  let called = 0;
+  const summary = await summarizeWork(repo, { branch: 'main', directory: repo, agent: 'codex' }, async (_agent, _schema, prompt) => {
+    called++;
+    assert.match(prompt, /local work/);
+    assert.match(prompt, /new\.txt/);
+    assert.doesNotMatch(prompt, /untracked contents stay local/);
+    assert.match(prompt, /No conversation messages supplied/);
+    return { completed: ['A change was started'], remaining: [], nextSteps: ['Review the diff'], uncertainties: ['Goal unknown'], evidence: ['a.txt'] };
+  });
+  assert.equal(called, 1);
+  assert.equal(summary.includedConversation, false);
+  assert.deepEqual(summary.nextSteps, ['Review the diff']);
+  await assert.rejects(() => summarizeWork(repo, { branch: 'missing', directory: repo, agent: 'codex' }, async () => { throw new Error('Must not call agent'); }), /no longer available/);
 });
 
 test('native menu uses live command state and keeps custom shortcuts in the webview', () => {

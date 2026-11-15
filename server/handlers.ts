@@ -22,6 +22,9 @@ import { settingsHandlers } from './settings';
 import { stashHandlers } from './stash';
 import { virtualBranchHandlers } from './virtualBranches';
 import { worktreeHandlers } from './worktrees';
+import { workOverviewHandlers } from './workOverview';
+import { workSessionHandlers } from './workSessions';
+import { workSummaryHandlers } from './workSummary';
 import { templateHandlers } from './templates';
 import { localActionHandlers } from './localActions';
 
@@ -62,6 +65,9 @@ export function createHandlers(host: Host) {
     githubHandlers,
     stashHandlers,
     worktreeHandlers,
+    workOverviewHandlers,
+    workSessionHandlers,
+    workSummaryHandlers,
     settingsHandlers,
     templateHandlers,
     localActionHandlers,

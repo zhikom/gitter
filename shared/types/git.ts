@@ -175,6 +175,8 @@ export interface Worktree {
   branch?: string;
   isBare: boolean;
   isCurrent: boolean;
+  locked?: string | boolean;
+  prunable?: string | boolean;
 }
 
 export interface Submodule {

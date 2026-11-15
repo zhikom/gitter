@@ -20,6 +20,8 @@ interface RunOptions {
   env?: NodeJS.ProcessEnv;
   /** Exit codes besides 0 that mean success, like 1 ("files differ") for `diff --no-index`. */
   successCodes?: number[];
+  /** Bound captured output while continuing to drain the child process. */
+  maxOutput?: number;
 }
 
 const GIT_ENV = {
@@ -77,7 +79,12 @@ export function run(command: string, cwd: string, args: string[], options: RunOp
     const child = spawn(command, args, { cwd, windowsHide: true, env: { ...process.env, ...options.env } });
     const out: Buffer[] = [];
     const err: Buffer[] = [];
-    child.stdout.on('data', (d: Buffer) => out.push(d));
+    let outputBytes = 0, truncated = false;
+    child.stdout.on('data', (d: Buffer) => {
+      const remaining = options.maxOutput === undefined ? d.length : Math.max(0, options.maxOutput - outputBytes);
+      if (remaining) { const part = d.subarray(0, remaining); out.push(part); outputBytes += part.length; }
+      if (remaining < d.length) truncated = true;
+    });
     child.stderr.on('data', (d: Buffer) => err.push(d));
     child.on('error', (e: NodeJS.ErrnoException) => {
       // spawn reports a missing working directory as the program being missing.
@@ -88,7 +95,7 @@ export function run(command: string, cwd: string, args: string[], options: RunOp
     // is no longer a repository); the exit code reports that, not a crash.
     child.stdin.on('error', () => undefined);
     child.on('close', (code) => {
-      const stdout = Buffer.concat(out).toString('utf8');
+      const stdout = Buffer.concat(out).toString('utf8') + (truncated ? '\n[Output truncated by Gitter]\n' : '');
       const stderr = Buffer.concat(err).toString('utf8');
       if (code === 0 || (code !== null && options.successCodes?.includes(code))) resolve(stdout);
       else reject(new CommandError(command, args, code ?? -1, stderr, stdout));
