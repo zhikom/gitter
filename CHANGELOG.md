@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [1.15.1] - 2026-11-15
+
+### Work overview
+
+- Browse local and remote-tracking branches, linked worktrees, stashes, and
+  local-only commits across repositories. Inspect files, history, upstream
+  status, and optional GitHub or Bitbucket pull requests and build checks.
+- Find and link possible Codex and Claude Code sessions, continue them in a
+  desktop app when supported, or copy a terminal resume command.
+- Generate a work summary with Codex or Claude Code using Git evidence and,
+  only when selected, recent conversation messages.
+- Match Windows worktree paths regardless of case and path separator when
+  preparing a summary.
+
+### Downloads
+
+- Windows x64 and macOS ARM64 (Apple Silicon) installers are available. The
+  Windows installer is unsigned; the Mac app is ad-hoc signed but not
+  notarized, so the operating system may show a security warning.
+
 ## [1.15.0] - 2026-11-15
 
 ### Work overview

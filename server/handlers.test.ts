@@ -10,7 +10,7 @@ import { createGitHubHandlers } from './github';
 import { createGitHubReviewHandlers, githubPullTarget } from './pullReview';
 import { validateSuggestions } from './reviewAgent';
 import { listClaudeSessions, listCodexSessions, sessionId } from './workSessions';
-import { summarizeWork } from './workSummary';
+import { sameWorktreePath, summarizeWork } from './workSummary';
 import { bitbucketReviewSnapshot, reviewAnchorPage, reviewPageDiff, REVIEW_PAGE_ROWS } from '../src/utils/pullReview';
 import { createFontHandlers, fontHandlers, macFontFamilies } from './fonts';
 import { ANTHROPIC_SANS, fontStack, normalizeFontName } from '../shared/fonts';
@@ -100,6 +100,9 @@ test('work overview separates per-worktree edits, upstream counts, and commits a
   assert.equal(main.worktrees[0].files?.[0].path, 'a.txt');
   assert.equal(feature.worktrees[0].files?.[0].path, 'untracked.txt');
   assert.equal(feature.worktrees[0].files?.[0].status, 'untracked');
+  const gitWorktreePath = fs.realpathSync(feature.worktrees[0].path);
+  const requestedWorktreePath = fs.realpathSync(featureTree);
+  assert.ok(sameWorktreePath(gitWorktreePath, requestedWorktreePath), `Git path ${gitWorktreePath} should match requested path ${requestedWorktreePath}`);
   await summarizeWork(repo, { branch: 'feature', directory: featureTree, agent: 'codex' }, async (_agent, _schema, prompt) => {
     assert.match(prompt, /committed feature/);
     assert.match(prompt, /refs\/remotes\/origin\/main/);
@@ -202,6 +205,12 @@ test('work summary sends bounded Git evidence only when requested and identifies
   assert.equal(summary.includedConversation, false);
   assert.deepEqual(summary.nextSteps, ['Review the diff']);
   await assert.rejects(() => summarizeWork(repo, { branch: 'missing', directory: repo, agent: 'codex' }, async () => { throw new Error('Must not call agent'); }), /no longer available/);
+});
+
+test('work summary recognizes equivalent Windows worktree paths', () => {
+  assert.equal(sameWorktreePath('C:/Users/Example/Worktree', 'c:\\users\\example\\worktree', true), true);
+  assert.equal(sameWorktreePath('C:/Users/Example/Worktree', 'c:\\users\\example\\other', true), false);
+  assert.equal(sameWorktreePath('/Users/Example/Worktree', '/users/example/worktree', false), false);
 });
 
 test('native menu uses live command state and keeps custom shortcuts in the webview', () => {

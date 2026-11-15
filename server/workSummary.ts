@@ -32,6 +32,13 @@ type SummaryRequest = {
   agent: 'codex' | 'claude';
   conversation?: { provider: 'codex' | 'claude'; id: string; directory?: string };
 };
+
+/** Git and Node can spell the same Windows path with different case or separators. */
+export function sameWorktreePath(a: string, b: string, windows = process.platform === 'win32'): boolean {
+  if (windows) return path.win32.normalize(a).toLowerCase() === path.win32.normalize(b).toLowerCase();
+  return path.normalize(a) === path.normalize(b);
+}
+
 export async function summarizeWork(repo: string, input: SummaryRequest, run = runStructuredAgent): Promise<WorkSummary> {
   if (!['codex', 'claude'].includes(input.agent)) throw new UserError('Choose Codex or Claude Code.');
   const overview = await inspectOverview(repo);
@@ -43,9 +50,9 @@ export async function summarizeWork(repo: string, input: SummaryRequest, run = r
   const worktree = input.directory
     ? worktrees.find((tree) => {
         try {
-          return fs.realpathSync(tree.path) === fs.realpathSync(input.directory!);
+          return sameWorktreePath(fs.realpathSync(tree.path), fs.realpathSync(input.directory!));
         } catch {
-          return tree.path === input.directory;
+          return sameWorktreePath(tree.path, input.directory!);
         }
       })
     : undefined;
