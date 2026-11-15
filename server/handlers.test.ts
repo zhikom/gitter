@@ -9,8 +9,9 @@ import { CommandError, git, useGitHubCliForGit } from './git';
 import { createGitHubHandlers } from './github';
 import { createGitHubReviewHandlers, githubPullTarget } from './pullReview';
 import { validateSuggestions } from './reviewAgent';
-import { listClaudeSessions, listCodexSessions, sessionId } from './workSessions';
-import { sameWorktreePath, summarizeWork } from './workSummary';
+import { listClaudeSessions, listCodexSessions, sessionId, sessionRoots } from './workSessions';
+import { summarizeWork } from './workSummary';
+import { directoryWithin, sameDirectory, samePath } from './workPaths';
 import { bitbucketReviewSnapshot, reviewAnchorPage, reviewPageDiff, REVIEW_PAGE_ROWS } from '../src/utils/pullReview';
 import { createFontHandlers, fontHandlers, macFontFamilies } from './fonts';
 import { ANTHROPIC_SANS, fontStack, normalizeFontName } from '../shared/fonts';
@@ -102,7 +103,9 @@ test('work overview separates per-worktree edits, upstream counts, and commits a
   assert.equal(feature.worktrees[0].files?.[0].status, 'untracked');
   const gitWorktreePath = fs.realpathSync(feature.worktrees[0].path);
   const requestedWorktreePath = fs.realpathSync(featureTree);
-  assert.ok(sameWorktreePath(gitWorktreePath, requestedWorktreePath), `Git path ${gitWorktreePath} should match requested path ${requestedWorktreePath}`);
+  assert.ok(sameDirectory(gitWorktreePath, requestedWorktreePath), `Git path ${gitWorktreePath} should match requested path ${requestedWorktreePath}`);
+  await sessionRoots(repo, featureTree);
+  await assert.rejects(() => sessionRoots(repo, remote), /worktree of this repository/);
   await summarizeWork(repo, { branch: 'feature', directory: featureTree, agent: 'codex' }, async (_agent, _schema, prompt) => {
     assert.match(prompt, /committed feature/);
     assert.match(prompt, /refs\/remotes\/origin\/main/);
@@ -147,10 +150,18 @@ test('work session discovery uses real paths, validates IDs, and labels local me
   const codex = await listCodexSessions([repo], async (_method, params) => {
     assert.deepEqual((params as any).cwd, [repo]);
     return { data: [{ id, cwd: repo, name: 'A desktop chat', updatedAt: 123, gitInfo: { branch: 'main' } }, { id, cwd: '/elsewhere', name: 'Unrelated' }], nextCursor: 'more' };
-  });
+  }, false);
   assert.equal(codex.sessions.length, 1);
   assert.equal(codex.sessions[0].title, 'A desktop chat');
   assert.equal(codex.truncated, true);
+  const searches: object[] = [];
+  const windowsCodex = await listCodexSessions([repo], async (_method, params) => {
+    searches.push(params);
+    return { data: [{ id, cwd: repo, name: 'A desktop chat', updatedAt: 123 }], nextCursor: null };
+  }, true);
+  assert.equal(searches.length, 2);
+  assert.ok(searches.some((params: any) => !('cwd' in params)));
+  assert.equal(windowsCodex.sessions.length, 1, 'deduplicates sessions from both searches');
   assert.throws(() => sessionId('123; rm -rf /'), /valid session UUID/);
 });
 
@@ -208,9 +219,15 @@ test('work summary sends bounded Git evidence only when requested and identifies
 });
 
 test('work summary recognizes equivalent Windows worktree paths', () => {
-  assert.equal(sameWorktreePath('C:/Users/Example/Worktree', 'c:\\users\\example\\worktree', true), true);
-  assert.equal(sameWorktreePath('C:/Users/Example/Worktree', 'c:\\users\\example\\other', true), false);
-  assert.equal(sameWorktreePath('/Users/Example/Worktree', '/users/example/worktree', false), false);
+  assert.equal(samePath('C:/Users/Example/Worktree', 'c:\\users\\example\\worktree', true), true);
+  assert.equal(samePath('C:/Users/Example/Worktree', 'c:\\users\\example\\other', true), false);
+  assert.equal(samePath('/Users/Example/Worktree', '/users/example/worktree', false), false);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gitter-identity-')); temps.push(root);
+  const child = path.join(root, 'child'); fs.mkdirSync(child);
+  assert.equal(sameDirectory(root, root), true);
+  assert.equal(sameDirectory(root, child), false);
+  assert.equal(directoryWithin(child, root), true);
+  assert.equal(directoryWithin(root, child), false);
 });
 
 test('native menu uses live command state and keeps custom shortcuts in the webview', () => {

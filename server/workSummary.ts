@@ -1,14 +1,13 @@
 // An on-demand synthesis. All Git facts are gathered again when requested;
 // nothing is sent to a model until the user presses Summarize.
 import { z } from 'zod';
-import fs from 'node:fs';
-import path from 'node:path';
 import type { WorkSummary } from '../shared/types/workOverview';
 import { git } from './git';
 import { inRepo, UserError } from './http';
 import { inspectOverview } from './workOverview';
 import { runStructuredAgent } from './reviewAgent';
 import { sessionConversation, sessionId, sessionRoots } from './workSessions';
+import { directoryWithin, sameDirectory } from './workPaths';
 
 const fields = ['completed', 'remaining', 'nextSteps', 'uncertainties', 'evidence'] as const;
 const schema = {
@@ -33,12 +32,6 @@ type SummaryRequest = {
   conversation?: { provider: 'codex' | 'claude'; id: string; directory?: string };
 };
 
-/** Git and Node can spell the same Windows path with different case or separators. */
-export function sameWorktreePath(a: string, b: string, windows = process.platform === 'win32'): boolean {
-  if (windows) return path.win32.normalize(a).toLowerCase() === path.win32.normalize(b).toLowerCase();
-  return path.normalize(a) === path.normalize(b);
-}
-
 export async function summarizeWork(repo: string, input: SummaryRequest, run = runStructuredAgent): Promise<WorkSummary> {
   if (!['codex', 'claude'].includes(input.agent)) throw new UserError('Choose Codex or Claude Code.');
   const overview = await inspectOverview(repo);
@@ -47,15 +40,7 @@ export async function summarizeWork(repo: string, input: SummaryRequest, run = r
     : undefined;
   if (input.branch && !branch) throw new UserError('This branch is no longer available. Refresh the overview.');
   const worktrees = branch ? branch.worktrees : overview.detached;
-  const worktree = input.directory
-    ? worktrees.find((tree) => {
-        try {
-          return sameWorktreePath(fs.realpathSync(tree.path), fs.realpathSync(input.directory!));
-        } catch {
-          return sameWorktreePath(tree.path, input.directory!);
-        }
-      })
-    : undefined;
+  const worktree = input.directory ? worktrees.find((tree) => sameDirectory(tree.path, input.directory!)) : undefined;
   if (input.directory && !worktree)
     throw new UserError('This worktree is no longer associated with the selected branch. Refresh the overview.');
   if (!branch && !worktree) throw new UserError('Choose a branch or detached worktree.');
@@ -82,9 +67,7 @@ export async function summarizeWork(repo: string, input: SummaryRequest, run = r
     if (!['codex', 'claude'].includes(input.conversation.provider)) throw new UserError('Choose a supported session provider.');
     const directory = input.conversation.directory || worktree.path;
     await sessionRoots(repo, directory);
-    const relative = path.relative(fs.realpathSync(worktree.path), fs.realpathSync(directory));
-    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
-      throw new UserError('The selected conversation is outside this worktree.');
+    if (!directoryWithin(directory, worktree.path)) throw new UserError('The selected conversation is outside this worktree.');
     conversation = await sessionConversation(input.conversation.provider, sessionId(input.conversation.id), directory);
     if (!conversation.trim()) throw new UserError('No recent user or assistant messages were available in this session.');
   }

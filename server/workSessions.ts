@@ -8,6 +8,7 @@ import type { WorkSession, WorkSessions } from '../shared/types/workOverview';
 import { inRepo, UserError } from './http';
 import { resolveReviewCli } from './reviewAgent';
 import { worktrees } from './worktrees';
+import { directoryWithin, sameDirectory } from './workPaths';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function sessionId(id: unknown): string {
@@ -22,6 +23,7 @@ function samePath(a: string, b: string): boolean {
 }
 function contained(cwd: string, roots: string[]): boolean {
   return roots.some((root) => {
+    if (fs.existsSync(cwd) && fs.existsSync(root)) return directoryWithin(cwd, root);
     const relative = path.relative(root, cwd);
     return !relative || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
   });
@@ -76,41 +78,54 @@ export function codexRequest(method: string, params: object, cwd: string): Promi
   });
 }
 
-export async function listCodexSessions(roots: string[], request = codexRequest): Promise<{ sessions: WorkSession[]; truncated: boolean }> {
-  const result = await request(
-    'thread/list',
-    {
-      cwd: roots,
-      limit: 200,
-      sortKey: 'updated_at',
-      modelProviders: [],
-      sourceKinds: ['cli', 'vscode', 'appServer'],
-      useStateDbOnly: true,
-    },
-    roots[0],
-  );
-  if (!Array.isArray(result?.data)) throw new UserError('The installed Codex did not return a session list.');
-  const sessions: WorkSession[] = result.data
+export async function listCodexSessions(
+  roots: string[],
+  request = codexRequest,
+  windows = process.platform === 'win32',
+): Promise<{ sessions: WorkSession[]; truncated: boolean }> {
+  const params = {
+    limit: 200,
+    sortKey: 'updated_at',
+    modelProviders: [],
+    sourceKinds: ['cli', 'vscode', 'appServer'],
+    useStateDbOnly: true,
+  };
+  // The app server filters cwd by exact spelling. On Windows, look at recent
+  // local metadata as well so 8.3 and long-path spellings can be matched by identity.
+  const results = await Promise.all([
+    request('thread/list', { ...params, cwd: roots }, roots[0]),
+    ...(windows ? [request('thread/list', params, roots[0])] : []),
+  ]);
+  if (results.some((result) => !Array.isArray(result?.data))) throw new UserError('The installed Codex did not return a session list.');
+  const seen = new Set<string>();
+  const sessions: WorkSession[] = results
+    .flatMap((result) => result.data)
     .filter(
       (item: any) =>
         typeof item?.id === 'string' &&
         UUID.test(item.id) &&
         typeof item.cwd === 'string' &&
-        roots.some((root) => samePath(root, item.cwd)) &&
+        roots.some((root) => samePath(root, item.cwd) || sameDirectory(root, item.cwd)) &&
         !item.ephemeral,
     )
+    .filter((item: any) => {
+      const id = item.id.toLowerCase();
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    })
     .map((item: any) => ({
       id: item.id.toLowerCase(),
       provider: 'codex' as const,
       title: String(item.name || item.preview || 'Codex session')
         .replace(/\s+/g, ' ')
         .slice(0, 160),
-      cwd: item.cwd,
+      cwd: roots.find((root) => samePath(root, item.cwd) || sameDirectory(root, item.cwd)) || item.cwd,
       branch: typeof item.gitInfo?.branch === 'string' ? item.gitInfo.branch : undefined,
       updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt * 1000 : 0,
       source: String(item.source || 'Codex'),
     }));
-  return { sessions, truncated: Boolean(result.nextCursor) };
+  return { sessions, truncated: results.some((result) => Boolean(result.nextCursor)) };
 }
 
 function claudeProjectsRoot(): string {
@@ -216,8 +231,7 @@ export async function sessionRoots(repo: string, directory: string): Promise<str
   const roots = await rootsFor(repo);
   if (typeof directory !== 'string' || !fs.existsSync(directory))
     throw new UserError('Choose an existing folder in a worktree of this repository.');
-  const canonical = fs.realpathSync(directory);
-  if (!roots.some((root) => contained(canonical, [fs.realpathSync(root)])))
+  if (!roots.some((root) => directoryWithin(directory, root)))
     throw new UserError('Choose an existing folder in a worktree of this repository.');
   return roots;
 }
