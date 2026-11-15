@@ -675,6 +675,7 @@ export const App: React.FC = () => {
         }}
         onRevealInExplorer={(path) => quietly(run('Could not open the folder', () => api.revealInFileManager({ repo: path }), { refresh: false }))}
         onOpenIn={(path) => setDialog({ kind: 'open-in', path })}
+        onShowChanges={(path) => { setRepo(path); showWorkingChanges(); }}
         onNewTab={() => setDialog({ kind: 'repositories' })}
       />
       <HeaderToolbar
@@ -750,6 +751,7 @@ export const App: React.FC = () => {
                 onCreateBranch={() => setDialog({ kind: 'create-branch', startPoint: repoState?.currentBranch || 'HEAD' })}
                 onCreateTag={() => void actions.createTag()}
                 onViewPr={(pr) => setDialog({ kind: 'pull-request', pr })}
+                onOpenPrInBrowser={(pr) => void api.openUrl({ url: pr.url }).catch((error) => toast.error(`Could not open the pull request: ${error.message}`))}
                 onCreatePr={repository.pullRequestStatus.supported && !repository.pullRequestStatus.loading ? createPullRequest : undefined}
                 onOpenWorktrees={() => setDialog({ kind: 'worktrees' })}
                 onSwitchWorktree={(path) => void openRepo(path)}
@@ -814,6 +816,8 @@ export const App: React.FC = () => {
               onOpenInEditor={() => quietly(run('Could not open the editor', () => api.openInEditor({ repo }), { refresh: false }))}
               onCopyPatch={(hash) => quietly(actions.copyPatch(hash))}
               onCompareCommits={(base, target) => setDialog({ kind: 'compare', base, target })}
+              onStageAll={() => quietly(actions.stageAll())}
+              onStash={() => setDialog({ kind: 'stash' })}
             />}
           </div>
 

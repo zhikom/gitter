@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Toaster } from './components/Toaster';
+import { TooltipLayer } from './components/ui/TooltipLayer';
 import { getPreference, usePreference } from './preferences';
 import { applyFontPreferences } from './fontAppearance';
 import { applyTheme } from './theme';
@@ -41,7 +42,7 @@ const ThemedApp: React.FC = () => {
     }
   }, [interfaceScale]);
   React.useLayoutEffect(() => { applyFontPreferences(interfaceFont, codeFont); }, [interfaceFont, codeFont]);
-  return <><App /><Toaster /></>;
+  return <><App /><Toaster /><TooltipLayer /></>;
 };
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

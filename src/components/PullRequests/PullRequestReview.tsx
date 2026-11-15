@@ -8,6 +8,7 @@ import { useCodeTypography } from '../../useCodeTypography';
 import { bitbucketReviewSnapshot, REVIEW_PAGE_ROWS, reviewAnchorPage, reviewPageDiff } from '../../utils/pullReview';
 import { toast } from '../../utils/toast';
 import { Button, inputClass } from '../ui/Modal';
+import { PatchContextMenu } from '../Diff/PatchContextMenu';
 
 interface Props { repo: string; pr: PullRequest }
 
@@ -30,6 +31,7 @@ export const PullRequestReview: React.FC<Props> = ({ repo, pr }) => {
   const [scope, setScope] = useState<'page' | 'file' | 'all'>('page');
   const [suggestions, setSuggestions] = useState<ReviewSuggestion[]>([]);
   const [agentSummary, setAgentSummary] = useState('');
+  const [lineMenu, setLineMenu] = useState<{ x: number; y: number; line: DiffLine; path: string; number: number; revision: string } | null>(null);
   const loadedHead = useRef('');
 
   const load = useCallback(async () => {
@@ -95,8 +97,12 @@ export const PullRequestReview: React.FC<Props> = ({ repo, pr }) => {
     if (!file) return;
     const side = line.type === 'delete' ? 'LEFT' : 'RIGHT';
     const number = side === 'LEFT' ? line.oldLineNumber : line.newLineNumber;
-    if (number) { setAnchor({ path: file.path, oldPath: file.oldPath, line: number, side, lineType: line.type }); setBody(''); }
+    if (!number) return;
+    if (anchor?.path === file.path && anchor.line === number && anchor.side === side) return;
+    if (anchor && body.trim()) { toast.info('Post or cancel the current comment before choosing another line.'); return; }
+    setAnchor({ path: file.path, oldPath: file.oldPath, line: number, side, lineType: line.type }); setBody('');
   };
+  const copy = (text: string) => void navigator.clipboard.writeText(text).catch(() => toast.error('Could not copy to the clipboard.'));
 
   return <div className="flex-1 min-h-0 flex flex-col">
     <div className="flex items-center gap-2 flex-wrap px-4 py-2 border-b border-[#2a3447] text-xs">
@@ -150,8 +156,8 @@ export const PullRequestReview: React.FC<Props> = ({ repo, pr }) => {
                 const side = line.type === 'delete' ? 'LEFT' : 'RIGHT';
                 const number = side === 'LEFT' ? line.oldLineNumber : line.newLineNumber;
                 const comments = snapshot.comments.filter((comment) => comment.path === file.path && comment.line === number && (!comment.side || comment.side === side) && !comment.outdated);
-                return <React.Fragment key={index}><div className={`flex group ${line.type === 'add' ? 'bg-emerald-500/10' : line.type === 'delete' ? 'bg-rose-500/10' : ''}`}>
-                  <button aria-label={`Comment on ${file.path} line ${number}`} onClick={() => chooseLine(line)} className="w-7 flex-shrink-0 text-slate-500 hover:text-teal-300"><MessageSquarePlus className="w-3.5 h-3.5 mx-auto" /></button>
+                return <React.Fragment key={index}><div onContextMenu={(event) => { const selection = window.getSelection(); if (!number || (selection && !selection.isCollapsed && selection.containsNode(event.currentTarget, true))) return; event.preventDefault(); event.stopPropagation(); setLineMenu({ x: event.clientX, y: event.clientY, line, path: file.path, number, revision: loadedHead.current }); }} className={`flex group ${line.type === 'add' ? 'bg-emerald-500/10' : line.type === 'delete' ? 'bg-rose-500/10' : ''}`}>
+                  <button aria-label={`Comment on ${file.path} line ${number}`} title="Write an inline comment. Right-click the line to copy it or its location." disabled={!number} onClick={() => chooseLine(line)} className="w-7 flex-shrink-0 text-slate-500 hover:text-teal-300 disabled:opacity-40"><MessageSquarePlus className="w-3.5 h-3.5 mx-auto" /></button>
                   <span className="w-10 text-right text-slate-600 pr-2 flex-shrink-0">{line.oldLineNumber || ''}</span><span className="w-10 text-right text-slate-600 pr-2 flex-shrink-0">{line.newLineNumber || ''}</span><pre className="text-slate-200 whitespace-pre">{line.type === 'add' ? '+' : line.type === 'delete' ? '-' : ' '}{line.text}</pre>
                 </div>{comments.map((comment) => <div key={comment.id} className="ml-20 my-1 p-2 border border-[#2a3447] rounded text-slate-300 whitespace-pre-wrap"><span className="text-teal-300">{comment.author}: </span>{comment.body}</div>)}
                 {anchor?.path === file.path && anchor.line === number && anchor.side === side && <div className="ml-20 p-2 font-sans"><div className="text-slate-400 mb-1">Comment on {file.path}:{number}</div><textarea aria-label="Review comment" value={body} onChange={(e) => setBody(e.target.value)} rows={3} className={inputClass} /><div className="flex gap-2 mt-1"><Button tone="primary" onClick={() => void post()} busy={busy} disabled={!body.trim()}>Post comment</Button><Button onClick={() => setAnchor(null)}>Cancel</Button></div></div>}</React.Fragment>;
@@ -160,5 +166,10 @@ export const PullRequestReview: React.FC<Props> = ({ repo, pr }) => {
         </div>
       </div>}
     </>}
+    <PatchContextMenu position={lineMenu} onClose={() => setLineMenu(null)} items={lineMenu ? [
+      { label: 'Comment on line', run: () => { if (file?.path !== lineMenu.path || loadedHead.current !== lineMenu.revision) { toast.info('The review changed. Select a line again.'); return; } chooseLine(lineMenu.line); } },
+      { label: 'Copy line text', run: () => copy(lineMenu.line.text) },
+      { label: 'Copy file path and line', run: () => copy(`${lineMenu.path}:${lineMenu.number}`) },
+    ] : []} />
   </div>;
 };

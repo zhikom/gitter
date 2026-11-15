@@ -1,4 +1,4 @@
-import { menuPosition, useDismiss } from '../ui/useDismiss';
+import { menuPosition, useDismiss, useMenuKeyboard, useMenuPlacement } from '../ui/useDismiss';
 import React, { useState, useRef } from 'react';
 import {
   FolderGit2,
@@ -8,7 +8,9 @@ import {
   Copy,
   FolderOpen,
   ExternalLink,
+  FileDiff,
 } from 'lucide-react';
+import { toast } from '../../utils/toast';
 
 export interface RepoTab {
   path: string;
@@ -25,6 +27,7 @@ interface RepoTabBarProps {
   onCloseOtherTabs?: (path: string) => void;
   onRevealInExplorer?: (path: string) => void;
   onOpenIn?: (path: string) => void;
+  onShowChanges?: (path: string) => void;
   onNewTab: () => void;
 }
 
@@ -42,10 +45,14 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
   onCloseOtherTabs,
   onRevealInExplorer,
   onOpenIn,
+  onShowChanges,
   onNewTab,
 }) => {
   const [contextMenu, setContextMenu] = useState<TabContextMenu | null>(null);
   useDismiss(Boolean(contextMenu), () => setContextMenu(null));
+  const menuRef = useRef<HTMLDivElement>(null);
+  useMenuKeyboard(Boolean(contextMenu), menuRef, () => setContextMenu(null));
+  useMenuPlacement(contextMenu, menuRef);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
@@ -64,8 +71,8 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
     });
   };
 
-  const copyPath = (path: string) => {
-    navigator.clipboard.writeText(path);
+  const copyText = (value: string) => {
+    void navigator.clipboard.writeText(value).catch(() => toast.error('Could not copy to the clipboard.'));
   };
 
   return (
@@ -85,7 +92,6 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
           return (
             <div
               key={tab.path}
-              onClick={() => onSelectTab(tab.path)}
               onAuxClick={(e) => {
                 // Middle-click to close
                 if (e.button === 1 && tabs.length > 1) {
@@ -94,13 +100,26 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
                 }
               }}
               onContextMenu={(e) => handleContextMenu(e, tab)}
-              title={`${tab.name}\n${tab.path}\n(Middle click or click X to close)`}
               className={`group relative h-8 px-3 rounded-t-md flex items-center space-x-2 text-xs cursor-pointer border-t-2 transition-all flex-shrink-0 ${
                 isActive
                   ? 'bg-[#181d26] text-slate-100 border-teal-500 font-semibold shadow-sm'
                   : 'bg-[#12161f] hover:bg-[#151b24] text-slate-400 border-transparent hover:text-slate-300'
               }`}
             >
+              <button
+                type="button"
+                aria-label={`${tab.name}${tab.branch ? `, branch ${tab.branch}` : ''}${tab.isClean === false ? ', uncommitted changes' : ''}`}
+                onClick={() => onSelectTab(tab.path)}
+                onKeyDown={(event) => {
+                  if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                    event.preventDefault(); event.stopPropagation();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setContextMenu({ x: rect.left, y: rect.bottom, tab });
+                  }
+                }}
+                title={`${tab.name}${tab.branch ? ` · ${tab.branch}` : ''}\n${tab.isClean === false ? 'Uncommitted changes: open the working tree to review them.\n' : ''}${tab.path}\nRight-click for repository actions.`}
+                className="flex h-full min-w-0 items-center gap-2 text-left"
+              >
               <FolderGit2 className={`w-3.5 h-3.5 ${isActive ? 'text-teal-400' : 'text-slate-500'}`} />
 
               <span className="truncate max-w-[140px] font-sans">{tab.name}</span>
@@ -117,9 +136,10 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
               {tab.isClean === false && (
                 <span
                   className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0 animate-pulse"
-                  title="Uncommitted changes in repository"
+                  title="Uncommitted changes: staged, unstaged, or untracked files. Open the working tree to review them."
                 />
               )}
+              </button>
 
               {/* Close tab */}
               {tabs.length > 1 && (
@@ -128,8 +148,8 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
                     e.stopPropagation();
                     onCloseTab(tab.path);
                   }}
-                  className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-[#2b3548] rounded text-slate-400 hover:text-red-400 transition ml-1"
-                  title="Close Tab (Ctrl+W)"
+                  className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-0.5 hover:bg-[#2b3548] rounded text-slate-400 hover:text-red-400 transition ml-1"
+                  title="Close this repository tab"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -144,7 +164,7 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
         <button
           onClick={onNewTab}
           className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-[#1e2533] text-slate-400 hover:text-teal-300 transition-colors"
-          title="Open Repository in New Tab (Ctrl+T)"
+          title="Open a repository in a new tab"
         >
           <Plus className="w-3.5 h-3.5" />
         </button>
@@ -153,8 +173,11 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
       {/* Tab Context Menu */}
       {contextMenu && (
         <div
+          ref={menuRef}
           data-context-menu
-          style={menuPosition(contextMenu.x, contextMenu.y, 200, 230)}
+          role="menu"
+          aria-label={`Actions for ${contextMenu.tab.name}`}
+          style={menuPosition(contextMenu.x, contextMenu.y, 220, 300)}
           className="fixed bg-[#1b212c] border border-[#2a3447] rounded-md shadow-2xl py-1 z-50 text-xs text-slate-200 min-w-[180px]"
           onClick={(e) => e.stopPropagation()}
         >
@@ -162,9 +185,12 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
             {contextMenu.tab.name}
           </div>
 
+          {onShowChanges && <button role="menuitem" onClick={() => { onShowChanges(contextMenu.tab.path); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"><FileDiff className="w-3.5 h-3.5 text-teal-400" /><span>Show working tree</span></button>}
+          {contextMenu.tab.branch && <button role="menuitem" onClick={() => { copyText(contextMenu.tab.branch!); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"><Copy className="w-3.5 h-3.5 text-slate-400" /><span>Copy branch name</span></button>}
           <button
+            role="menuitem"
             onClick={() => {
-              copyPath(contextMenu.tab.path);
+              copyText(contextMenu.tab.path);
               setContextMenu(null);
             }}
             className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"
@@ -175,6 +201,7 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
 
           {onRevealInExplorer && (
             <button
+              role="menuitem"
               onClick={() => {
                 onRevealInExplorer(contextMenu.tab.path);
                 setContextMenu(null);
@@ -186,13 +213,14 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
             </button>
           )}
 
-          {onOpenIn && <button onClick={() => { onOpenIn(contextMenu.tab.path); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"><ExternalLink className="w-3.5 h-3.5 text-teal-400" /><span>Open in…</span></button>}
+          {onOpenIn && <button role="menuitem" onClick={() => { onOpenIn(contextMenu.tab.path); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"><ExternalLink className="w-3.5 h-3.5 text-teal-400" /><span>Open in…</span></button>}
 
           {tabs.length > 1 && (
             <>
               <div className="border-t border-[#2a3447] my-1" />
 
               <button
+                role="menuitem"
                 onClick={() => {
                   onCloseTab(contextMenu.tab.path);
                   setContextMenu(null);
@@ -205,6 +233,7 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
 
               {onCloseOtherTabs && (
                 <button
+                  role="menuitem"
                   onClick={() => {
                     onCloseOtherTabs(contextMenu.tab.path);
                     setContextMenu(null);

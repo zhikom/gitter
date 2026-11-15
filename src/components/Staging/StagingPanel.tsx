@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { useDismiss } from '../ui/useDismiss';
+import React, { useRef, useState } from 'react';
+import { menuPosition, useDismiss, useMenuKeyboard, useMenuPlacement } from '../ui/useDismiss';
+import { PatchContextMenu, type PatchMenuItem } from '../Diff/PatchContextMenu';
 import { FileStatus, GitFileState } from '../../../shared/types/git';
 import type { AgentInstance, FileCollision } from '../../../shared/types/agentFleet';
 import { collisionAgents, COLLISION_TEXT, harnessColor } from '../Agent/agentUi';
@@ -78,21 +79,25 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
   // Context Menu state
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   useDismiss(Boolean(contextMenu), () => setContextMenu(null));
+  const fileMenuRef = useRef<HTMLDivElement>(null);
+  useMenuKeyboard(Boolean(contextMenu), fileMenuRef, () => setContextMenu(null));
+  useMenuPlacement(contextMenu, fileMenuRef);
+  const [sectionMenu, setSectionMenu] = useState<{ x: number; y: number; staged: boolean } | null>(null);
 
   const getStatusBadge = (status: GitFileState) => {
     switch (status) {
       case 'modified':
-        return <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-1 rounded">M</span>;
+        return <span title="Modified: a tracked file has changed." className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-1 rounded">M</span>;
       case 'added':
-        return <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1 rounded">A</span>;
+        return <span title="Added: a new file is included in these changes." className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1 rounded">A</span>;
       case 'deleted':
-        return <span className="text-[10px] font-bold text-red-400 bg-red-500/10 px-1 rounded">D</span>;
+        return <span title="Deleted: a tracked file was removed." className="text-[10px] font-bold text-red-400 bg-red-500/10 px-1 rounded">D</span>;
       case 'renamed':
-        return <span className="text-[10px] font-bold text-sky-400 bg-sky-500/10 px-1 rounded">R</span>;
+        return <span title="Renamed: Git detected a file move or rename." className="text-[10px] font-bold text-sky-400 bg-sky-500/10 px-1 rounded">R</span>;
       case 'untracked':
-        return <span className="text-[10px] font-bold text-blue-400 bg-blue-500/10 px-1 rounded">U</span>;
+        return <span title="Untracked: Git is not tracking this file yet." className="text-[10px] font-bold text-blue-400 bg-blue-500/10 px-1 rounded">U</span>;
       case 'conflicted':
-        return <span className="text-[10px] font-bold text-rose-500 bg-rose-500/20 px-1 rounded">!</span>;
+        return <span title="Conflict: resolve the conflicting changes before completing the Git operation." className="text-[10px] font-bold text-rose-500 bg-rose-500/20 px-1 rounded">!</span>;
       default:
         return null;
     }
@@ -101,12 +106,23 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
   const handleFileContextMenu = (e: React.MouseEvent, file: FileStatus) => {
     e.preventDefault();
     e.stopPropagation();
+    setSectionMenu(null);
     setContextMenu({
       x: e.clientX,
       y: e.clientY,
       file,
     });
   };
+
+  const openSectionMenu = (event: React.MouseEvent | React.KeyboardEvent, staged: boolean) => {
+    if (!(staged ? stagedFiles.length : unstagedFiles.length)) return;
+    event.preventDefault(); event.stopPropagation(); setContextMenu(null);
+    const rect = event.currentTarget.getBoundingClientRect();
+    setSectionMenu({ x: 'clientX' in event ? event.clientX : rect.left, y: 'clientY' in event ? event.clientY : rect.bottom, staged });
+  };
+  const sectionItems: PatchMenuItem[] = sectionMenu?.staged
+    ? [{ label: 'Unstage all files', run: onUnstageAll }]
+    : [{ label: 'Stage all files', run: onStageAll }, ...(onStash ? [{ label: 'Stash changes…', run: onStash }] : []), { label: 'Discard all changes…', danger: true, run: onDiscardAll }];
 
   const agentsForFile = (filePath: string) =>
     agents.filter((agent) => agent.modifiedFiles.includes(filePath));
@@ -163,7 +179,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
               <span>Lanes</span>
             </button>
           )}
-          <span className="text-xs text-slate-500">
+          <span title="Number of entries in the staged and unstaged lists. A partly staged file appears in both." className="text-xs text-slate-500">
             {statuses.length}
           </span>
           {collisions.length > 0 && (
@@ -201,9 +217,9 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
             }
           }}
         >
-          <div className="flex items-center justify-between px-3 py-2 bg-[#1c222e] text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
+          <div role="group" tabIndex={0} aria-label="Staged changes" title="Staged changes are included in the next commit. Right-click for bulk actions." onContextMenu={(event) => openSectionMenu(event, true)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10'))) openSectionMenu(event, true); }} className="flex items-center justify-between px-3 py-2 bg-[#1c222e] text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
             <div className="flex items-center space-x-1.5">
-              <span>Staged</span>
+              <span title="Staged changes are included in the next commit. Double-click a file to unstage it.">Staged</span>
               <span className="text-slate-400 font-normal">({stagedFiles.length})</span>
             </div>
 
@@ -237,9 +253,10 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
                       e.dataTransfer.setData('application/x-gitter-file-staged', 'true');
                     }}
                     onClick={() => onSelectFile(file.path, true)}
-                    onKeyDown={(e) => e.key === 'Enter' && onSelectFile(file.path, true)}
+                    onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectFile(file.path, true); } else if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); setSectionMenu(null); setContextMenu({ x: rect.left, y: rect.bottom, file }); } }}
                     role="option"
                     tabIndex={0}
+                    aria-label={`${file.path}, ${file.status}, staged`}
                     aria-selected={isSelected}
                     onDoubleClick={() => onUnstageFile(file.path)}
                     onContextMenu={(e) => handleFileContextMenu(e, file)}
@@ -295,9 +312,9 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
             }
           }}
         >
-          <div className="flex items-center justify-between gap-2 px-3 py-2 bg-[#1c222e] text-[11px] font-bold text-amber-400 uppercase tracking-wider">
+          <div role="group" tabIndex={0} aria-label="Unstaged changes" title="Unstaged changes are not included in the next commit. Right-click for bulk actions." onContextMenu={(event) => openSectionMenu(event, false)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10'))) openSectionMenu(event, false); }} className="flex items-center justify-between gap-2 px-3 py-2 bg-[#1c222e] text-[11px] font-bold text-amber-400 uppercase tracking-wider">
             <div className="flex items-center gap-1.5 min-w-0 whitespace-nowrap">
-              <span>Unstaged</span>
+              <span title="Unstaged changes are not included in the next commit. Double-click a file to stage it.">Unstaged</span>
               <span className="text-slate-400 font-normal">({unstagedFiles.length})</span>
             </div>
 
@@ -351,9 +368,10 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
                       e.dataTransfer.setData('application/x-gitter-file-staged', 'false');
                     }}
                     onClick={() => onSelectFile(file.path, false)}
-                    onKeyDown={(e) => e.key === 'Enter' && onSelectFile(file.path, false)}
+                    onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectFile(file.path, false); } else if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); setSectionMenu(null); setContextMenu({ x: rect.left, y: rect.bottom, file }); } }}
                     role="option"
                     tabIndex={0}
+                    aria-label={`${file.path}, ${file.status}, unstaged`}
                     aria-selected={isSelected}
                     onDoubleClick={() => onStageFile(file.path)}
                     onContextMenu={(e) => handleFileContextMenu(e, file)}
@@ -404,11 +422,11 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
       {/* CONTEXT MENU */}
       {contextMenu && (
         <div
+          ref={fileMenuRef}
           data-context-menu
-          style={{
-            top: Math.min(contextMenu.y, window.innerHeight - 240),
-            left: Math.min(contextMenu.x, window.innerWidth - 220),
-          }}
+          role="menu"
+          aria-label={`Actions for ${contextMenu.file.path}`}
+          style={menuPosition(contextMenu.x, contextMenu.y, 220, 300)}
           className="fixed bg-[#1b212c] border border-[#2a3447] rounded-md shadow-2xl py-1 z-50 text-xs text-slate-200 min-w-[200px]"
           onClick={(e) => e.stopPropagation()}
         >
@@ -416,10 +434,10 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
             {contextMenu.file.path}
           </div>
 
-          {contextMenu.file.status === 'conflicted' && onResolveConflict && <button onClick={() => { onResolveConflict(contextMenu.file.path); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-rose-300"><AlertTriangle className="w-3.5 h-3.5" /><span>Resolve conflict</span></button>}
+          {contextMenu.file.status === 'conflicted' && onResolveConflict && <button role="menuitem" onClick={() => { onResolveConflict(contextMenu.file.path); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2 text-rose-300"><AlertTriangle className="w-3.5 h-3.5" /><span>Resolve conflict</span></button>}
 
           {contextMenu.file.staged ? (
-            <button
+            <button role="menuitem"
               onClick={() => {
                 onUnstageFile(contextMenu.file.path);
                 setContextMenu(null);
@@ -430,7 +448,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
               <span>Unstage file</span>
             </button>
           ) : (
-            <button
+            <button role="menuitem"
               onClick={() => {
                 onStageFile(contextMenu.file.path);
                 setContextMenu(null);
@@ -443,7 +461,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
           )}
 
           {onOpenExternalDiff && (
-            <button
+            <button role="menuitem"
               onClick={() => {
                 onOpenExternalDiff(contextMenu.file.path, contextMenu.file.staged);
                 setContextMenu(null);
@@ -456,7 +474,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
           )}
 
           {onOpenInVsCode && (
-            <button
+            <button role="menuitem"
               onClick={() => {
                 onOpenInVsCode(contextMenu.file.path);
                 setContextMenu(null);
@@ -469,7 +487,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
           )}
 
           {onOpenFileHistory && (
-            <button
+            <button role="menuitem"
               onClick={() => {
                 onOpenFileHistory(contextMenu.file.path);
                 setContextMenu(null);
@@ -482,7 +500,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
           )}
 
           {onOpenBlame && (
-            <button
+            <button role="menuitem"
               onClick={() => {
                 onOpenBlame(contextMenu.file.path);
                 setContextMenu(null);
@@ -495,7 +513,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
           )}
 
           {onStash && (
-            <button
+            <button role="menuitem"
               onClick={() => {
                 onStash();
                 setContextMenu(null);
@@ -507,7 +525,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
             </button>
           )}
 
-          <button
+          <button role="menuitem"
             onClick={() => {
               navigator.clipboard.writeText(contextMenu.file.path);
               setContextMenu(null);
@@ -519,7 +537,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
           </button>
 
           {onRevealInExplorer && (
-            <button
+            <button role="menuitem"
               onClick={() => {
                 onRevealInExplorer(contextMenu.file.path);
                 setContextMenu(null);
@@ -535,7 +553,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
           {!contextMenu.file.staged && (
             <>
               <div className="border-t border-[#2a3447] my-1" />
-              <button
+              <button role="menuitem"
                 onClick={() => {
                   onDiscardFile(contextMenu.file.path);
                   setContextMenu(null);
@@ -549,6 +567,7 @@ export const StagingPanel: React.FC<StagingPanelProps> = ({
           )}
         </div>
       )}
+      <PatchContextMenu position={sectionMenu} items={sectionItems} onClose={() => setSectionMenu(null)} />
     </div>
   );
 };

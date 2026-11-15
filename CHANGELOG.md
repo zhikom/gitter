@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-11-15
+
+### Interface help
+
+- Animated, theme-aware tooltips explain existing controls, shortcuts, status
+  badges, and repository changes. Hints also appear on keyboard focus, stay
+  inside the window, and respect reduced-motion settings.
+- Repository tabs explain uncommitted changes; staging labels, file-status
+  badges, graph references, commit prefixes, and toolbar actions have clearer
+  descriptions.
+
+### Context actions
+
+- Right-click pull requests for review, browser, and copy actions; use the
+  working-tree graph row and staged or unstaged headings for relevant actions.
+  Repository tabs now include working-tree and branch-copy actions.
+- Right-click a pull-request diff line to comment or copy its text or location.
+  Finish or cancel an existing comment draft before choosing another line.
+- Open supported context menus with Shift+F10 or the context-menu key, navigate
+  with arrow keys, and dismiss with Escape. Menus stay within the window.
+
+### Downloads
+
+- Windows x64 and macOS ARM64 (Apple Silicon) installers are available. The
+  Windows installer is unsigned; the Mac app is ad-hoc signed but not
+  notarized, so the operating system may show a security warning.
+
 ## [1.12.0] - 2026-11-14
 
 ### Desktop and appearance

@@ -18,3 +18,12 @@
   user instruction. Preserve older published releases unless asked to alter them.
 - Report distribution-signing limitations accurately; an ad-hoc macOS
   signature is not Apple notarization.
+
+## Local test builds
+
+- Give experimental builds release-candidate versions such as `1.12.1-rc.1`;
+  use numeric `X.Y.Z` versions for stable builds and do not name test apps
+  “Preview”. Keep test data separate from the stable app's data.
+- After testing, remove the temporary release-candidate apps, their registrations,
+  and test-only data. Leave the latest stable `Gitter.app` installed, preserving
+  the user's repositories and stable settings.

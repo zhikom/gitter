@@ -28,7 +28,24 @@ const base = 'flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-mediu
 const plain = `${base} bg-[#202735] hover:bg-[#2d384c] border border-[#2a3447] text-slate-200`;
 const icon = 'p-1.5 rounded transition text-slate-400 hover:text-slate-100 hover:bg-[#202735] disabled:opacity-40';
 
-const tooltip = (c: Command) => (c.shortcut ? `${c.title} (${shortcutLabel(c.shortcut)})` : c.title);
+const commandHelp: Record<string, string> = {
+  pull: 'Fetch and integrate changes from the tracked remote branch.',
+  push: 'Send local commits to the tracked remote branch.',
+  fetch: 'Update remote-tracking references without changing your files.',
+  'new-branch': 'Create a branch from the selected starting point.',
+  stash: 'Temporarily put selected working changes aside.',
+  'pop-stash': 'Apply the latest stash and remove it if Git succeeds.',
+  undo: 'Reverse the most recent supported Gitter action.',
+  'open-in': 'Open this repository in a configured app or terminal.',
+  'review-inbox': 'Review agent work waiting for your attention.',
+  fleet: 'Inspect and manage local coding agents.',
+  'toggle-staging': 'Show or hide the working tree and commit panel.',
+  'toggle-sidebar': 'Show or hide branches, pull requests, and other navigation.',
+  'toggle-assistant': 'Open or close the repository assistant.',
+  refresh: 'Reload the repository state from Git.',
+  settings: 'Configure Gitter, integrations, and this repository.',
+};
+const tooltip = (c: Command) => `${c.title}${c.shortcut ? ` (${shortcutLabel(c.shortcut)})` : ''}${commandHelp[c.id] ? `\n${commandHelp[c.id]}` : ''}`;
 const toolbarLabels: Record<string, string> = {
   'new-branch': 'Branch', stash: 'Stash', 'pop-stash': 'Pop', undo: 'Undo', fetch: 'Fetch', reflog: 'Reflog',
   worktrees: 'Worktrees', gitflow: 'Gitflow', 'pull-request': 'PR', lanes: 'Lanes', reveal: 'Reveal',
@@ -132,11 +149,11 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({ commands, repoStat
           <span className="truncate">{repoState?.name ?? (busy ? 'Loading…' : 'Open a repository')}</span>
         </button>
         {repoState && (
-          <span className="flex items-center gap-1 px-2 py-1 rounded bg-[#14181f] border border-[#2a3447] text-xs font-mono text-teal-300 min-w-0">
+          <span title={repoState.isDetached ? `Detached HEAD at ${repoState.currentBranch}. New commits will not move a branch.` : `Current branch: ${repoState.currentBranch}`} className="flex items-center gap-1 px-2 py-1 rounded bg-[#14181f] border border-[#2a3447] text-xs font-mono text-teal-300 min-w-0">
             <GitBranch className="w-3.5 h-3.5 flex-shrink-0" />
             <span className="truncate max-w-[160px]">{repoState.currentBranch}</span>
-            {repoState.isRebasing && <span className="text-[10px] bg-amber-500/20 text-amber-300 px-1 rounded">REBASING</span>}
-            {repoState.isMerging && <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1 rounded">MERGING</span>}
+            {repoState.isRebasing && <span title="A rebase is in progress. Resolve conflicts and continue or abort it before starting another." className="text-[10px] bg-amber-500/20 text-amber-300 px-1 rounded">REBASING</span>}
+            {repoState.isMerging && <span title="A merge is in progress. Resolve conflicts and complete or abort the merge." className="text-[10px] bg-purple-500/20 text-purple-300 px-1 rounded">MERGING</span>}
           </span>
         )}
       </div>

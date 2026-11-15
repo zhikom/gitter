@@ -1,5 +1,5 @@
-import { menuPosition, useDismiss } from './ui/useDismiss';
-import React, { useState } from 'react';
+import { menuPosition, useDismiss, useMenuKeyboard, useMenuPlacement } from './ui/useDismiss';
+import React, { useRef, useState } from 'react';
 import {
   GitBranch,
   Globe,
@@ -25,8 +25,10 @@ import {
   History,
   Search,
   X,
+  ExternalLink,
 } from 'lucide-react';
 import { Branch, PullRequest, Remote, Stash, Submodule, Tag, Worktree } from '../../shared/types/git';
+import { toast } from '../utils/toast';
 
 export interface SidebarSectionConfig {
   localBranches: boolean;
@@ -70,6 +72,7 @@ interface SidebarProps {
   onCreateBranch: () => void;
   onCreateTag: () => void;
   onViewPr?: (pr: PullRequest) => void;
+  onOpenPrInBrowser?: (pr: PullRequest) => void;
   onCreatePr?: (branch?: string) => void;
   onOpenWorktrees?: () => void;
   onSwitchWorktree?: (path: string) => void;
@@ -82,7 +85,7 @@ interface SidebarProps {
 interface ContextMenuState {
   x: number;
   y: number;
-  type: 'localBranch' | 'remoteBranch' | 'tag' | 'stash';
+  type: 'localBranch' | 'remoteBranch' | 'tag' | 'stash' | 'pullRequest';
   item: any;
 }
 
@@ -115,6 +118,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCreateBranch,
   onCreateTag,
   onViewPr,
+  onOpenPrInBrowser,
   onCreatePr,
   onOpenWorktrees,
   onSwitchWorktree,
@@ -179,6 +183,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Context Menu state
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   useDismiss(Boolean(contextMenu), () => setContextMenu(null));
+  const menuRef = useRef<HTMLDivElement>(null);
+  useMenuKeyboard(Boolean(contextMenu), menuRef, () => setContextMenu(null));
+  useMenuPlacement(contextMenu, menuRef);
 
   const localBranches = branches.filter((b) => !b.isRemote);
   const remoteBranches = branches.filter((b) => b.isRemote);
@@ -201,7 +208,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     filteredStashes.length;
 
   const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
+    void navigator.clipboard.writeText(text).catch(() => toast.error('Could not copy to the clipboard.'));
   };
 
   const handleBranchContextMenu = (e: React.MouseEvent, branch: Branch) => {
@@ -235,6 +242,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       type: 'stash',
       item: stash,
     });
+  };
+
+  const keyboardContextMenu = (event: React.KeyboardEvent<HTMLElement>, type: ContextMenuState['type'], item: Branch | Tag | Stash): boolean => {
+    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return false;
+    event.preventDefault(); event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    setContextMenu({ x: rect.left, y: rect.bottom, type, item });
+    return true;
   };
 
   return (
@@ -468,7 +483,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   role="button"
                   tabIndex={0}
                   aria-label={`Select branch ${branch.name}`}
-                  onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectBranch(branch); } }}
+                  onKeyDown={(event) => { if (event.target !== event.currentTarget || keyboardContextMenu(event, 'localBranch', branch)) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectBranch(branch); } }}
                   draggable={true}
                   onDragStart={(e) => {
                     setDraggedBranch(branch.name);
@@ -595,7 +610,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   role="button"
                   tabIndex={0}
                   aria-label={`Select remote branch ${branch.name.replace(/^origin\//, '')}`}
-                  onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectBranch(branch); } }}
+                  onKeyDown={(event) => { if (event.target !== event.currentTarget || keyboardContextMenu(event, 'remoteBranch', branch)) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectBranch(branch); } }}
                   draggable={true}
                   onDragStart={(e) => {
                     e.dataTransfer.setData('text/plain', branch.name);
@@ -702,7 +717,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
               pullRequests.map((pr) => (
                 <div
                   key={`${pr.provider?.connectionId ?? 'github'}:${pr.provider?.projectKey ?? ''}:${pr.provider?.slug ?? ''}:${pr.number}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Pull request ${pr.number}: ${pr.title}${pr.isDraft ? ', draft' : ''}`}
                   onClick={() => onViewPr && onViewPr(pr)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onViewPr?.(pr); }
+                    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                      event.preventDefault(); event.stopPropagation();
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      setContextMenu({ x: rect.left, y: rect.bottom, type: 'pullRequest', item: pr });
+                    }
+                  }}
+                  onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setContextMenu({ x: event.clientX, y: event.clientY, type: 'pullRequest', item: pr }); }}
+                  title={`#${pr.number} ${pr.title}\n${pr.isDraft ? 'Draft pull request' : `${pr.state.toLowerCase()} pull request`} · ${pr.headRefName} → ${pr.baseRefName}\nClick to review; right-click for actions.`}
                   className="group flex items-center justify-between px-3 py-1.5 text-xs cursor-pointer hover:bg-[#202735] text-slate-300 transition"
                 >
                   <div className="flex items-center space-x-2 truncate">
@@ -755,8 +783,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               filteredTags.map((tag) => (
                 <div
                   key={tag.name}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Tag ${tag.name}`}
+                  onKeyDown={(event) => { if (event.target !== event.currentTarget || keyboardContextMenu(event, 'tag', tag)) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); setContextMenu({ x: rect.left, y: rect.bottom, type: 'tag', item: tag }); } }}
                   onDoubleClick={() => onCheckoutBranch(tag.name)}
                   onContextMenu={(e) => handleTagContextMenu(e, tag)}
+                  title={`Tag ${tag.name}. Double-click to check out; right-click for actions.`}
                   className="group flex items-center justify-between px-3 py-1.5 text-xs hover:bg-[#202735] text-slate-300 cursor-pointer"
                 >
                   <div className="flex items-center space-x-2 truncate">
@@ -806,10 +839,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
               filteredStashes.map((stash) => (
                 <div
                   key={stash.name}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Inspect stash ${stash.message || stash.name}`}
+                  onKeyDown={(event) => { if (event.target !== event.currentTarget || keyboardContextMenu(event, 'stash', stash)) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onInspectStash?.(stash.index, stash.message || stash.name); } }}
                   onClick={() => onInspectStash?.(stash.index, stash.message || stash.name)}
                   onContextMenu={(e) => handleStashContextMenu(e, stash)}
                   className="group flex items-center justify-between px-3 py-1.5 text-xs hover:bg-[#202735] text-slate-300 cursor-pointer"
-                  title="Click to inspect stash diff & files"
+                  title="Click to inspect the stash; right-click for apply, pop, and drop actions."
                 >
                   <div className="flex items-center space-x-2 truncate">
                     <Archive className="w-3 h-3 text-amber-400/70 flex-shrink-0" />
@@ -982,18 +1019,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* CONTEXT MENU */}
       {contextMenu && (
         <div
+          ref={menuRef}
           data-context-menu
+          role="menu"
+          aria-label="Navigator actions"
           style={menuPosition(contextMenu.x, contextMenu.y, 220, 300)}
           className="fixed bg-[#1b212c] border border-[#2a3447] rounded-md shadow-2xl py-1 z-50 text-xs text-slate-200 min-w-[210px]"
           onClick={(e) => e.stopPropagation()}
         >
+          {contextMenu.type === 'pullRequest' && (
+            <>
+              <div className="px-3 py-1 font-mono text-[11px] text-teal-400 border-b border-[#2a3447] truncate">#{contextMenu.item.number}: {contextMenu.item.title}</div>
+              {onViewPr && <button role="menuitem" onClick={() => { onViewPr(contextMenu.item); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"><GitPullRequest className="w-3.5 h-3.5" /><span>Open review</span></button>}
+              {onOpenPrInBrowser && contextMenu.item.url && <button role="menuitem" onClick={() => { onOpenPrInBrowser(contextMenu.item); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"><ExternalLink className="w-3.5 h-3.5" /><span>Open in browser</span></button>}
+              {contextMenu.item.url && <button role="menuitem" onClick={() => { copyToClipboard(contextMenu.item.url); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"><Copy className="w-3.5 h-3.5" /><span>Copy pull request link</span></button>}
+              {contextMenu.item.headRefName && <button role="menuitem" onClick={() => { copyToClipboard(contextMenu.item.headRefName); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"><GitBranch className="w-3.5 h-3.5" /><span>Copy source branch</span></button>}
+            </>
+          )}
           {contextMenu.type === 'localBranch' && (
             <>
               <div className="px-3 py-1 font-mono text-[11px] text-teal-400 border-b border-[#2a3447] truncate">
                 {contextMenu.item.name}
               </div>
-              {onBranchTimeline && <button onClick={() => { onBranchTimeline(contextMenu.item); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"><History className="w-3.5 h-3.5" /><span>Branch timeline</span></button>}
-              <button
+              {onBranchTimeline && <button role="menuitem" onClick={() => { onBranchTimeline(contextMenu.item); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"><History className="w-3.5 h-3.5" /><span>Branch timeline</span></button>}
+              <button role="menuitem"
                 onClick={() => {
                   onCheckoutBranch(contextMenu.item.name);
                   setContextMenu(null);
@@ -1006,7 +1055,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
               {contextMenu.item.name !== currentBranch && (
                 <>
-                  <button
+                  <button role="menuitem"
                     onClick={() => {
                       if (onBranchDrop) onBranchDrop(contextMenu.item.name, currentBranch);
                       setContextMenu(null);
@@ -1016,7 +1065,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <GitMerge className="w-3.5 h-3.5 text-teal-400" />
                     <span>Merge into {currentBranch}</span>
                   </button>
-                  <button
+                  <button role="menuitem"
                     onClick={() => {
                       if (onBranchDrop) onBranchDrop(currentBranch, contextMenu.item.name);
                       setContextMenu(null);
@@ -1032,7 +1081,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="border-t border-[#2a3447] my-1" />
 
               {onPushBranch && (
-                <button
+                <button role="menuitem"
                   onClick={() => {
                     onPushBranch(contextMenu.item.name);
                     setContextMenu(null);
@@ -1045,7 +1094,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
 
               {onRenameBranch && (
-                <button
+                <button role="menuitem"
                   onClick={() => {
                     onRenameBranch(contextMenu.item.name);
                     setContextMenu(null);
@@ -1058,7 +1107,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
 
               {onCreatePr && (
-                <button
+                <button role="menuitem"
                   onClick={() => {
                     onCreatePr(contextMenu.item.name);
                     setContextMenu(null);
@@ -1070,7 +1119,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </button>
               )}
 
-              <button
+              <button role="menuitem"
                 onClick={() => {
                   copyToClipboard(contextMenu.item.name);
                   setContextMenu(null);
@@ -1084,7 +1133,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {contextMenu.item.name !== currentBranch && (
                 <>
                   <div className="border-t border-[#2a3447] my-1" />
-                  <button
+                  <button role="menuitem"
                     onClick={() => {
                       onDeleteBranch(contextMenu.item.name);
                       setContextMenu(null);
@@ -1104,8 +1153,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="px-3 py-1 font-mono text-[11px] text-blue-400 border-b border-[#2a3447] truncate">
                 {contextMenu.item.name}
               </div>
-              {onBranchTimeline && <button onClick={() => { onBranchTimeline(contextMenu.item); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"><History className="w-3.5 h-3.5" /><span>Branch timeline</span></button>}
-              <button
+              {onBranchTimeline && <button role="menuitem" onClick={() => { onBranchTimeline(contextMenu.item); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 hover:bg-[#262f3f] flex items-center space-x-2"><History className="w-3.5 h-3.5" /><span>Branch timeline</span></button>}
+              <button role="menuitem"
                 onClick={() => {
                   onCheckoutBranch(contextMenu.item.name);
                   setContextMenu(null);
@@ -1115,7 +1164,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <GitBranch className="w-3.5 h-3.5 text-blue-400" />
                 <span>Checkout as local branch</span>
               </button>
-              <button
+              <button role="menuitem"
                 onClick={() => {
                   copyToClipboard(contextMenu.item.name);
                   setContextMenu(null);
@@ -1133,7 +1182,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="px-3 py-1 font-mono text-[11px] text-yellow-400 border-b border-[#2a3447] truncate">
                 Tag: {contextMenu.item.name}
               </div>
-              <button
+              <button role="menuitem"
                 onClick={() => {
                   onCheckoutBranch(contextMenu.item.name);
                   setContextMenu(null);
@@ -1144,7 +1193,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span>Checkout tag</span>
               </button>
               {onPushTag && (
-                <button
+                <button role="menuitem"
                   onClick={() => {
                     onPushTag(contextMenu.item.name);
                     setContextMenu(null);
@@ -1155,7 +1204,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span>Push tag to origin</span>
                 </button>
               )}
-              <button
+              <button role="menuitem"
                 onClick={() => {
                   copyToClipboard(contextMenu.item.name);
                   setContextMenu(null);
@@ -1166,7 +1215,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span>Copy tag name</span>
               </button>
               <div className="border-t border-[#2a3447] my-1" />
-              <button
+              <button role="menuitem"
                 onClick={() => {
                   onDeleteTag(contextMenu.item.name);
                   setContextMenu(null);
@@ -1185,7 +1234,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {contextMenu.item.name}: {contextMenu.item.message || 'WIP'}
               </div>
               {onApplyStash && (
-                <button
+                <button role="menuitem"
                   onClick={() => {
                     onApplyStash(contextMenu.item.index);
                     setContextMenu(null);
@@ -1196,7 +1245,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span>Apply stash (keep in stash list)</span>
                 </button>
               )}
-              <button
+              <button role="menuitem"
                 onClick={() => {
                   onPopStash(contextMenu.item.index);
                   setContextMenu(null);
@@ -1207,7 +1256,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span>Pop stash (apply & remove)</span>
               </button>
               <div className="border-t border-[#2a3447] my-1" />
-              <button
+              <button role="menuitem"
                 onClick={() => {
                   onDropStash(contextMenu.item.index);
                   setContextMenu(null);

@@ -1,4 +1,5 @@
-import { menuPosition, useDismiss } from '../ui/useDismiss';
+import { menuPosition, useDismiss, useMenuKeyboard, useMenuPlacement } from '../ui/useDismiss';
+import { PatchContextMenu } from '../Diff/PatchContextMenu';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Commit } from '../../../shared/types/git';
 import { layoutCommitGraph, getLaneColor } from '../../utils/graphLayout';
@@ -35,6 +36,8 @@ interface CommitGraphProps {
   onOpenInEditor?: () => void;
   onCopyPatch?: (hash: string) => void;
   onCompareCommits?: (commitA: Commit, commitB: Commit) => void;
+  onStageAll?: () => void;
+  onStash?: () => void;
   agentBranchNames?: string[];
   hasAgentCollisions?: boolean;
 }
@@ -65,6 +68,8 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
   onOpenInEditor,
   onCopyPatch,
   onCompareCommits,
+  onStageAll,
+  onStash,
   agentBranchNames = [],
   hasAgentCollisions = false,
 }) => {
@@ -82,6 +87,10 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
     commit: Commit;
   } | null>(null);
   useDismiss(Boolean(contextMenu), closeMenu);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useMenuKeyboard(Boolean(contextMenu), menuRef, closeMenu);
+  useMenuPlacement(contextMenu, menuRef);
+  const [wipMenu, setWipMenu] = useState<{ x: number; y: number; commit: Commit } | null>(null);
 
   // Compute graph nodes with topological lane assignment
   const graphNodes = useMemo(() => layoutCommitGraph(commits, hasWip ? headCommit?.hash ?? '' : undefined), [commits, hasWip, headCommit?.hash]);
@@ -166,6 +175,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
 
   const handleContextMenu = (e: React.MouseEvent, commit: Commit) => {
     e.preventDefault();
+    setWipMenu(null);
     setContextMenu({
       x: e.clientX,
       y: e.clientY,
@@ -294,9 +304,20 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                   }
                   onSelectCommit(commit);
                 }}
-                onContextMenu={(e) => (isWip ? e.preventDefault() : handleContextMenu(e, commit))}
+                role={isWip ? 'button' : undefined}
+                tabIndex={isWip ? 0 : undefined}
+                aria-label={isWip ? 'Uncommitted working tree changes' : undefined}
+                onKeyDown={(event) => {
+                  if (!isWip || event.target !== event.currentTarget) return;
+                  if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectCommit(commit); }
+                  if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); setContextMenu(null); setWipMenu({ x: rect.left, y: rect.bottom, commit }); }
+                }}
+                onContextMenu={(event) => {
+                  if (!isWip) { handleContextMenu(event, commit); return; }
+                  event.preventDefault(); event.stopPropagation(); setContextMenu(null); setWipMenu({ x: event.clientX, y: event.clientY, commit });
+                }}
                 style={{ height: rowHeight }}
-                title={isWip ? 'Uncommitted changes' : `Commit ${commit.shortHash} by ${commit.author.name} (Drag onto a branch to cherry-pick)`}
+                title={isWip ? 'Uncommitted working tree changes. Select this row to review them; right-click for actions.' : `Commit ${commit.shortHash} by ${commit.author.name}\nRight-click for actions, or drag onto a branch to cherry-pick.`}
                 className={`flex items-center text-xs border-b border-[#1b212c] cursor-pointer transition select-none ${
                   isSelected
                     ? 'bg-[#263245] text-slate-100'
@@ -427,6 +448,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                     return (
                       <span
                         key={ref}
+                        title={isTag ? `Tag: ${refName}` : ref.startsWith('HEAD -> ') ? `Currently checked-out branch: ${refName}` : ref === 'HEAD' ? 'Current checkout (HEAD)' : `Git reference: ${refName}`}
                         className={`inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0 border ${
                           isHead
                             ? 'bg-teal-500/20 text-teal-300 border-teal-500/40'
@@ -489,9 +511,17 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
       </div>
 
       {/* Context Menu on Right Click */}
+      <PatchContextMenu position={wipMenu} onClose={() => setWipMenu(null)} items={wipMenu ? [
+        { label: 'Show working tree', run: () => onSelectCommit(wipMenu.commit) },
+        ...(onStageAll ? [{ label: 'Stage all changes', run: onStageAll }] : []),
+        ...(onStash ? [{ label: 'Stash changes…', run: onStash }] : []),
+      ] : []} />
       {contextMenu && (
         <div
+          ref={menuRef}
           data-context-menu
+          role="menu"
+          aria-label="Commit actions"
           style={menuPosition(contextMenu.x, contextMenu.y, 220, 460)}
           className="fixed bg-[#1b212c] border border-[#2a3447] rounded-md shadow-2xl py-1 z-50 text-xs text-slate-200 min-w-[200px] max-h-[90vh] overflow-y-auto"
           onClick={(e) => e.stopPropagation()}
@@ -500,7 +530,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             {contextMenu.commit.shortHash}: {contextMenu.commit.summary.slice(0, 24)}...
           </div>
 
-          <button
+          <button role="menuitem"
             onClick={() => {
               onCheckout(contextMenu.commit.hash);
               setContextMenu(null);
@@ -511,7 +541,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             <span>Checkout this commit</span>
           </button>
 
-          <button
+          <button role="menuitem"
             onClick={() => {
               onCreateBranchAt(contextMenu.commit.hash);
               setContextMenu(null);
@@ -522,7 +552,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             <span>Create branch here...</span>
           </button>
 
-          <button
+          <button role="menuitem"
             onClick={() => {
               onCreateTagAt(contextMenu.commit.hash);
               setContextMenu(null);
@@ -534,7 +564,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
           </button>
 
           {onInteractiveRebase && (
-            <button
+            <button role="menuitem"
               onClick={() => {
                 onInteractiveRebase(contextMenu.commit.hash);
                 setContextMenu(null);
@@ -548,7 +578,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
 
           <div className="border-t border-[#2a3447] my-1" />
 
-          <button
+          <button role="menuitem"
             onClick={() => {
               onCherryPick(contextMenu.commit.hash);
               setContextMenu(null);
@@ -559,7 +589,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             <span>Cherry-pick commit</span>
           </button>
 
-          <button
+          <button role="menuitem"
             onClick={() => {
               onRevertCommit(contextMenu.commit.hash);
               setContextMenu(null);
@@ -575,7 +605,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
           <div className="px-3 py-1 text-[10px] uppercase font-bold text-slate-500">
             Reset current branch here
           </div>
-          <button
+          <button role="menuitem"
             onClick={() => {
               onResetCommit(contextMenu.commit.hash, 'soft');
               setContextMenu(null);
@@ -584,7 +614,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
           >
             Soft (Keep changes staged)
           </button>
-          <button
+          <button role="menuitem"
             onClick={() => {
               onResetCommit(contextMenu.commit.hash, 'mixed');
               setContextMenu(null);
@@ -593,7 +623,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
           >
             Mixed (Keep changes unstaged)
           </button>
-          <button
+          <button role="menuitem"
             onClick={() => {
               onResetCommit(contextMenu.commit.hash, 'hard');
               setContextMenu(null);
@@ -607,7 +637,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
 
           {onCompareCommits && headCommit && headCommit.hash !== contextMenu.commit.hash && (
             <>
-              <button
+              <button role="menuitem"
                 onClick={() => {
                   onCompareCommits(contextMenu.commit, headCommit);
                   setContextMenu(null);
@@ -618,7 +648,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                 <span>Compare with HEAD</span>
               </button>
               {selectedHash && selectedHash !== contextMenu.commit.hash && (
-                <button
+                <button role="menuitem"
                   onClick={() => {
                     const sel = commits.find((c) => c.hash === selectedHash || c.shortHash === selectedHash);
                     if (sel) {
@@ -636,7 +666,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
           )}
 
           {onOpenInEditor && (
-            <button
+            <button role="menuitem"
               onClick={() => {
                 onOpenInEditor();
                 setContextMenu(null);
@@ -649,7 +679,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
           )}
 
           {onCopyPatch && (
-            <button
+            <button role="menuitem"
               onClick={() => {
                 onCopyPatch(contextMenu.commit.hash);
                 setContextMenu(null);
@@ -661,7 +691,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             </button>
           )}
 
-          <button
+          <button role="menuitem"
             onClick={() => {
               navigator.clipboard.writeText(contextMenu.commit.summary);
               setContextMenu(null);
@@ -672,7 +702,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             <span>Copy commit message</span>
           </button>
 
-          <button
+          <button role="menuitem"
             onClick={() => {
               copySha(contextMenu.commit.hash);
               setContextMenu(null);

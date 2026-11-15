@@ -23,6 +23,7 @@ interface CommitBoxProps {
 }
 
 const CONVENTIONAL_TAGS = ['feat', 'fix', 'refactor', 'docs', 'chore', 'perf', 'test'];
+const TAG_HELP: Record<string, string> = { feat: 'A new feature', fix: 'A bug fix', refactor: 'A code change without a feature or bug fix', docs: 'Documentation changes', chore: 'Maintenance work', perf: 'A performance improvement', test: 'Add or update tests' };
 
 export const CommitBox: React.FC<CommitBoxProps> = ({
   repo,
@@ -222,6 +223,7 @@ export const CommitBox: React.FC<CommitBoxProps> = ({
             <button
               key={tag}
               type="button"
+              title={`${tag}: ${TAG_HELP[tag]}. Add this prefix to the commit summary.`}
               onClick={() => handleApplyTag(tag)}
               className="px-1.5 py-0.5 rounded bg-[#14181f] hover:bg-[#252f40] border border-[#2a3447] text-[10px] text-slate-400 hover:text-teal-300 font-mono transition"
             >

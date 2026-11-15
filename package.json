@@ -1,7 +1,7 @@
 {
   "name": "gitter",
   "productName": "Gitter",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "description": "High-performance GitKraken alternative with visual commit graph and deep AI agent integration",
   "type": "module",
   "scripts": {
@@ -15,7 +15,7 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "setup:hooks": "git config core.hooksPath .githooks",
-    "test": "node --test --import tsx server/handlers.test.ts"
+    "test": "node --test --import tsx server/handlers.test.ts src/components/ui/Tooltip.test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
@@ -43,6 +43,7 @@
     "@types/vscode": "^1.145.0",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "jsdom": "^24.1.3",
     "postcss": "^8.5.2",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.2",

@@ -101,6 +101,32 @@ pre, code, kbd, samp { font-family: var(--font-code); }
   .graph-density-select { display: block; }
 }
 
+/* Shared help stays above panels and dialogs, without clipping to a sidebar. */
+.gitter-tooltip {
+  position: fixed;
+  z-index: 1000;
+  max-width: min(360px, calc(100vw - 16px));
+  max-height: min(45vh, 320px);
+  overflow: auto;
+  padding: 8px 11px;
+  border: 1px solid rgb(var(--theme-border, 69 85 108));
+  border-radius: 8px;
+  background: rgb(var(--theme-raised, 42 52 69));
+  color: rgb(var(--slate-100, 241 245 249));
+  box-shadow: 0 8px 24px rgb(0 0 0 / .28);
+  font-family: var(--font-ui);
+  font-size: calc(12px * var(--ui-text-scale, 1));
+  line-height: 1.4;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  user-select: text;
+  animation: gitter-tooltip-in 150ms cubic-bezier(.2, .8, .2, 1) both;
+}
+@keyframes gitter-tooltip-in {
+  from { opacity: 0; transform: translateY(4px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 /* Selection and focus */
 ::selection {
   background: rgb(var(--teal-500, 20 184 166) / .3);

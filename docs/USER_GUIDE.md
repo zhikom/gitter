@@ -23,6 +23,14 @@ and files will be different.
 Drag the dividers to resize panels. **⌘B** on macOS or **Ctrl+B** on Windows
 shows or hides the navigator; **⌘J / Ctrl+J** toggles the working tree.
 
+Pause over an icon, status badge, or control to see its explanation and any
+shortcut. Keyboard focus also shows available hints; press **Escape** to dismiss
+one. Tooltips follow your theme and the system's reduced-motion preference.
+Right-click a repository tab, branch, commit, working-tree file or section, or
+pull request for actions related to it. On focused items that support a menu,
+use **Shift+F10** or the keyboard's context-menu key; arrow keys navigate the
+menu.
+
 The window title follows the active repository, its branch or detached HEAD,
 and its number of changed files. On macOS, use the **Gitter** menu for
 **About Gitter**, **Settings…** (⌘,), and **Check for Updates…**. The File,
@@ -85,6 +93,8 @@ private key.
 2. Use **Stage hunk** to stage a whole block. Click changed lines to select
    them, then use the selection actions or right-click to stage only those
    lines. You can unstage or discard changes from the corresponding views.
+   Right-click a **Staged** or **Unstaged** section heading for bulk actions, or
+   the graph's uncommitted-changes row for working-tree actions.
 3. Check the **Staged** section before committing. You can move a file back
    using its unstage action.
 4. Enter a summary and select **Commit to _branch_**. Add a description or
@@ -126,6 +136,8 @@ Bitbucket creation flow currently supports PRs within one repository.
    through long diffs. Click the comment icon beside a line, write a comment,
    and choose **Post comment**. Existing inline comments appear beneath their
    lines; **Discussion** also lists comments and replies.
+   Right-click a diff line to comment or copy the line or its location. Finish
+   or cancel an existing comment draft before choosing a different line.
 2. Use **Checks** to inspect CI results and review states. Select **Approve**
    when you are ready to approve the displayed PR revision. Refresh the review
    when the source branch changes.
