@@ -222,25 +222,30 @@ const ThemeReset: React.FC = () => {
   return <button type="button" disabled={theme === 'classic' && !themePack} onClick={() => { resetPreference('themePack'); resetPreference('theme'); }} aria-label="Reset theme" className="shrink-0 text-[10px] text-slate-400 hover:text-teal-300 disabled:opacity-30 disabled:cursor-default">Reset</button>;
 };
 
-const ThemePicker: React.FC = () => {
+export const ThemePicker: React.FC = () => {
   const [theme, setTheme] = usePreference('theme');
   const [themePack, setThemePack] = usePreference('themePack');
   const [packs] = usePreference('dataPacks');
   const selectedPack = packs.some((pack) => pack.enabled && pack.manifest.id === themePack && compatiblePack(pack.manifest, CURRENT_VERSION) && pack.manifest.contributions.theme);
+  const glassSelected = !selectedPack && (theme === 'glass' || theme === 'glass-light' || theme === 'glass-dark');
   const choices: Array<{ id: Preferences['theme']; name: string; description: string; surface: string; panel: string; text: string; accent: string }> = [
     { id: 'classic', name: 'Gitter dark', description: 'The original look', surface: '#14181f', panel: '#202735', text: '#e2e8f0', accent: '#14b8a6' },
     { id: 'codex', name: 'Codex', description: 'Neutral dark', surface: '#1c1c1c', panel: '#303030', text: '#f1f1ef', accent: '#8baee8' },
     { id: 'claude', name: 'Claude', description: 'Warm light', surface: '#faf9f5', panel: '#e8e4da', text: '#2b2722', accent: '#a44a2d' },
+    { id: 'glass', name: 'Liquid Glass', description: 'Light and dark glass', surface: '#dceaf5', panel: '#9ebad0', text: '#253345', accent: '#247fa5' },
   ];
-  return <><div role="group" aria-label="Theme" className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-    {choices.map((choice) => <button key={choice.id} type="button" aria-pressed={!selectedPack && theme === choice.id} onClick={() => { setThemePack(''); setTheme(choice.id); }} className={`rounded-lg border p-2 text-left transition ${!selectedPack && theme === choice.id ? 'border-teal-500 ring-1 ring-teal-500/40' : 'border-[#2a3447] hover:border-teal-500/50'}`}>
+  return <><div role="group" aria-label="Theme" className="grid grid-cols-2 gap-2">
+    {choices.map((choice) => <button key={choice.id} type="button" aria-pressed={choice.id === 'glass' ? glassSelected : !selectedPack && theme === choice.id} onClick={() => { setThemePack(''); setTheme(choice.id); }} className={`rounded-lg border p-2 text-left transition ${(choice.id === 'glass' ? glassSelected : !selectedPack && theme === choice.id) ? 'border-teal-500 ring-1 ring-teal-500/40' : 'border-[#2a3447] hover:border-teal-500/50'}`}>
       <div aria-hidden="true" className="h-12 rounded flex overflow-hidden border border-black/10" style={{ background: choice.surface, color: choice.text }}>
         <div className="w-1/3 p-1.5" style={{ background: choice.panel }}><div className="w-full h-1 rounded" style={{ background: choice.accent }} /><div className="w-3/4 h-1 rounded mt-1 opacity-40" style={{ background: choice.text }} /></div>
         <div className="p-1.5 flex-1"><div className="text-[10px] leading-3" style={{ fontFamily: choice.id === 'claude' ? 'Georgia, serif' : 'system-ui, sans-serif' }}>Aa</div><div className="w-3/4 h-1 rounded mt-1 opacity-25" style={{ background: choice.text }} /></div>
       </div>
       <span className="block mt-2 text-xs font-semibold text-slate-200">{choice.name}</span><span className="block text-[10px] text-slate-500">{choice.description}</span>
     </button>)}
-  </div><button type="button" aria-pressed={!selectedPack && theme === 'system'} onClick={() => { setThemePack(''); setTheme('system'); }} className={`mt-2 px-3 py-1.5 rounded border text-xs ${!selectedPack && theme === 'system' ? 'border-teal-500 text-teal-200' : 'border-[#2a3447] text-slate-300 hover:border-teal-500/50'}`}>Follow system appearance</button><p className="text-[10px] text-slate-500 mt-1">Uses Gitter dark for dark mode and Claude for light mode.</p></>;
+  </div>{glassSelected && <div className="mt-3"><div className="text-[11px] font-semibold text-slate-400 mb-1">Liquid Glass appearance</div><div role="group" aria-label="Liquid Glass appearance" className="flex flex-wrap gap-2">
+    {([['glass', 'System'], ['glass-light', 'Light'], ['glass-dark', 'Dark']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={theme === value} onClick={() => setTheme(value)} className={`px-3 py-1.5 rounded border text-xs ${theme === value ? 'border-teal-500 text-teal-200' : 'border-[#2a3447] text-slate-300 hover:border-teal-500/50'}`}>{label}</button>)}
+  </div><p className="text-[10px] text-slate-500 mt-1">System follows your device's light or dark appearance. Reduced transparency and increased contrast use solid surfaces.</p></div>}
+  <button type="button" aria-pressed={!selectedPack && theme === 'system'} onClick={() => { setThemePack(''); setTheme('system'); }} className={`mt-2 px-3 py-1.5 rounded border text-xs ${!selectedPack && theme === 'system' ? 'border-teal-500 text-teal-200' : 'border-[#2a3447] text-slate-300 hover:border-teal-500/50'}`}>Gitter / Claude: follow system</button><p className="text-[10px] text-slate-500 mt-1">Uses Gitter dark for dark mode and Claude for light mode.</p></>;
 };
 
 const RepositoryFolderSettings: React.FC = () => {

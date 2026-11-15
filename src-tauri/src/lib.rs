@@ -136,6 +136,44 @@ fn set_window_scale(window: tauri::WebviewWindow, percent: u32) -> Result<(), St
     window.set_zoom(f64::from(percent) / 100.0).map_err(|error| error.to_string())
 }
 
+/// WebKit does not consistently expose the system's reduce-transparency
+/// preference through CSS. Check AppKit directly for the desktop app.
+#[tauri::command]
+fn reduce_glass_effects() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let workspace = objc2_app_kit::NSWorkspace::sharedWorkspace();
+        workspace.accessibilityDisplayShouldReduceTransparency()
+            || workspace.accessibilityDisplayShouldIncreaseContrast()
+    }
+    #[cfg(not(target_os = "macos"))]
+    { false }
+}
+
+#[tauri::command]
+fn set_glass_effect(window: tauri::WebviewWindow, enabled: bool, appearance: &str) -> Result<bool, String> {
+    if window.label() != "main" { return Err("Invalid window.".into()); }
+    let appearance = match appearance {
+        "system" => None,
+        "light" => Some(tauri::Theme::Light),
+        "dark" => Some(tauri::Theme::Dark),
+        _ => return Err("Invalid appearance.".into()),
+    };
+    window.set_theme(appearance).map_err(|error| error.to_string())?;
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::window::{Effect, EffectsBuilder};
+        let effects = enabled.then(|| EffectsBuilder::new()
+            .effect(Effect::LiquidGlassRegular)
+            .effect(Effect::UnderWindowBackground)
+            .build());
+        window.set_effects(effects).map_err(|error| error.to_string())?;
+        Ok(enabled)
+    }
+    #[cfg(not(target_os = "macos"))]
+    { let _ = enabled; Ok(false) }
+}
+
 #[tauri::command]
 fn sync_native_menu(app: AppHandle, items: Vec<native_menu::MenuItemState>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -178,7 +216,7 @@ pub fn run() {
             list_integrations, connect_integration, reconnect_integration, disconnect_integration,
             bitbucket_repositories, bitbucket_pull_requests, bitbucket_pull_request, bitbucket_pull_request_template, create_bitbucket_pull_request, bitbucket_review, bitbucket_review_action,
             list_ssh_keys, copy_ssh_public_key, generate_ssh_key, test_ssh_remote, native_git_request, export_settings_backup,
-            set_window_title, set_window_scale, sync_native_menu
+            set_window_title, set_window_scale, reduce_glass_effects, set_glass_effect, sync_native_menu
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -292,8 +330,12 @@ fn open_main_window(app: &AppHandle, ready: &Ready) -> Result<(), String> {
         .windows
         .first()
         .ok_or("tauri.conf.json defines no window")?;
-    WebviewWindowBuilder::from_config(app, config)
-        .map_err(|e| e.to_string())?
+    let builder = WebviewWindowBuilder::from_config(app, config).map_err(|e| e.to_string())?;
+    // Keep the webview opaque through CSS unless the user selects glass. The
+    // transparent window allows native macOS material to show through then.
+    #[cfg(target_os = "macos")]
+    let builder = builder.transparent(true);
+    builder
         .initialization_script(&format!("window.__GITTER_BACKEND__ = {location};"))
         .build()
         .map_err(|e| format!("Gitter could not open its window: {e}"))?;

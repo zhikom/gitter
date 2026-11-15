@@ -59,6 +59,8 @@ export const CONTRAST_BASE_COLORS = {
   classic: { 'theme-base': '#14181f', 'theme-surface': '#202735', 'theme-raised': '#2d384c', 'slate-200': '#e2e8f0', 'slate-300': '#cbd5e1', 'slate-400': '#b2bfd0', 'slate-500': '#a2b0c3', 'slate-600': '#94a3b8', 'teal-300': '#5eead4', 'teal-400': '#2dd4bf' },
   codex: { 'theme-base': '#1c1c1c', 'theme-surface': '#242424', 'theme-raised': '#2e2e2e', 'slate-200': '#e0e0dd', 'slate-300': '#c4c4c0', 'slate-400': '#b5b5b0', 'slate-500': '#a4a4a0', 'slate-600': '#999994', 'teal-300': '#abcaf7', 'teal-400': '#8baee8' },
   claude: { 'theme-base': '#faf9f5', 'theme-surface': '#f4f2eb', 'theme-raised': '#e8e4da', 'slate-200': '#3a342e', 'slate-300': '#4b433b', 'slate-400': '#60564c', 'slate-500': '#6d6155', 'slate-600': '#6f6357', 'teal-300': '#863b24', 'teal-400': '#99432a' },
+  'glass-dark': { 'theme-base': '#151e2c', 'theme-surface': '#202c3b', 'theme-raised': '#2c3a4c', 'slate-200': '#e5edf5', 'slate-300': '#cedbe8', 'slate-400': '#bac9d9', 'slate-500': '#aabed1', 'slate-600': '#a3b7cb', 'teal-300': '#9bd7fb', 'teal-400': '#84ccf5' },
+  'glass-light': { 'theme-base': '#f4f7fb', 'theme-surface': '#eaf0f7', 'theme-raised': '#dce6f0', 'slate-200': '#253345', 'slate-300': '#34465a', 'slate-400': '#44576b', 'slate-500': '#4e6277', 'slate-600': '#4e6277', 'teal-300': '#075c86', 'teal-400': '#075c86' },
 } as const;
 
 export function themeContrastProblems(base: keyof typeof CONTRAST_BASE_COLORS, overrides: Record<string, string> = {}): string[] {

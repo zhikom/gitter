@@ -7,6 +7,7 @@ import { TooltipLayer } from './components/ui/TooltipLayer';
 import { getPreference, usePreference } from './preferences';
 import { applyFontPreferences } from './fontAppearance';
 import { applyTheme } from './theme';
+import { useGlassAppearance } from './glassAppearance';
 import { CURRENT_VERSION } from './services/updateService';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import './index.css';
@@ -32,6 +33,7 @@ const ThemedApp: React.FC = () => {
     media.addEventListener('change', apply);
     return () => media.removeEventListener('change', apply);
   }, [theme, themePack, dataPacks]);
+  useGlassAppearance(theme, themePack, dataPacks);
   React.useLayoutEffect(() => { document.documentElement.style.setProperty('--ui-text-scale', String(interfaceTextScale / 100)); document.documentElement.dataset.uiTextScale = String(interfaceTextScale); }, [interfaceTextScale]);
   React.useLayoutEffect(() => {
     if (isTauri()) {

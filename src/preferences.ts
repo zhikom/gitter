@@ -20,7 +20,7 @@ export interface RepoTab {
 }
 
 export interface Preferences {
-  theme: 'classic' | 'codex' | 'claude' | 'system';
+  theme: 'classic' | 'codex' | 'claude' | 'system' | 'glass' | 'glass-light' | 'glass-dark';
   interfaceFont: string;
   interfaceScale: number;
   interfaceTextScale: number;
@@ -155,7 +155,7 @@ const strings = (v: unknown) => (Array.isArray(v) && v.every((s) => typeof s ===
 // Stored values are checked on the way in: a value of the wrong shape, written
 // by an earlier version or edited by hand, falls back to the default.
 const NORMALIZE: { [K in keyof Preferences]?: (value: unknown) => Preferences[K] | undefined } = {
-  theme: oneOf('classic', 'codex', 'claude', 'system'),
+  theme: oneOf('classic', 'codex', 'claude', 'system', 'glass', 'glass-light', 'glass-dark'),
   interfaceFont: normalizeFontName,
   interfaceScale: (v) => (typeof v === 'number' && INTERFACE_SCALES.includes(v as typeof INTERFACE_SCALES[number]) ? v : undefined),
   interfaceTextScale: (v) => (typeof v === 'number' && [85, 100, 115, 125].includes(v) ? v : undefined),

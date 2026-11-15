@@ -20,7 +20,7 @@ const font = (value: unknown) => typeof value === 'string' && normalizeFontName(
 
 /** Settings visible on General. Keys also identify their existing storage entries. */
 export const SETTINGS: readonly SettingDefinition[] = [
-  { key: 'theme', label: 'Theme', section: 'Appearance', keywords: 'color dark light system codex claude', shareable: true, valid: choice('classic', 'codex', 'claude', 'system') },
+  { key: 'theme', label: 'Theme', section: 'Appearance', keywords: 'color dark light system codex claude liquid glass transparency', shareable: true, valid: choice('classic', 'codex', 'claude', 'system', 'glass', 'glass-light', 'glass-dark') },
   { key: 'interfaceFont', label: 'Interface font', section: 'Appearance', keywords: 'typography anthropic sans family ui', shareable: true, valid: font },
   { key: 'interfaceScale', label: 'Interface scale', section: 'Appearance', keywords: 'zoom size accessibility icons panels window', shareable: true, valid: choice(85, 100, 115, 125) },
   { key: 'interfaceTextScale', label: 'Interface text size', section: 'Appearance', keywords: 'typography font scale accessibility ui', shareable: true, valid: choice(85, 100, 115, 125) },

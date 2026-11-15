@@ -138,7 +138,7 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({ commands, repoStat
   const toggleClass = (on: boolean) => `${icon} ${on ? 'text-teal-300 bg-[#202735]' : ''}`;
 
   return (
-    <header className="h-12 flex-shrink-0 bg-[#1b212c] border-b border-[#2a3447] flex items-center justify-between gap-2 px-3 select-none z-30">
+    <header className="gitter-toolbar h-12 flex-shrink-0 bg-[#1b212c] border-b border-[#2a3447] flex items-center justify-between gap-2 px-3 select-none z-30">
       <div className="flex items-center gap-2 min-w-0">
         {action({ id: 'toggle-sidebar', className: toggleClass(open.sidebar), pressed: open.sidebar })}
         <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-emerald-500 via-teal-500 to-cyan-400 flex items-center justify-center flex-shrink-0" aria-hidden>

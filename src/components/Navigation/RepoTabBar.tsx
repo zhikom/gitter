@@ -77,7 +77,7 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
 
   return (
     <div
-      className="h-9 bg-[#0e1218] border-b border-[#1f2636] flex items-center px-2 select-none flex-shrink-0 w-full overflow-hidden"
+      className="gitter-tabbar h-9 bg-[#0e1218] border-b border-[#1f2636] flex items-center px-2 select-none flex-shrink-0 w-full overflow-hidden"
       onClick={() => setContextMenu(null)}
     >
       {/* Scrollable Tabs Container with Mouse-Wheel Horizontal Translation */}
@@ -160,7 +160,7 @@ export const RepoTabBar: React.FC<RepoTabBarProps> = ({
       </div>
 
       {/* Pinned New Tab Button - Always visible & reachable regardless of tab count */}
-      <div className="flex items-center pl-1 border-l border-[#1f2636]/60 flex-shrink-0 bg-[#0e1218]">
+      <div className="gitter-tabbar-actions flex items-center pl-1 border-l border-[#1f2636]/60 flex-shrink-0 bg-[#0e1218]">
         <button
           onClick={onNewTab}
           className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-[#1e2533] text-slate-400 hover:text-teal-300 transition-colors"

@@ -190,7 +190,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
   return (
     <div
       ref={root}
-      className="graph-panel flex-1 flex flex-col h-full bg-[#14181f] overflow-hidden select-none"
+      className="gitter-graph graph-panel flex-1 flex flex-col h-full bg-[#14181f] overflow-hidden select-none"
       onClick={() => setContextMenu(null)}
     >
       {/* Search & Filter Header */}

@@ -255,7 +255,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside
       style={{ width: `${width}px` }}
-      className="bg-[#181d26] border-r border-[#2a3447] flex flex-col h-full text-slate-300 select-none overflow-y-auto relative flex-shrink-0"
+      className="gitter-sidebar bg-[#181d26] border-r border-[#2a3447] flex flex-col h-full text-slate-300 select-none overflow-y-auto relative flex-shrink-0"
       onClick={() => {
         setContextMenu(null);
         setShowSectionCustomizer(false);

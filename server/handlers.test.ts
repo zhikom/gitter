@@ -1012,6 +1012,10 @@ describe('settings', () => {
     applyTheme(root, 'classic', pack.id, installed, true, '1.10.0');
     assert.equal(root.dataset.theme, 'codex');
     assert.equal(properties.get('--theme-base'), '32 32 32');
+    applyTheme(root, 'glass', pack.id, installed, true, '1.10.0');
+    assert.equal(root.dataset.theme, 'codex', 'an active theme pack takes precedence over glass');
+    applyTheme(root, 'glass', pack.id, [{ manifest: pack, enabled: false }], false, '1.10.0');
+    assert.equal(root.dataset.theme, 'glass-light', 'disabling a pack restores the system glass palette');
     applyTheme(root, 'classic', pack.id, [{ manifest: pack, enabled: false }], true, '1.10.0');
     assert.equal(root.dataset.theme, 'classic');
     assert.equal(properties.has('--theme-base'), false, 'disabling a theme pack removes its surface override');
@@ -1022,7 +1026,7 @@ describe('settings', () => {
   });
 
   test('built-in theme text colors contrast against their common surfaces', () => {
-    for (const theme of ['classic', 'codex', 'claude'] as const) assert.deepEqual(themeContrastProblems(theme), [], theme);
+    for (const theme of ['classic', 'codex', 'claude', 'glass-light', 'glass-dark'] as const) assert.deepEqual(themeContrastProblems(theme), [], theme);
     assert.ok(themeContrastProblems('classic', { 'slate-500': '#202735' }).some((problem) => problem.includes('slate-500')));
   });
 
@@ -1097,6 +1101,12 @@ describe('settings', () => {
     assert.equal(effectiveTheme('system', true), 'classic');
     assert.equal(effectiveTheme('system', false), 'claude');
     assert.equal(effectiveTheme('codex', false), 'codex');
+    assert.equal(effectiveTheme('glass', true), 'glass-dark');
+    assert.equal(effectiveTheme('glass', false), 'glass-light');
+    assert.equal(effectiveTheme('glass-dark', false), 'glass-dark');
+    assert.equal(effectiveTheme('glass-light', true), 'glass-light');
+    assert.equal(parseSettingsBackup(JSON.stringify({ format: 'gitter-settings', version: 1, settings: { theme: 'glass' } })).settings.theme, 'glass');
+    assert.ok(searchSettings('liquid glass', false).some((result) => result.id === 'theme'));
   });
 
   test('shortcut overrides compare physical keys, reject reserved combinations, and preserve defaults', () => {

@@ -93,6 +93,52 @@ test('tooltip placement stays within the window and flips above near the bottom'
   assert.deepEqual(tooltipPosition({ left: 280, right: 300, top: 175, bottom: 195 }, { width: 100, height: 30 }, { width: 300, height: 200 }), { left: 192, top: 137, side: 'above' });
 });
 
+test('glass appearance choices persist and allow system, light, and dark modes', async () => {
+  await withDom(async (root) => {
+    const { ThemePicker } = await import('../Modals/SettingsModal.tsx');
+    const { getPreference, resetPreference } = await import('../../preferences.ts');
+    try {
+      await act(async () => root.render(React.createElement(ThemePicker)));
+      const button = (name) => [...document.querySelectorAll('button')].find((item) => item.textContent.includes(name));
+      await act(async () => button('Liquid Glass').click());
+      assert.equal(getPreference('theme'), 'glass');
+      const group = document.querySelector('[aria-label="Liquid Glass appearance"]');
+      const mode = (name) => [...group.querySelectorAll('button')].find((item) => item.textContent === name);
+      assert.equal(mode('System').getAttribute('aria-pressed'), 'true');
+      await act(async () => mode('Light').click());
+      assert.equal(getPreference('theme'), 'glass-light');
+      assert.equal(mode('Light').getAttribute('aria-pressed'), 'true');
+      await act(async () => mode('Dark').click());
+      assert.equal(getPreference('theme'), 'glass-dark');
+      await act(async () => mode('System').click());
+      assert.equal(getPreference('theme'), 'glass');
+    } finally { await act(async () => resetPreference('theme')); }
+  });
+});
+
+test('glass uses solid surfaces when the system requests less transparency', async () => {
+  await withDom(async (root, window) => {
+    const listeners = new Map();
+    const preferences = new Map();
+    window.matchMedia = (query) => {
+      if (!preferences.has(query)) preferences.set(query, { matches: false, addEventListener: (_event, fn) => listeners.set(query, fn), removeEventListener: () => listeners.delete(query) });
+      return preferences.get(query);
+    };
+    const { useGlassAppearance } = await import('../../glassAppearance.ts');
+    const Harness = () => { useGlassAppearance('glass', '', null); return null; };
+    document.documentElement.dataset.theme = 'glass-light';
+    await act(async () => root.render(React.createElement(Harness)));
+    assert.equal(document.documentElement.dataset.reduceTransparency, 'false');
+    preferences.get('(prefers-reduced-transparency: reduce)').matches = true;
+    await act(async () => listeners.get('(prefers-reduced-transparency: reduce)')());
+    assert.equal(document.documentElement.dataset.reduceTransparency, 'true');
+    preferences.get('(prefers-reduced-transparency: reduce)').matches = false;
+    preferences.get('(prefers-contrast: more)').matches = true;
+    await act(async () => listeners.get('(prefers-contrast: more)')());
+    assert.equal(document.documentElement.dataset.reduceTransparency, 'true');
+  });
+});
+
 test('opening a modal hides a tooltip belonging to the obscured workspace', async () => {
   await withDom(async (root, window) => {
     const render = (open) => React.createElement(React.Fragment, null,

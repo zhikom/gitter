@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-11-15
+
+### Appearance
+
+- Add Liquid Glass light and dark appearances, with automatic system switching
+  or an explicit choice. On macOS, use native glass behind the window chrome;
+  fall back to solid surfaces for reduced transparency or increased contrast.
+
+### Downloads
+
+- Windows x64 and macOS ARM64 (Apple Silicon) installers are available. The
+  Windows installer is unsigned; the Mac app is ad-hoc signed but not
+  notarized, so the operating system may show a security warning.
+
 ## [1.13.0] - 2026-11-15
 
 ### Interface help

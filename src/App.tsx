@@ -663,7 +663,7 @@ export const App: React.FC = () => {
   );
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#14181f] text-slate-200">
+    <div className="gitter-window flex flex-col h-screen w-screen overflow-hidden bg-[#14181f] text-slate-200">
       <RepoTabBar
         tabs={tabs}
         activePath={repo}
@@ -824,7 +824,7 @@ export const App: React.FC = () => {
           {stagingOpen && (
             <>
               <Resizer label="Working tree width" size={effectiveRight} direction={-1} min={240} max={Math.max(240, maxRight)} onResize={setRightWidth} />
-              <div style={{ width: effectiveRight }} className="flex flex-col bg-[#14181f] flex-shrink-0 overflow-hidden">
+              <div style={{ width: effectiveRight }} className="gitter-inspector flex flex-col bg-[#14181f] flex-shrink-0 overflow-hidden">
                 {selectedCommit ? (
                   <CommitPanel
                     key={`${repo}\0${selectedCommit.hash}`}

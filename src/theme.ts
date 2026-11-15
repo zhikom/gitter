@@ -1,8 +1,10 @@
 import type { Preferences } from './preferences';
 import { compatiblePack, CONTRAST_BASE_COLORS, PACK_COLOR_KEYS, type InstalledPack } from './dataPacks';
 
-export function effectiveTheme(theme: Preferences['theme'], prefersDark: boolean): Exclude<Preferences['theme'], 'system'> {
-  return theme === 'system' ? (prefersDark ? 'classic' : 'claude') : theme;
+export function effectiveTheme(theme: Preferences['theme'], prefersDark: boolean): Exclude<Preferences['theme'], 'system' | 'glass'> {
+  if (theme === 'system') return prefersDark ? 'classic' : 'claude';
+  if (theme === 'glass') return prefersDark ? 'glass-dark' : 'glass-light';
+  return theme;
 }
 
 export function applyTheme(root: HTMLElement, theme: Preferences['theme'], packId: string, packs: InstalledPack[], prefersDark: boolean, currentVersion: string) {

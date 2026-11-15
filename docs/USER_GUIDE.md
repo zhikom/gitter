@@ -171,7 +171,14 @@ resolver was open.
 ## Choose a theme and external apps
 
 Open **Settings → General → Appearance** to choose **Gitter dark**, **Codex**
-(neutral dark), or **Claude** (warm light with serif headings). Choose separate
+(neutral dark), **Claude** (warm light with serif headings), or **Liquid Glass**.
+Liquid Glass offers **System**, **Light**, and **Dark** appearances; System
+changes with your operating system. On macOS 26 and later, Gitter uses the
+native glass material behind its chrome; earlier Macs use the system's visual
+effect material, and Windows uses a glass-inspired appearance. When reduced
+transparency or increased contrast is requested, Gitter uses solid surfaces.
+
+Choose separate
 **Interface font** and **Code and diff font** families from the installed-font
 list, or enter a family name. The preview and app update immediately; choices
 are remembered. Use **Theme default** to restore the theme's font. For aligned
@@ -187,7 +194,7 @@ sections, and apply them. Backups omit repository paths, recent repositories,
 accounts, tokens, and Open in commands. Repository Git settings and integration
 credentials stay on the original machine.
 
-Choose **Follow system appearance** to use Gitter dark in dark mode and Claude
+Choose **Gitter / Claude: follow system** to use Gitter dark in dark mode and Claude
 in light mode. **Interface scale** enlarges the whole desktop interface,
 including icons, panels, and code; **Interface text size** adjusts interface
 text separately. The View menu offers Zoom In, Zoom Out, and Actual Size.
